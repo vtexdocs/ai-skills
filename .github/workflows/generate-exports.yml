@@ -1,0 +1,55 @@
+name: Generate Skill Exports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tracks/**/*.md'
+      - 'scripts/**/*.ts'
+      - '_templates/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'tracks/**/*.md'
+      - 'scripts/**/*.ts'
+      - '_templates/**'
+      - 'package.json'
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate skills
+        run: bun run validate
+
+      - name: Generate exports
+        run: bun run export
+
+      - name: Check for changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: changes
+        run: |
+          git diff --quiet exports/ || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit generated exports
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add exports/
+          git commit -m "chore: regenerate skill exports"
+          git push

@@ -1,0 +1,667 @@
+---
+description: "Apply when implementing fulfillment, invoice, or tracking logic for VTEX marketplace seller connectors. Covers the Order Invoice Notification API, invoice payload structure, tracking updates, partial invoicing for split shipments, and the authorize fulfillment flow. Use for building seller-side order fulfillment that integrates with VTEX marketplace order management including the 2.5s simulation timeout."
+globs: "**/fulfillment/**/*.ts","**/simulation/**/*.ts","**/invoice/**/*.ts"
+alwaysApply: false
+---
+
+# Fulfillment, Invoice & Tracking
+
+## Overview
+
+**What this skill covers**: The complete seller-side fulfillment flow for VTEX marketplace orders, including authorize fulfillment handling, invoice notification, tracking code updates, and partial invoicing for split shipments.
+
+**When to use it**: When building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
+
+**What you'll learn**:
+- How to handle the Authorize Fulfillment callback from the marketplace
+- How to send invoice notifications via `POST /api/oms/pvt/orders/{orderId}/invoice`
+- The required invoice payload fields and correct formatting
+- How to update tracking information and handle partial invoicing
+
+## Key Concepts
+
+**Essential knowledge before implementation**:
+
+### Concept 1: Fulfillment Authorization Flow
+
+After payment is approved, the VTEX marketplace sends an **Authorize Fulfillment** request to the seller's endpoint (`POST /pvt/orders/{sellerOrderId}/fulfill`). This signals that the seller can begin the fulfillment process.
+
+The request body contains only the `marketplaceOrderId`. The seller must:
+1. Map the `marketplaceOrderId` to their internal order
+2. Begin picking, packing, and shipping
+3. Once ready, send the invoice notification back to the marketplace
+
+### Concept 2: Invoice Notification Endpoint
+
+The seller sends invoice data to the marketplace using:
+`POST /api/oms/pvt/orders/{orderId}/invoice`
+
+Required fields in the request body:
+- `type` — `"Output"` for sales invoices (shipment), `"Input"` for return invoices
+- `invoiceNumber` — Unique invoice identifier
+- `invoiceValue` — Total value in cents (e.g., 9990 = $99.90)
+- `issuanceDate` — ISO 8601 date string when the invoice was issued
+- `invoiceUrl` — URL to the invoice document (optional but recommended)
+- `invoiceKey` — NFe access key (required in Brazil, optional elsewhere)
+- `items` — Array of items with `id`, `quantity`, and `price`
+
+After receiving invoice information, the order status changes to **invoiced**. At this point, the order can no longer be canceled (unless a return invoice is sent first).
+
+### Concept 3: Tracking Updates
+
+Tracking information uses the **same invoice endpoint** but is sent separately:
+`POST /api/oms/pvt/orders/{orderId}/invoice`
+
+The tracking fields are:
+- `courier` — Carrier name
+- `trackingNumber` — Tracking identifier from the carrier
+- `trackingUrl` — URL for tracking the shipment
+
+For updating tracking on an existing invoice, use:
+`PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`
+
+This endpoint is used to add the tracking number after the invoice has been sent, or to update delivery status with `isDelivered: true`.
+
+**Architecture/Data Flow**:
+
+```text
+VTEX Marketplace                    External Seller
+       │                                   │
+       │── POST /fulfill (auth) ──────────▶│  Payment approved
+       │                                   │── Start fulfillment
+       │                                   │── Pick, pack, ship
+       │◀── POST /invoice (invoice) ──────│  Invoice issued
+       │    (status → invoiced)            │
+       │                                   │── Carrier picks up
+       │◀── PATCH /invoice/{num} ─────────│  Tracking number added
+       │    (status → delivering)          │
+       │                                   │── Package delivered
+       │◀── PATCH /invoice/{num} ─────────│  isDelivered: true
+       │    (status → delivered)           │
+```
+
+## Constraints
+
+**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+
+### Constraint: Send Correct Invoice Format with All Required Fields
+
+**Rule**: The invoice notification MUST include `type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, and `items` array. The `invoiceValue` MUST be in cents. The `items` array MUST match the items in the order.
+
+**Why**: Missing required fields cause the API to reject the invoice with 400 Bad Request, leaving the order stuck in "handling" status. Incorrect `invoiceValue` (e.g., using dollars instead of cents) causes financial discrepancies in marketplace reconciliation.
+
+**Detection**: If you see an invoice notification payload missing `invoiceNumber`, `invoiceValue`, `issuanceDate`, or `items` → warn about missing required fields. If `invoiceValue` appears to be in dollars (e.g., `99.90` instead of `9990`) → warn about cents conversion.
+
+✅ **CORRECT**:
+```typescript
+import axios, { AxiosInstance } from "axios";
+
+interface InvoiceItem {
+  id: string;
+  quantity: number;
+  price: number; // in cents
+}
+
+interface InvoicePayload {
+  type: "Output" | "Input";
+  invoiceNumber: string;
+  invoiceValue: number; // total in cents
+  issuanceDate: string; // ISO 8601
+  invoiceUrl?: string;
+  invoiceKey?: string;
+  courier?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+  items: InvoiceItem[];
+}
+
+async function sendInvoiceNotification(
+  client: AxiosInstance,
+  orderId: string,
+  invoice: InvoicePayload
+): Promise<void> {
+  // Validate required fields before sending
+  if (!invoice.invoiceNumber) {
+    throw new Error("invoiceNumber is required");
+  }
+  if (!invoice.invoiceValue || invoice.invoiceValue <= 0) {
+    throw new Error("invoiceValue must be a positive number in cents");
+  }
+  if (!invoice.issuanceDate) {
+    throw new Error("issuanceDate is required");
+  }
+  if (!invoice.items || invoice.items.length === 0) {
+    throw new Error("items array is required and must not be empty");
+  }
+
+  // Warn if invoiceValue looks like it's in dollars instead of cents
+  if (invoice.invoiceValue < 100 && invoice.items.length > 0) {
+    console.warn(
+      `Warning: invoiceValue ${invoice.invoiceValue} seems very low. ` +
+        `Ensure it's in cents (e.g., 9990 for $99.90).`
+    );
+  }
+
+  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, invoice);
+}
+
+// Example usage:
+async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<void> {
+  await sendInvoiceNotification(client, orderId, {
+    type: "Output",
+    invoiceNumber: "NFE-2026-001234",
+    invoiceValue: 15990, // $159.90 in cents
+    issuanceDate: new Date().toISOString(),
+    invoiceUrl: "https://invoices.example.com/NFE-2026-001234.pdf",
+    invoiceKey: "35260614388220000199550010000012341000012348",
+    items: [
+      { id: "123", quantity: 1, price: 9990 },
+      { id: "456", quantity: 2, price: 3000 },
+    ],
+  });
+}
+```
+
+❌ **WRONG**:
+```typescript
+// WRONG: Missing required fields, value in dollars instead of cents
+async function sendBrokenInvoice(
+  client: AxiosInstance,
+  orderId: string
+): Promise<void> {
+  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+    // Missing 'type' field — API may reject or default incorrectly
+    invoiceNumber: "001234",
+    invoiceValue: 159.9, // WRONG: dollars, not cents — causes financial mismatch
+    // Missing 'issuanceDate' — API will reject with 400
+    // Missing 'items' — API cannot match invoice to order items
+  });
+}
+```
+
+---
+
+### Constraint: Update Tracking Promptly After Shipping
+
+**Rule**: Tracking information MUST be sent as soon as the carrier provides it. Use `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}` to add tracking to an existing invoice.
+
+**Why**: Late tracking updates prevent customers from seeing shipment status in the marketplace. The order remains in "invoiced" state instead of progressing to "delivering" and then "delivered". This generates customer support tickets and damages seller reputation.
+
+**Detection**: If you see tracking information being batched for daily updates instead of sent in real-time → warn about prompt tracking updates. If tracking is included in the initial invoice call but the carrier hasn't provided it yet (hardcoded/empty values) → warn.
+
+✅ **CORRECT**:
+```typescript
+interface TrackingUpdate {
+  courier: string;
+  trackingNumber: string;
+  trackingUrl?: string;
+  isDelivered?: boolean;
+}
+
+async function updateOrderTracking(
+  client: AxiosInstance,
+  orderId: string,
+  invoiceNumber: string,
+  tracking: TrackingUpdate
+): Promise<void> {
+  await client.patch(
+    `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
+    tracking
+  );
+}
+
+// Send tracking as soon as carrier provides it
+async function onCarrierPickup(
+  client: AxiosInstance,
+  orderId: string,
+  invoiceNumber: string,
+  carrierData: { name: string; trackingId: string; trackingUrl: string }
+): Promise<void> {
+  await updateOrderTracking(client, orderId, invoiceNumber, {
+    courier: carrierData.name,
+    trackingNumber: carrierData.trackingId,
+    trackingUrl: carrierData.trackingUrl,
+  });
+  console.log(`Tracking updated for order ${orderId}: ${carrierData.trackingId}`);
+}
+
+// Update delivery status when confirmed
+async function onDeliveryConfirmed(
+  client: AxiosInstance,
+  orderId: string,
+  invoiceNumber: string
+): Promise<void> {
+  await updateOrderTracking(client, orderId, invoiceNumber, {
+    courier: "",
+    trackingNumber: "",
+    isDelivered: true,
+  });
+  console.log(`Order ${orderId} marked as delivered`);
+}
+```
+
+❌ **WRONG**:
+```typescript
+// WRONG: Sending empty/fake tracking data with the invoice
+async function invoiceWithFakeTracking(
+  client: AxiosInstance,
+  orderId: string
+): Promise<void> {
+  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+    type: "Output",
+    invoiceNumber: "NFE-001",
+    invoiceValue: 9990,
+    issuanceDate: new Date().toISOString(),
+    items: [{ id: "123", quantity: 1, price: 9990 }],
+    // WRONG: Hardcoded tracking — carrier hasn't picked up yet
+    courier: "TBD",
+    trackingNumber: "PENDING",
+    trackingUrl: "",
+  });
+  // Customer sees "PENDING" as tracking number — useless information
+}
+```
+
+---
+
+### Constraint: Handle Partial Invoicing for Split Shipments
+
+**Rule**: For orders shipped in multiple packages, each shipment MUST have its own invoice with only the items included in that package. The `invoiceValue` MUST reflect only the items in that particular shipment.
+
+**Why**: Sending a single invoice for the full order value when only partial items are shipped causes financial discrepancies. The marketplace cannot reconcile payments correctly, and the order status may not progress properly.
+
+**Detection**: If you see a single invoice being sent with the full order value for partial shipments → warn about partial invoicing. If the items array doesn't match the actual items being shipped → warn.
+
+✅ **CORRECT**:
+```typescript
+interface OrderItem {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number; // per unit in cents
+}
+
+interface Shipment {
+  items: OrderItem[];
+  invoiceNumber: string;
+}
+
+async function sendPartialInvoices(
+  client: AxiosInstance,
+  orderId: string,
+  shipments: Shipment[]
+): Promise<void> {
+  for (const shipment of shipments) {
+    // Calculate value for only the items in this shipment
+    const shipmentValue = shipment.items.reduce(
+      (total, item) => total + item.price * item.quantity,
+      0
+    );
+
+    await sendInvoiceNotification(client, orderId, {
+      type: "Output",
+      invoiceNumber: shipment.invoiceNumber,
+      invoiceValue: shipmentValue,
+      issuanceDate: new Date().toISOString(),
+      items: shipment.items.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        price: item.price,
+      })),
+    });
+
+    console.log(
+      `Partial invoice ${shipment.invoiceNumber} sent for order ${orderId}: ` +
+        `${shipment.items.length} items, value=${shipmentValue}`
+    );
+  }
+}
+
+// Example: Order with 3 items shipped in 2 packages
+await sendPartialInvoices(client, "ORD-123", [
+  {
+    invoiceNumber: "NFE-001-A",
+    items: [
+      { id: "sku-1", name: "Laptop", quantity: 1, price: 250000 },
+    ],
+  },
+  {
+    invoiceNumber: "NFE-001-B",
+    items: [
+      { id: "sku-2", name: "Mouse", quantity: 1, price: 5000 },
+      { id: "sku-3", name: "Keyboard", quantity: 1, price: 12000 },
+    ],
+  },
+]);
+```
+
+❌ **WRONG**:
+```typescript
+// WRONG: Sending full order value for partial shipment
+async function wrongPartialInvoice(
+  client: AxiosInstance,
+  orderId: string,
+  totalOrderValue: number,
+  shippedItems: OrderItem[]
+): Promise<void> {
+  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+    type: "Output",
+    invoiceNumber: "NFE-001-A",
+    invoiceValue: totalOrderValue, // WRONG: Full order value, not partial
+    issuanceDate: new Date().toISOString(),
+    items: shippedItems.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      price: item.price,
+    })),
+    // invoiceValue doesn't match sum of items — financial mismatch
+  });
+}
+```
+
+## Implementation Pattern
+
+**The canonical, recommended way to implement fulfillment, invoicing, and tracking.**
+
+### Step 1: Implement the Authorize Fulfillment Endpoint
+
+The marketplace calls this endpoint when payment is approved.
+
+```typescript
+import express, { RequestHandler } from "express";
+
+interface FulfillOrderRequest {
+  marketplaceOrderId: string;
+}
+
+interface OrderMapping {
+  sellerOrderId: string;
+  marketplaceOrderId: string;
+  items: OrderItem[];
+  status: string;
+}
+
+// Store for order mappings — use a real database in production
+const orderStore = new Map<string, OrderMapping>();
+
+const authorizeFulfillmentHandler: RequestHandler = async (req, res) => {
+  const sellerOrderId = req.params.sellerOrderId;
+  const { marketplaceOrderId }: FulfillOrderRequest = req.body;
+
+  console.log(
+    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`
+  );
+
+  // Store the marketplace order ID mapping
+  const order = orderStore.get(sellerOrderId);
+  if (!order) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  order.marketplaceOrderId = marketplaceOrderId;
+  order.status = "fulfillment_authorized";
+  orderStore.set(sellerOrderId, order);
+
+  // Trigger fulfillment process asynchronously
+  enqueueFulfillment(sellerOrderId).catch(console.error);
+
+  res.status(200).json({
+    date: new Date().toISOString(),
+    marketplaceOrderId,
+    orderId: sellerOrderId,
+    receipt: null,
+  });
+};
+
+async function enqueueFulfillment(sellerOrderId: string): Promise<void> {
+  console.log(`Enqueued fulfillment for ${sellerOrderId}`);
+}
+
+const app = express();
+app.use(express.json());
+app.post("/pvt/orders/:sellerOrderId/fulfill", authorizeFulfillmentHandler);
+```
+
+### Step 2: Send Invoice After Fulfillment
+
+Once the order is packed and the invoice is generated, send the invoice notification.
+
+```typescript
+async function fulfillAndInvoice(
+  client: AxiosInstance,
+  order: OrderMapping
+): Promise<void> {
+  // Generate invoice from your invoicing system
+  const invoice = await generateInvoice(order);
+
+  // Send invoice notification to VTEX marketplace
+  await sendInvoiceNotification(client, order.marketplaceOrderId, {
+    type: "Output",
+    invoiceNumber: invoice.number,
+    invoiceValue: invoice.totalCents,
+    issuanceDate: invoice.issuedAt.toISOString(),
+    invoiceUrl: invoice.pdfUrl,
+    invoiceKey: invoice.accessKey,
+    items: order.items.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      price: item.price,
+    })),
+  });
+
+  console.log(
+    `Invoice ${invoice.number} sent for order ${order.marketplaceOrderId}`
+  );
+}
+
+async function generateInvoice(order: OrderMapping): Promise<{
+  number: string;
+  totalCents: number;
+  issuedAt: Date;
+  pdfUrl: string;
+  accessKey: string;
+}> {
+  const totalCents = order.items.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  );
+  return {
+    number: `NFE-${Date.now()}`,
+    totalCents,
+    issuedAt: new Date(),
+    pdfUrl: `https://invoices.example.com/NFE-${Date.now()}.pdf`,
+    accessKey: "35260614388220000199550010000012341000012348",
+  };
+}
+```
+
+### Step 3: Send Tracking When Carrier Picks Up
+
+```typescript
+async function handleCarrierPickup(
+  client: AxiosInstance,
+  orderId: string,
+  invoiceNumber: string,
+  carrier: { name: string; trackingId: string; trackingUrl: string }
+): Promise<void> {
+  await updateOrderTracking(client, orderId, invoiceNumber, {
+    courier: carrier.name,
+    trackingNumber: carrier.trackingId,
+    trackingUrl: carrier.trackingUrl,
+  });
+
+  console.log(
+    `Tracking ${carrier.trackingId} sent for order ${orderId}`
+  );
+}
+```
+
+### Step 4: Confirm Delivery
+
+```typescript
+async function handleDeliveryConfirmation(
+  client: AxiosInstance,
+  orderId: string,
+  invoiceNumber: string
+): Promise<void> {
+  await client.patch(
+    `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
+    {
+      isDelivered: true,
+      courier: "",
+      trackingNumber: "",
+    }
+  );
+
+  console.log(`Order ${orderId} marked as delivered`);
+}
+```
+
+### Complete Example
+
+```typescript
+import axios, { AxiosInstance } from "axios";
+
+function createMarketplaceClient(
+  accountName: string,
+  appKey: string,
+  appToken: string
+): AxiosInstance {
+  return axios.create({
+    baseURL: `https://${accountName}.vtexcommercestable.com.br`,
+    headers: {
+      "Content-Type": "application/json",
+      "X-VTEX-API-AppKey": appKey,
+      "X-VTEX-API-AppToken": appToken,
+    },
+    timeout: 10000,
+  });
+}
+
+async function completeFulfillmentFlow(
+  client: AxiosInstance,
+  order: OrderMapping
+): Promise<void> {
+  // 1. Fulfill and invoice
+  await fulfillAndInvoice(client, order);
+
+  // 2. When carrier picks up, send tracking
+  const carrierData = await waitForCarrierPickup(order.sellerOrderId);
+  const invoice = await getLatestInvoice(order.sellerOrderId);
+
+  await handleCarrierPickup(
+    client,
+    order.marketplaceOrderId,
+    invoice.number,
+    carrierData
+  );
+
+  // 3. When delivered, confirm
+  await waitForDeliveryConfirmation(order.sellerOrderId);
+  await handleDeliveryConfirmation(
+    client,
+    order.marketplaceOrderId,
+    invoice.number
+  );
+}
+
+async function waitForCarrierPickup(
+  sellerOrderId: string
+): Promise<{ name: string; trackingId: string; trackingUrl: string }> {
+  // Replace with actual carrier integration
+  return {
+    name: "Correios",
+    trackingId: "BR123456789",
+    trackingUrl: "https://tracking.example.com/BR123456789",
+  };
+}
+
+async function getLatestInvoice(
+  sellerOrderId: string
+): Promise<{ number: string }> {
+  // Replace with actual invoice lookup
+  return { number: `NFE-${sellerOrderId}` };
+}
+
+async function waitForDeliveryConfirmation(
+  sellerOrderId: string
+): Promise<void> {
+  // Replace with actual delivery confirmation logic
+  console.log(`Waiting for delivery confirmation: ${sellerOrderId}`);
+}
+```
+
+## Anti-Patterns
+
+**Common mistakes developers make and how to fix them.**
+
+### Anti-Pattern: Sending Invoice Before Fulfillment Authorization
+
+**What happens**: The seller sends an invoice notification immediately when the order is placed, before receiving the Authorize Fulfillment callback from the marketplace.
+
+**Why it fails**: The order hasn't been authorized for fulfillment yet — payment may still be pending or under review. Invoicing before authorization can result in the invoice being rejected or the order being in an inconsistent state.
+
+**Fix**: Only send the invoice after receiving the Authorize Fulfillment callback (`POST /pvt/orders/{sellerOrderId}/fulfill`).
+
+```typescript
+// Correct: Wait for fulfillment authorization before invoicing
+async function onFulfillmentAuthorized(
+  client: AxiosInstance,
+  sellerOrderId: string,
+  marketplaceOrderId: string
+): Promise<void> {
+  // Now it's safe to begin fulfillment and send invoice
+  const order = orderStore.get(sellerOrderId);
+  if (!order) return;
+
+  order.marketplaceOrderId = marketplaceOrderId;
+  await fulfillAndInvoice(client, order);
+}
+```
+
+---
+
+### Anti-Pattern: Not Handling Return Invoices for Cancellation
+
+**What happens**: A seller tries to cancel an invoiced order by calling the Cancel Order endpoint directly without first sending a return invoice.
+
+**Why it fails**: Once an order is in "invoiced" status, it cannot be canceled without a return invoice (`type: "Input"`). The Cancel Order API will reject the request.
+
+**Fix**: Send a return invoice first, then request cancellation.
+
+```typescript
+// Correct: Send return invoice before canceling an invoiced order
+async function cancelInvoicedOrder(
+  client: AxiosInstance,
+  orderId: string,
+  originalItems: InvoiceItem[],
+  originalInvoiceValue: number
+): Promise<void> {
+  // Step 1: Send return invoice (type: "Input")
+  await sendInvoiceNotification(client, orderId, {
+    type: "Input", // Return invoice
+    invoiceNumber: `RET-${Date.now()}`,
+    invoiceValue: originalInvoiceValue,
+    issuanceDate: new Date().toISOString(),
+    items: originalItems,
+  });
+
+  // Step 2: Now cancel the order
+  await client.post(
+    `/api/marketplace/pvt/orders/${orderId}/cancel`,
+    { reason: "Customer requested return" }
+  );
+}
+```
+
+## Reference
+
+**Links to VTEX documentation and related resources.**
+
+- [External Seller Connector - Order Invoicing](https://developers.vtex.com/docs/guides/external-seller-integration-connector#order-invoicing) — Seller-side invoicing flow in the integration guide
+- [Order Invoice Notification API](https://developers.vtex.com/docs/api-reference/orders-api#post-/api/oms/pvt/orders/-orderId-/invoice) — API reference for sending invoice data
+- [Update Order Tracking API](https://developers.vtex.com/docs/api-reference/orders-api#patch-/api/oms/pvt/orders/-orderId-/invoice/-invoiceNumber-) — API reference for adding/updating tracking info
+- [Sending Invoice and Tracking to Marketplace](https://developers.vtex.com/docs/guides/external-marketplace-integration-invoice-tracking) — Guide for marketplace connector invoice/tracking flow
+- [Order Flow and Status](https://help.vtex.com/en/docs/tutorials/order-flow-and-status) — Complete order status lifecycle
+- [Authorize Fulfillment API](https://developers.vtex.com/docs/api-reference/marketplace-protocol-external-seller-fulfillment#post-/pvt/orders/-sellerOrderId-/fulfill) — API reference for the fulfillment authorization endpoint

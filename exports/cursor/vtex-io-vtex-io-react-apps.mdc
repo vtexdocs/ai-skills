@@ -1,0 +1,575 @@
+---
+description: "Apply when building React components under react/ or configuring store blocks in store/ for VTEX IO apps. Covers interfaces.json, contentSchemas.json for Site Editor, VTEX Styleguide for admin apps, and css-handles for storefront styling. Use for creating custom storefront components, admin panels, pixel apps, or any frontend development within the VTEX IO react builder ecosystem."
+globs: "react/**/*.tsx","react/**/*.ts","store/**/*.json"
+alwaysApply: false
+---
+
+# Frontend React Components & Hooks
+
+## Overview
+
+**What this skill covers**: Building VTEX IO frontend apps using the `react` builder — creating React components that integrate with Store Framework as theme blocks, configuring `interfaces.json` to map blocks to components, setting up `contentSchemas.json` for Site Editor customization, using VTEX Styleguide for admin apps, and applying `css-handles` for safe storefront styling.
+
+**When to use it**: When developing custom storefront components (product displays, forms, banners), admin panel interfaces, pixel/tracking apps, or any VTEX IO app that renders UI with React.
+
+**What you'll learn**:
+- How to create React components in the `/react` directory and export them correctly
+- How to register components as Store Framework blocks via `interfaces.json`
+- How to expose component props in Site Editor via `contentSchemas.json`
+- How to use VTEX Styleguide for admin UIs and css-handles for storefront styling
+
+## Key Concepts
+
+**Essential knowledge before implementation**:
+
+### Concept 1: Store Framework Blocks and Interfaces
+
+In VTEX Store Framework, every visible element is a **block**. Blocks are declared in JSON theme files and map to React components via an **interface**. The `interfaces.json` file (in the `/store` directory) establishes this mapping:
+
+```json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "allowed": ["product-review-item"],
+    "composition": "children"
+  }
+}
+```
+
+- `component`: Name of the React component file in `/react` (without extension)
+- `allowed`: Which child blocks can be nested inside this block
+- `composition`: How children are composed — `"children"` (explicit), `"blocks"` (implicit)
+- `render`: Rendering strategy — `"client"` (default), `"server"`, `"lazy"`
+
+### Concept 2: React Directory Structure
+
+The `/react` directory contains your React components. Each exported component must have a corresponding file at the root of `/react` that re-exports it:
+
+```text
+react/
+├── ProductReviews.tsx          # Root export file (re-exports the component)
+├── components/
+│   ├── ProductReviews/
+│   │   ├── index.tsx           # Actual component implementation
+│   │   ├── ReviewItem.tsx
+│   │   └── StarRating.tsx
+│   └── shared/
+│       └── LoadingSpinner.tsx
+├── hooks/
+│   └── useReviews.ts
+├── typings/
+│   └── vtex.d.ts
+└── package.json
+```
+
+The root-level file (`react/ProductReviews.tsx`) is what the store builder resolves when it reads `"component": "ProductReviews"` from `interfaces.json`.
+
+### Concept 3: Site Editor Integration
+
+Site Editor allows store administrators to edit component properties through the VTEX Admin without touching code. To make your component editable, define a `contentSchemas.json` file in the `/store` directory:
+
+```json
+{
+  "definitions": {
+    "ProductReviews": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "title": "Section Title",
+          "default": "Customer Reviews"
+        },
+        "showAverage": {
+          "type": "boolean",
+          "title": "Show average rating",
+          "default": true
+        },
+        "maxReviews": {
+          "type": "number",
+          "title": "Maximum reviews to display",
+          "default": 10,
+          "enum": [5, 10, 20, 50]
+        }
+      }
+    }
+  }
+}
+```
+
+These schemas use JSON Schema format and map directly to the component's props.
+
+### Concept 4: CSS Handles and VTEX Styleguide
+
+For **storefront** components, use `vtex.css-handles` to expose CSS class names that store theme developers can customize:
+
+```typescript
+import { useCssHandles } from 'vtex.css-handles'
+
+const CSS_HANDLES = ['container', 'title', 'reviewList', 'reviewItem'] as const
+
+function ProductReviews() {
+  const handles = useCssHandles(CSS_HANDLES)
+  return <div className={handles.container}>...</div>
+}
+```
+
+For **admin** components, use [VTEX Styleguide](https://styleguide.vtex.com/) — the official component library for VTEX Admin UIs. It provides buttons, tables, modals, inputs, and other pre-built components that follow VTEX design standards.
+
+**Architecture/Data Flow**:
+
+```text
+Store Theme (JSON blocks)
+  └── declares "product-reviews" block with props
+        │
+        ▼
+interfaces.json → maps "product-reviews" to "ProductReviews" component
+        │
+        ▼
+react/ProductReviews.tsx → React component renders
+        │
+        ├── useCssHandles() → CSS classes for styling
+        ├── useQuery() → GraphQL data fetching
+        └── useProduct() / useOrderForm() → Store Framework context hooks
+```
+
+## Constraints
+
+**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+
+### Constraint: Declare Interfaces for All Storefront Blocks
+
+**Rule**: Every React component that should be usable as a Store Framework block MUST have a corresponding entry in `store/interfaces.json`. Without the interface declaration, the block cannot be referenced in theme JSON files.
+
+**Why**: The store builder resolves block names to React components through `interfaces.json`. If a component exists in `/react` but has no interface, it is invisible to Store Framework. Theme developers cannot use it in their store configurations, and it will not render on the storefront.
+
+**Detection**: If a React component in `/react` is intended for storefront use but has no matching entry in `store/interfaces.json`, warn the developer. The component will compile but never render.
+
+✅ **CORRECT**:
+```json
+// store/interfaces.json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "composition": "children",
+    "allowed": ["product-review-item"]
+  },
+  "product-review-item": {
+    "component": "ReviewItem"
+  }
+}
+```
+
+```tsx
+// react/ProductReviews.tsx
+import ProductReviews from './components/ProductReviews'
+
+export default ProductReviews
+```
+
+❌ **WRONG**:
+```tsx
+// react/ProductReviews.tsx exists but NO store/interfaces.json entry
+// The component compiles fine but cannot be used in any theme.
+// Adding <product-reviews /> in a theme JSON will produce:
+// "Block 'product-reviews' not found"
+import ProductReviews from './components/ProductReviews'
+
+export default ProductReviews
+```
+
+---
+
+### Constraint: Use VTEX Styleguide for Admin UIs
+
+**Rule**: Admin panel components (apps using the `admin` builder) MUST use VTEX Styleguide (`vtex.styleguide`) for UI elements. You MUST NOT use third-party UI libraries like Material UI (`@material-ui`), Chakra UI (`@chakra-ui/react`), or Ant Design (`antd`) in admin apps.
+
+**Why**: VTEX Admin has a consistent design language enforced by Styleguide. Third-party UI libraries produce inconsistent visuals, may conflict with the Admin's global CSS, and add unnecessary bundle size. Apps submitted to the VTEX App Store with non-Styleguide admin UIs will fail review.
+
+**Detection**: If you see imports from `@material-ui`, `@chakra-ui/react`, `@chakra-ui`, `antd`, or `@ant-design` in an admin app, warn the developer to use `vtex.styleguide` instead.
+
+✅ **CORRECT**:
+```tsx
+// react/admin/ReviewModeration.tsx
+import React, { useState } from 'react'
+import {
+  Layout,
+  PageHeader,
+  Table,
+  Button,
+  Tag,
+  Modal,
+  Input,
+} from 'vtex.styleguide'
+
+interface Review {
+  id: string
+  author: string
+  rating: number
+  text: string
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+function ReviewModeration() {
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [modalOpen, setModalOpen] = useState(false)
+
+  const tableSchema = {
+    properties: {
+      author: { title: 'Author', width: 200 },
+      rating: { title: 'Rating', width: 100 },
+      text: { title: 'Review Text' },
+      status: {
+        title: 'Status',
+        width: 150,
+        cellRenderer: ({ cellData }: { cellData: string }) => (
+          <Tag type={cellData === 'approved' ? 'success' : 'error'}>
+            {cellData}
+          </Tag>
+        ),
+      },
+    },
+  }
+
+  return (
+    <Layout fullWidth pageHeader={<PageHeader title="Review Moderation" />}>
+      <Table
+        items={reviews}
+        schema={tableSchema}
+        density="medium"
+      />
+    </Layout>
+  )
+}
+
+export default ReviewModeration
+```
+
+❌ **WRONG**:
+```tsx
+// react/admin/ReviewModeration.tsx
+import React from 'react'
+import { DataGrid } from '@material-ui/data-grid'
+import { Button } from '@material-ui/core'
+
+// Material UI components will look inconsistent in the VTEX Admin,
+// conflict with global styles, and inflate bundle size.
+// This app will fail VTEX App Store review.
+function ReviewModeration() {
+  return (
+    <div>
+      <DataGrid rows={[]} columns={[]} />
+      <Button variant="contained" color="primary">Approve</Button>
+    </div>
+  )
+}
+```
+
+---
+
+### Constraint: Export Components from react/ Root Level
+
+**Rule**: Every Store Framework block component MUST have a root-level export file in the `/react` directory that matches the `component` value in `interfaces.json`. The actual implementation can live in subdirectories, but the root file must exist.
+
+**Why**: The react builder resolves components by looking for files at the root of `/react`. If `interfaces.json` declares `"component": "ProductReviews"`, the builder looks for `react/ProductReviews.tsx` (or `.ts`, `.js`, `.jsx`). Without this root export file, the component will not be found and the block will fail to render.
+
+**Detection**: If `interfaces.json` references a component name that does not have a matching file at the root of `/react`, STOP and create the export file.
+
+✅ **CORRECT**:
+```tsx
+// react/ProductReviews.tsx — root-level export file
+import ProductReviews from './components/ProductReviews/index'
+
+export default ProductReviews
+```
+
+```tsx
+// react/components/ProductReviews/index.tsx — actual implementation
+import React from 'react'
+import { useCssHandles } from 'vtex.css-handles'
+
+const CSS_HANDLES = ['container', 'title', 'list'] as const
+
+interface Props {
+  title: string
+  maxReviews: number
+}
+
+function ProductReviews({ title, maxReviews }: Props) {
+  const handles = useCssHandles(CSS_HANDLES)
+  return (
+    <div className={handles.container}>
+      <h2 className={handles.title}>{title}</h2>
+      {/* ... */}
+    </div>
+  )
+}
+
+export default ProductReviews
+```
+
+❌ **WRONG**:
+```tsx
+// react/components/ProductReviews/index.tsx exists but
+// react/ProductReviews.tsx does NOT exist.
+// The builder cannot find the component.
+// Error: "Could not find component ProductReviews"
+```
+
+## Implementation Pattern
+
+**The canonical, recommended way to build a VTEX IO React storefront component.**
+
+### Step 1: Create the React Component
+
+Build your component inside a subdirectory for organization:
+
+```tsx
+// react/components/ProductReviews/index.tsx
+import React, { useMemo } from 'react'
+import { useQuery } from 'react-apollo'
+import { useProduct } from 'vtex.product-context'
+import { useCssHandles } from 'vtex.css-handles'
+
+import GET_REVIEWS from '../../graphql/getReviews.graphql'
+import ReviewItem from './ReviewItem'
+
+const CSS_HANDLES = [
+  'reviewsContainer',
+  'reviewsTitle',
+  'reviewsList',
+  'averageRating',
+  'emptyState',
+] as const
+
+interface Props {
+  title?: string
+  showAverage?: boolean
+  maxReviews?: number
+}
+
+function ProductReviews({
+  title = 'Customer Reviews',
+  showAverage = true,
+  maxReviews = 10,
+}: Props) {
+  const handles = useCssHandles(CSS_HANDLES)
+  const productContext = useProduct()
+  const productId = productContext?.product?.productId
+
+  const { data, loading, error } = useQuery(GET_REVIEWS, {
+    variables: { productId, limit: maxReviews },
+    skip: !productId,
+  })
+
+  const averageRating = useMemo(() => {
+    if (!data?.reviews?.length) return 0
+
+    const sum = data.reviews.reduce(
+      (acc: number, review: { rating: number }) => acc + review.rating,
+      0
+    )
+
+    return (sum / data.reviews.length).toFixed(1)
+  }, [data])
+
+  if (loading) return <div className={handles.reviewsContainer}>Loading...</div>
+  if (error) return null
+
+  return (
+    <div className={handles.reviewsContainer}>
+      <h2 className={handles.reviewsTitle}>{title}</h2>
+
+      {showAverage && data?.reviews?.length > 0 && (
+        <div className={handles.averageRating}>
+          Average: {averageRating} / 5
+        </div>
+      )}
+
+      {data?.reviews?.length === 0 ? (
+        <p className={handles.emptyState}>No reviews yet.</p>
+      ) : (
+        <ul className={handles.reviewsList}>
+          {data.reviews.map((review: { id: string; author: string; rating: number; text: string }) => (
+            <ReviewItem key={review.id} review={review} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export default ProductReviews
+```
+
+### Step 2: Create the Root Export File
+
+```tsx
+// react/ProductReviews.tsx
+import ProductReviews from './components/ProductReviews'
+
+export default ProductReviews
+```
+
+### Step 3: Define the Block Interface
+
+```json
+// store/interfaces.json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "composition": "children",
+    "allowed": ["product-review-form"],
+    "render": "client"
+  }
+}
+```
+
+### Step 4: Add Site Editor Schema
+
+```json
+// store/contentSchemas.json
+{
+  "definitions": {
+    "ProductReviews": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "title": "Section Title",
+          "description": "Title displayed above the reviews list",
+          "default": "Customer Reviews"
+        },
+        "showAverage": {
+          "type": "boolean",
+          "title": "Show average rating",
+          "default": true
+        },
+        "maxReviews": {
+          "type": "number",
+          "title": "Maximum reviews",
+          "default": 10,
+          "enum": [5, 10, 20, 50]
+        }
+      }
+    }
+  }
+}
+```
+
+### Complete Example
+
+Using the component in a Store Framework theme:
+
+```json
+// store-theme blocks.json
+{
+  "store.product": {
+    "children": [
+      "product-images",
+      "product-name",
+      "product-price",
+      "buy-button",
+      "product-reviews"
+    ]
+  },
+  "product-reviews": {
+    "props": {
+      "title": "What Our Customers Say",
+      "showAverage": true,
+      "maxReviews": 20
+    }
+  }
+}
+```
+
+## Anti-Patterns
+
+**Common mistakes developers make and how to fix them.**
+
+### Anti-Pattern: Importing Third-Party UI Libraries for Admin Apps
+
+**What happens**: Developers install `@material-ui/core`, `@chakra-ui/react`, or `antd` to build admin panels instead of using VTEX Styleguide.
+
+**Why it fails**: Third-party UI libraries conflict with the VTEX Admin's global CSS, produce an inconsistent look and feel, significantly increase bundle size, and will cause the app to fail VTEX App Store review.
+
+**Fix**: Use `vtex.styleguide` components. Declare the dependency in `manifest.json`:
+
+```json
+{
+  "dependencies": {
+    "vtex.styleguide": "9.x"
+  }
+}
+```
+
+Then import components directly:
+
+```tsx
+import { Button, Table, Modal, Input, Layout, PageHeader } from 'vtex.styleguide'
+```
+
+---
+
+### Anti-Pattern: Directly Calling APIs from React Components
+
+**What happens**: Developers use `fetch()` or `axios` inside React components to call VTEX Commerce APIs directly from the browser.
+
+**Why it fails**: Browser-side API calls expose authentication tokens to the client, bypass CORS restrictions, and cannot use server-side caching. VTEX Commerce APIs require server-side authentication that is not available in the browser context.
+
+**Fix**: Use GraphQL queries that resolve on the server side. Create a GraphQL schema in your app's `/graphql` directory with resolvers in `/node/resolvers` that use `ctx.clients` to access VTEX APIs:
+
+```tsx
+// Instead of fetch() in the component:
+import { useQuery } from 'react-apollo'
+import GET_REVIEWS from '../graphql/getReviews.graphql'
+
+function ProductReviews() {
+  const { data, loading } = useQuery(GET_REVIEWS, {
+    variables: { productId: '123' },
+  })
+  // ...
+}
+```
+
+---
+
+### Anti-Pattern: Hardcoded Strings Without i18n
+
+**What happens**: Developers hardcode user-facing strings in React components instead of using the `messages` builder for internationalization.
+
+**Why it fails**: The component will only work in one language. VTEX stores are often multi-locale, and hardcoded strings cannot be translated by the platform's automatic translation system or overridden via Site Editor.
+
+**Fix**: Use the `messages` builder and `react-intl`:
+
+```tsx
+import { useIntl } from 'react-intl'
+
+function ProductReviews() {
+  const intl = useIntl()
+  const title = intl.formatMessage({ id: 'store/product-reviews.title' })
+  return <h2>{title}</h2>
+}
+```
+
+```json
+// messages/en.json
+{
+  "store/product-reviews.title": "Customer Reviews"
+}
+// messages/pt.json
+{
+  "store/product-reviews.title": "Avaliações de Clientes"
+}
+```
+
+## Reference
+
+**Links to VTEX documentation and related resources.**
+
+- [Developing Custom Storefront Components](https://developers.vtex.com/docs/guides/vtex-io-documentation-developing-custom-storefront-components) — Guide for building Store Framework components
+- [Interfaces](https://developers.vtex.com/docs/guides/vtex-io-documentation-interface) — How interfaces map blocks to React components
+- [React Builder](https://developers.vtex.com/docs/guides/vtex-io-documentation-react-builder) — React builder configuration and directory structure
+- [Making a Custom Component Available in Site Editor](https://developers.vtex.com/docs/guides/vtex-io-documentation-making-a-custom-component-available-in-site-editor) — contentSchemas.json and Site Editor integration
+- [Store Framework](https://developers.vtex.com/docs/guides/store-framework) — Overview of the block-based storefront system
+- [Using Components](https://developers.vtex.com/docs/guides/store-framework-using-components) — How to use native and custom components in themes
+- [VTEX Styleguide](https://styleguide.vtex.com/) — Official component library for VTEX Admin UIs
