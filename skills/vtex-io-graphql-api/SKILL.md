@@ -167,15 +167,15 @@ export const queries = {
 }
 ```
 
-### Constraint: Protect sensitive operations
+### Constraint: Declare `@auth` on every Query and Mutation
 
-Mutations and user-specific queries must enforce authentication appropriately.
+With the `graphql` builder `2.x`, every Query and Mutation must declare `@auth` explicitly.
 
 **Why this matters**
-Without auth protection, anonymous callers may create, modify, or expose protected data.
+The active GraphQL builder requires authorization metadata on operations. Public operations still need `@auth(scope: PUBLIC)`, while protected operations need `@auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")` or another valid License Manager resource pair for the use case. If `@auth` is omitted or declared incompletely, schema validation can fail before runtime.
 
 **Detection**
-If a mutation changes data or a query returns user-specific or sensitive data, verify the auth strategy explicitly.
+If any Query or Mutation is missing `@auth`, stop and add it. If an operation is protected but lacks `scope: PRIVATE` or the needed `productCode` and `resourceCode`, stop and complete the directive. Treat `productCode: "66"` with `resourceCode: "workspace-read-write"` as a documented example pair, and replace it with the real License Manager resource configured for the app when implementing production code.
 
 **Correct**
 
@@ -183,12 +183,19 @@ If a mutation changes data or a query returns user-specific or sensitive data, v
 type Query {
   myReviews: [Review]
     @cacheControl(scope: PRIVATE, maxAge: SHORT)
-    @auth
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
+
+  productMetadata(slug: String!): ProductMetadata
+    @cacheControl(scope: PUBLIC, maxAge: MEDIUM)
+    @auth(scope: PUBLIC)
 }
 
 type Mutation {
-  createReview(input: ReviewInput!): Review @auth
-  deleteReview(id: ID!): Boolean @auth
+  createReview(input: ReviewInput!): Review
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
+
+  deleteReview(id: ID!): Boolean
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 ```
 
@@ -197,22 +204,25 @@ type Mutation {
 ```graphql
 type Query {
   myReviews: [Review]
+
+  productMetadata(slug: String!): ProductMetadata
+    @cacheControl(scope: PUBLIC, maxAge: MEDIUM)
 }
 
 type Mutation {
-  deleteReview(id: ID!): Boolean
+  deleteReview(id: ID!): Boolean @auth
 }
 ```
 
-### Constraint: Define cache strategy for public queries
+### Constraint: Define cache strategy explicitly for queries
 
 Public-facing queries should define cache behavior explicitly. Mutations must not be cached.
 
 **Why this matters**
-Public queries without cache strategy may generate unnecessary resolver load and slower responses. Mutations are not cacheable operations.
+Public queries without cache strategy may generate unnecessary resolver load and slower responses. VTEX supports three cache scopes: `PUBLIC` for data shared across users, `SEGMENT` for data that varies by shopper segment, and `PRIVATE` for per-user data. Mutations are not cacheable operations.
 
 **Detection**
-If a public query lacks explicit cache strategy, add it. If a mutation has cache directives, remove them.
+If a query lacks explicit cache strategy, choose the narrowest correct scope and set `maxAge`. Use `PUBLIC` for shared catalog-like data, `SEGMENT` when the response varies by region, audience, or sales channel, and `PRIVATE` for user-specific data. If a mutation has cache directives, remove them.
 
 **Correct**
 
@@ -220,14 +230,20 @@ If a public query lacks explicit cache strategy, add it. If a mutation has cache
 type Query {
   reviews(productId: String!, limit: Int): [Review]
     @cacheControl(scope: PUBLIC, maxAge: SHORT)
+    @auth(scope: PUBLIC)
+
+  pricePreview(skuId: ID!): PricePreview
+    @cacheControl(scope: SEGMENT, maxAge: SHORT)
+    @auth(scope: PUBLIC)
 
   myReviews: [Review]
     @cacheControl(scope: PRIVATE, maxAge: SHORT)
-    @auth
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 
 type Mutation {
-  createReview(input: ReviewInput!): Review @auth
+  createReview(input: ReviewInput!): Review
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 ```
 
@@ -278,10 +294,12 @@ Minimal schema pattern:
 type Query {
   reviews(productId: String!, limit: Int): [Review]
     @cacheControl(scope: PUBLIC, maxAge: SHORT)
+    @auth(scope: PUBLIC)
 }
 
 type Mutation {
-  createReview(input: ReviewInput!): Review @auth
+  createReview(input: ReviewInput!): Review
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 ```
 
@@ -291,10 +309,15 @@ Minimal directive usage example:
 type Query {
   productMetadata(slug: String!): ProductMetadata
     @cacheControl(scope: PUBLIC, maxAge: MEDIUM)
+    @auth(scope: PUBLIC)
+
+  regionalPrice(skuId: ID!): PricePreview
+    @cacheControl(scope: SEGMENT, maxAge: SHORT)
+    @auth(scope: PUBLIC)
 
   myAccountData: AccountData
     @cacheControl(scope: PRIVATE, maxAge: SHORT)
-    @auth
+    @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 ```
 
@@ -342,7 +365,7 @@ export default new Service({
 - The app links successfully but GraphQL does not work because the builder is missing.
 - A field resolves to null because the resolver key does not match the schema field.
 - The resolver works but the integration is fragile because it bypasses ctx.clients.
-- A sensitive mutation or user-specific query is exposed without proper auth.
+- A Query or Mutation fails schema validation because `@auth` is missing or incomplete for `graphql` builder `2.x`.
 - Public queries are left without explicit cache strategy.
 
 ## Review checklist
@@ -350,8 +373,9 @@ export default new Service({
 - [ ] Is the graphql builder declared?
 - [ ] Do schema field names and resolver keys match exactly?
 - [ ] Are resolvers using ctx.clients instead of raw HTTP libraries?
+- [ ] Does every Query and Mutation declare `@auth` with the correct scope?
 - [ ] Is cache strategy defined for public queries?
-- [ ] Are user-specific queries and mutations protected correctly?
+- [ ] Do private operations include a valid `productCode` and `resourceCode` pair?
 - [ ] Is GraphQL being used for frontend/app consumption rather than integration-only flows?
 
 ## Reference
