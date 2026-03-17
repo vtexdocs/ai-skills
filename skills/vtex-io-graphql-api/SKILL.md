@@ -219,10 +219,10 @@ type Mutation {
 Queries should define cache behavior explicitly. `Mutation` fields must not be cached.
 
 **Why this matters**
-Queries without explicit cache strategy may generate unnecessary resolver load and slower responses. VTEX supports three cache scopes: `PUBLIC` for data shared across users, `SEGMENT` for data that varies by shopper segment, and `PRIVATE` for per-user data. `Mutation` fields are not cacheable operations.
+Queries without an explicit cache strategy may generate unnecessary resolver load and slower responses. VTEX supports three cache scopes: `PUBLIC` for data shared across users, `SEGMENT` for data that varies by shopper segment, and `PRIVATE` for per-user data. `Mutation` fields are not cacheable operations.
 
 **Detection**
-If a `Query` lacks explicit cache strategy, choose the narrowest correct scope and set `maxAge`. Use `PUBLIC` for shared catalog-like data, `SEGMENT` when the response varies by region, audience, or sales channel, and `PRIVATE` for user-specific data. If a `Mutation` has cache directives, remove them.
+If a `Query` lacks an explicit cache strategy, choose the narrowest correct scope and set `maxAge`. Use `PUBLIC` for shared catalog-like data, `SEGMENT` when the response varies by region, audience, or sales channel, and `PRIVATE` for user-specific data. If a `Mutation` has cache directives, remove them.
 
 **Correct**
 
@@ -366,11 +366,11 @@ export default new Service({
 
 ## Common failure modes
 - GraphQL is chosen when an HTTP route would be a better fit.
-- The app links successfully but GraphQL does not work because the builder is missing.
+- The app links successfully, but GraphQL does not work because the builder is missing.
 - A field resolves to `null` because the resolver key does not match the schema field.
-- The resolver works but the integration is fragile because it bypasses `ctx.clients`.
+- The resolver works, but the integration is fragile because it bypasses `ctx.clients`.
 - A `Query` or `Mutation` fails schema validation because `@auth` is missing or incomplete for the `graphql` builder `2.x`.
-- A `Query` is left without explicit cache strategy, or a `Mutation` is incorrectly cached.
+- A `Query` is left without an explicit cache strategy, or a `Mutation` is incorrectly cached.
 
 ## Review checklist
 - [ ] Is GraphQL really the correct mechanism here?
@@ -378,7 +378,7 @@ export default new Service({
 - [ ] Do schema field names and resolver keys match exactly?
 - [ ] Are resolvers using `ctx.clients` instead of raw HTTP libraries?
 - [ ] Does every `Query` and `Mutation` declare `@auth` with the correct scope?
-- [ ] Is cache strategy defined explicitly for every `Query`, and absent from every `Mutation`?
+- [ ] Is the cache strategy defined explicitly for every `Query`, and absent from every `Mutation`?
 - [ ] Do private operations include a valid `productCode` and `resourceCode` pair?
 - [ ] Is GraphQL being used for frontend/app consumption rather than integration-only flows?
 
@@ -387,6 +387,8 @@ export default new Service({
 - [GraphQL Builder](https://developers.vtex.com/docs/guides/vtex-io-documentation-graphql-builder) — Builder reference for schema processing and directory structure
 - [Developing a GraphQL API in Service Apps](https://developers.vtex.com/docs/guides/developing-a-graphql-api-in-service-apps) — Step-by-step tutorial for building GraphQL APIs
 - [Integrating an App with a GraphQL API](https://developers.vtex.com/docs/guides/integrating-an-app-with-a-graphql-api) — How to consume GraphQL APIs from other VTEX IO apps
+- [GraphQL authorization in IO apps](https://developers.vtex.com/docs/guides/graphql-authorization-in-io-apps) — How to implement and use the `@auth` directive for protected GraphQL operations
+- [Implementing cache in GraphQL APIs for IO apps](https://developers.vtex.com/docs/guides/implementing-cache-in-graphql-apis-for-io-apps) — How to implement and use the `@cacheControl` directive for GraphQL operations
 - [VTEX IO Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — How to use ctx.clients in resolvers for data access
 
  

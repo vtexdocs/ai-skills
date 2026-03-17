@@ -303,3 +303,9 @@ Don't use tags that duplicate the track name or skill name. Tags are for cross-c
 ### Export file names
 
 Export file names are derived from skill names and track names automatically by the export script. Don't create or rename export files manually.
+
+---
+
+## For AI Agents
+
+If you are an AI coding agent contributing to this repository, read [`AGENTS.md`](AGENTS.md) first. It contains the quick-reference rules for skill format, validation, and export workflow.
