@@ -1,6 +1,6 @@
 ---
 name: payment-provider-protocol
-description: Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or working with payment/connector endpoint files. Covers all nine required endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request, Create Auth Token, Provider Auth Redirect, and Get Credentials. Use for building or debugging any payment connector that integrates with the VTEX Payment Gateway.
+description: "Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or working with payment/connector endpoint files. Covers all nine required endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request, Create Auth Token, Provider Auth Redirect, and Get Credentials. Use for building or debugging any payment connector that integrates with the VTEX Payment Gateway."
 ---
 
 # PPP Endpoint Implementation
