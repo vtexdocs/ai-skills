@@ -149,17 +149,26 @@ All 9 Payment Provider Protocol endpoints, idempotency patterns, async payment f
 </details>
 
 <details>
-<summary><strong>Track 3: Custom VTEX IO Apps</strong> — 5 skills for IO app development</summary>
+<summary><strong>Track 3: Custom VTEX IO Apps</strong> — evolving skill set for IO app development</summary>
 
 App manifest, builders, policies, `@vtex/api` clients, React components, GraphQL schemas, and MasterData v2 integration. The most comprehensive track, covering both frontend and backend IO development.
+
+This track is being reorganized into smaller groups:
+- Foundations
+- API exposure
+- Frontend
+- Data and config
+- Security and operations
 
 | Skill | Description |
 |---|---|
 | `vtex-io-app-structure` | Manifest, builders, policies, and app architecture |
 | `vtex-io-service-apps` | Node service apps, `ctx.clients`, and `@vtex/api` client hierarchy |
 | `vtex-io-react-apps` | React components, `css-handles`, hooks, and Styleguide usage |
-| `vtex-io-graphql` | GraphQL schemas, resolvers, `@cacheControl`, and `@auth` directives |
+| `vtex-io-graphql-api` | GraphQL schemas, resolvers, `@cacheControl`, and `@auth` directives |
 | `vtex-io-masterdata` | MasterData v2 CRUD, schema design, and the 60-schema limit |
+
+See [tracks/vtex-io/index.md](tracks/vtex-io/index.md) for the planned grouped model and VTEX IO skill roadmap.
 
 </details>
 
@@ -263,7 +272,7 @@ vtex_skills/
         vtex-io-app-structure/skill.md
         vtex-io-service-apps/skill.md
         vtex-io-react-apps/skill.md
-        vtex-io-graphql/skill.md
+        vtex-io-graphql-api/skill.md
         vtex-io-masterdata/skill.md
   package.json
   tsconfig.json
