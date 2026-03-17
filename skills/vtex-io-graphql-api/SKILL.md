@@ -89,10 +89,10 @@ If `.graphql` files exist but `manifest.json` does not declare the supported `gr
 
 ### Constraint: Resolver names must match schema field names
 
-Resolver keys in the Service configuration must exactly match the field names defined in the GraphQL schema.
+Resolver keys in the `Service` configuration must exactly match the field names defined in the GraphQL schema.
 
 **Why this matters**
-GraphQL resolves fields by name. If the resolver key does not match the schema field, the field can resolve to null with no obvious error.
+GraphQL resolves fields by name. If the resolver key does not match the schema field, the field can resolve to `null` with no obvious error.
 
 **Detection**
 Cross-check every `Query` and `Mutation` field against resolver registration in `node/index.ts`.
@@ -169,13 +169,13 @@ export const queries = {
 
 ### Constraint: Declare `@auth` on every Query and Mutation
 
-With the `graphql` builder `2.x`, every Query and Mutation must declare `@auth` explicitly.
+With the `graphql` builder `2.x`, every `Query` and `Mutation` must declare `@auth` explicitly.
 
 **Why this matters**
-The active GraphQL builder requires authorization metadata on operations. Public operations still need `@auth(scope: PUBLIC)`, while protected operations need `@auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")` or another valid License Manager resource pair for the use case. If `@auth` is omitted or declared incompletely, schema validation can fail before runtime.
+The active `graphql` builder requires authorization metadata on operations. Public operations still need `@auth(scope: PUBLIC)`, while protected operations need `@auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")` or another valid License Manager resource pair for the use case. If `@auth` is omitted or declared incompletely, schema validation can fail before runtime.
 
 **Detection**
-If any Query or Mutation is missing `@auth`, stop and add it. If an operation is protected but lacks `scope: PRIVATE` or the needed `productCode` and `resourceCode`, stop and complete the directive. Treat `productCode: "66"` with `resourceCode: "workspace-read-write"` as a documented example pair, and replace it with the real License Manager resource configured for the app when implementing production code.
+If any `Query` or `Mutation` is missing `@auth`, stop and add it. If an operation is protected but lacks `scope: PRIVATE` or the needed `productCode` and `resourceCode`, stop and complete the directive. Treat `productCode: "66"` with `resourceCode: "workspace-read-write"` as a documented example pair, and replace it with the actual License Manager resource configured for the app when implementing production code.
 
 **Correct**
 
@@ -216,13 +216,13 @@ type Mutation {
 
 ### Constraint: Define cache strategy explicitly for queries
 
-Public-facing queries should define cache behavior explicitly. Mutations must not be cached.
+Queries should define cache behavior explicitly. `Mutation` fields must not be cached.
 
 **Why this matters**
-Public queries without cache strategy may generate unnecessary resolver load and slower responses. VTEX supports three cache scopes: `PUBLIC` for data shared across users, `SEGMENT` for data that varies by shopper segment, and `PRIVATE` for per-user data. Mutations are not cacheable operations.
+Queries without explicit cache strategy may generate unnecessary resolver load and slower responses. VTEX supports three cache scopes: `PUBLIC` for data shared across users, `SEGMENT` for data that varies by shopper segment, and `PRIVATE` for per-user data. `Mutation` fields are not cacheable operations.
 
 **Detection**
-If a query lacks explicit cache strategy, choose the narrowest correct scope and set `maxAge`. Use `PUBLIC` for shared catalog-like data, `SEGMENT` when the response varies by region, audience, or sales channel, and `PRIVATE` for user-specific data. If a mutation has cache directives, remove them.
+If a `Query` lacks explicit cache strategy, choose the narrowest correct scope and set `maxAge`. Use `PUBLIC` for shared catalog-like data, `SEGMENT` when the response varies by region, audience, or sales channel, and `PRIVATE` for user-specific data. If a `Mutation` has cache directives, remove them.
 
 **Correct**
 
@@ -288,6 +288,8 @@ Minimal manifest pattern:
 }
 ```
 
+Use the `graphql` builder version supported by the project or the documented VTEX standard for the target app. The examples below use `2.x`.
+
 Minimal schema pattern:
 
 ```graphql
@@ -302,6 +304,8 @@ type Mutation {
     @auth(scope: PRIVATE, productCode: "66", resourceCode: "workspace-read-write")
 }
 ```
+
+Replace the example `productCode` and `resourceCode` values with the actual License Manager resource configured for the app.
 
 Minimal directive usage example:
 
@@ -363,18 +367,18 @@ export default new Service({
 ## Common failure modes
 - GraphQL is chosen when an HTTP route would be a better fit.
 - The app links successfully but GraphQL does not work because the builder is missing.
-- A field resolves to null because the resolver key does not match the schema field.
-- The resolver works but the integration is fragile because it bypasses ctx.clients.
-- A Query or Mutation fails schema validation because `@auth` is missing or incomplete for `graphql` builder `2.x`.
-- Public queries are left without explicit cache strategy.
+- A field resolves to `null` because the resolver key does not match the schema field.
+- The resolver works but the integration is fragile because it bypasses `ctx.clients`.
+- A `Query` or `Mutation` fails schema validation because `@auth` is missing or incomplete for the `graphql` builder `2.x`.
+- A `Query` is left without explicit cache strategy, or a `Mutation` is incorrectly cached.
 
 ## Review checklist
 - [ ] Is GraphQL really the correct mechanism here?
-- [ ] Is the graphql builder declared?
+- [ ] Is the `graphql` builder declared?
 - [ ] Do schema field names and resolver keys match exactly?
-- [ ] Are resolvers using ctx.clients instead of raw HTTP libraries?
-- [ ] Does every Query and Mutation declare `@auth` with the correct scope?
-- [ ] Is cache strategy defined for public queries?
+- [ ] Are resolvers using `ctx.clients` instead of raw HTTP libraries?
+- [ ] Does every `Query` and `Mutation` declare `@auth` with the correct scope?
+- [ ] Is cache strategy defined explicitly for every `Query`, and absent from every `Mutation`?
 - [ ] Do private operations include a valid `productCode` and `resourceCode` pair?
 - [ ] Is GraphQL being used for frontend/app consumption rather than integration-only flows?
 
