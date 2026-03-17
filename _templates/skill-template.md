@@ -1,204 +1,228 @@
-<!-- 
+<!--
 SKILL TEMPLATE SCHEMA
 =====================
 
-This file defines the canonical format for all skills in the vtex_skills repository.
+This file defines the canonical format for new skills in this repository.
 
 YAML FRONTMATTER FIELDS:
-- name (required): kebab-case identifier, unique across entire repo. Used as skill ID.
-- description (required): ≥20 words, activation-oriented for AI auto-detection. Must start with "Apply when [trigger]." format.
-- track (required): one of: faststore, payment, vtex-io, marketplace, headless
-- tags (required): array of relevant technology/concept keywords for discovery
-- globs (optional): array of file glob patterns that should auto-trigger the skill (e.g., ["src/components/**/*.tsx"])
-- version (optional): semantic version for change tracking (default: "1.0")
-- vtex_docs_verified (optional): last date factual claims were verified against VTEX docs (YYYY-MM-DD format)
+- name (required): kebab-case identifier, unique across the entire repo. Used as skill ID.
+- description (required): activation-oriented summary for AI auto-detection. Must start with "Apply when ...".
+- metadata.track (required): one of: faststore, payment, vtex-io, marketplace, headless
+- metadata.tags (required): relevant technology/concept keywords for discovery
+- metadata.globs (optional): file patterns that should auto-trigger the skill
+- metadata.version (optional): semantic version for change tracking
+- metadata.purpose (optional): one-line summary of the decision or implementation goal
+- metadata.applies_to (optional): common task types covered by the skill
+- metadata.excludes (optional): cases this skill should not be used for
+- metadata.decision_scope (optional): architecture or implementation choices the skill helps make
+- metadata.vtex_docs_verified (optional): last date factual claims were verified against VTEX docs (YYYY-MM-DD)
 
 STRUCTURE:
-All skills MUST include these 6 H2 sections in this order:
-1. Overview — what the skill covers, when to use it
-2. Key Concepts — essential knowledge before implementation
-3. Constraints — rules that MUST be followed, with detection patterns
-4. Implementation Pattern — canonical, recommended approach
-5. Anti-Patterns — common mistakes and how to fix them
-6. Reference — links to VTEX documentation
+Skills should stay concise and decision-oriented. Prefer short sections, enforceable constraints, and concrete examples.
 
-CONSTRAINT SUBSECTIONS:
-Each constraint must include:
-- Rule: Clear statement of what MUST/MUST NOT be done
-- Why: Explanation of consequences if violated
-- Detection: Pattern the AI should watch for
-- ✅ CORRECT: Working code example
-- ❌ WRONG: Broken code example with explanation
+All skills SHOULD include these H2 sections in this order:
+1. When this skill applies
+2. Decision rules
+3. Hard constraints
+4. Preferred pattern
+5. Common failure modes
+6. Review checklist
+7. Related skills (optional)
+8. Reference
 
-ANTI-PATTERN SUBSECTIONS:
-Each anti-pattern must include:
-- What happens: Description of the mistake
-- Why it fails: Consequence of the mistake
-- Fix: Correct approach with code example
+HARD CONSTRAINTS:
+Each constraint should include:
+- a clear rule
+- why it matters
+- detection guidance
+- **Correct** example
+- **Wrong** example
 
-EXPORT NOTES:
-- The export script will strip version and vtex_docs_verified fields for OpenCode
-- Only name and description are used for OpenCode SKILL.md format
-- All other fields are preserved in source but not exported to OpenCode
-- The globs field is used by the Cursor exporter for file-pattern auto-triggering
+STYLE:
+- Use backticks consistently for technical identifiers
+- Keep examples concrete and easy for an AI to pattern-match
+- Distinguish platform constraints from example values or placeholders
+- Add `Related skills` only when it helps choose between nearby skills or clarifies adjacent responsibilities
+- Skip `Related skills` when it would just restate obvious track structure or add low-value links
+- Do not turn the skill into long-form documentation
 -->
 
 ---
 name: example-skill-name
-description: >
-  Apply when [trigger condition, e.g., creating or modifying files in specific directory]. Covers
-  [key area 1], [key area 2], and [key area 3]. Use for [developer task, e.g., implementing feature X
-  or debugging issue Y in the context of platform/feature].
-track: faststore
-tags:
-  - keyword1
-  - keyword2
-  - keyword3
-globs:
-  - "src/path/**/*.ts"
-  - "src/path/**/*.tsx"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+description: Apply when deciding, designing, or implementing [capability] in [platform/context]. Covers when [mechanism A] is the right choice, the core contracts and implementation pattern, and the most important constraints to avoid common failures.
+metadata:
+  track: faststore
+  tags:
+    - keyword1
+    - keyword2
+    - keyword3
+  globs:
+    - "src/path/**/*.ts"
+    - "src/path/**/*.tsx"
+  version: "1.0"
+  purpose: Decide when to use [pattern] and how to implement it safely
+  applies_to:
+    - task type 1
+    - task type 2
+  excludes:
+    - use case this skill should not cover
+  decision_scope:
+    - decision-a-vs-b
+    - implementation-strategy
+  vtex_docs_verified: "2026-03-17"
 ---
 
 # Skill Title
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: [Describe the specific domain, feature, or pattern this skill addresses]
+Use this skill when [condition].
+- [specific trigger]
+- [specific trigger]
+- [specific trigger]
 
-**When to use it**: [Describe the developer task or problem this skill helps solve]
+Do not use this skill as the default choice for:
+- [case that belongs to another skill]
+- [case that belongs to another mechanism]
 
-**What you'll learn**: [List 3-4 key takeaways]
+## Decision rules
 
-Example: "This skill covers FastStore component overrides using the `override` system. Use it when customizing store components beyond theme configuration. You'll learn how to create override files, inject custom logic, and maintain compatibility with FastStore updates."
+- Use [pattern/mechanism] when [condition].
+- Prefer [alternative] when [condition].
+- Do not introduce [pattern/mechanism] only for convenience if [simpler option] is more explicit.
+- Use this skill as a decision guide first, then as an implementation guide.
 
-## Key Concepts
+## Hard constraints
 
-**Essential knowledge before implementation**:
+### Constraint: [Required builder, contract, or platform rule]
 
-### Concept 1: [Name]
-[Definition and explanation. Why this matters for the task.]
+[State the rule in plain language.]
 
-### Concept 2: [Name]
-[Definition and explanation. Why this matters for the task.]
+**Why this matters**
+[Explain the failure mode, security risk, or platform incompatibility.]
 
-### Concept 3: [Name]
-[Definition and explanation. Why this matters for the task.]
+**Detection**
+[Describe what the AI or reviewer should look for and when to stop.]
 
-**Architecture/Data Flow** (if applicable):
-[Diagram or description of how components interact]
-
-## Constraints
-
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
-
-### Constraint: [Name]
-
-**Rule**: [Clear statement of what MUST or MUST NOT be done. Be specific and unambiguous.]
-
-**Why**: [Explain the consequence if violated. What breaks? What security issue arises? What performance problem occurs?]
-
-**Detection**: [Pattern the AI should watch for. Example: "If you see imports from X, STOP and verify Y"]
-
-✅ **CORRECT**:
-```typescript
-// Working example that follows the rule
-// Include comments explaining why this is correct
+**Correct**
+```json
+{
+  "example": true
+}
 ```
 
-❌ **WRONG**:
-```typescript
-// Broken example that violates the rule
-// Include comments explaining what's wrong and why it fails
+**Wrong**
+
+```json
+{
+  "example": false
+}
 ```
 
----
+### Constraint: [Naming, registration, or implementation rule]
 
-### Constraint: [Name]
+[State the rule in plain language.]
 
-**Rule**: [Clear statement]
+**Why this matters**
+[Explain what breaks if this is violated.]
 
-**Why**: [Consequence]
+**Detection**
+[Describe the pattern to cross-check.]
 
-**Detection**: [Pattern to watch for]
-
-✅ **CORRECT**:
-```typescript
-// Working example
-```
-
-❌ **WRONG**:
-```typescript
-// Broken example
-```
-
-## Implementation Pattern
-
-**The canonical, recommended way to implement this feature or pattern.**
-
-### Step 1: [First step]
-[Explanation of what to do and why]
+**Correct**
 
 ```typescript
-// Complete, working code example
+export const example = () => {
+  return 'correct'
+}
 ```
 
-### Step 2: [Second step]
-[Explanation of what to do and why]
+**Wrong**
 
 ```typescript
-// Complete, working code example
+export const broken = () => {
+  return 'wrong'
+}
 ```
 
-### Step 3: [Third step]
-[Explanation of what to do and why]
+### Constraint: [Security, auth, cache, or data rule]
+
+[State the rule in plain language.]
+
+**Why this matters**
+[Explain the operational, security, or data consequence.]
+
+**Detection**
+[Describe what must be present or absent.]
+
+**Correct**
+
+```graphql
+type Query {
+  example: String
+}
+```
+
+**Wrong**
+
+```graphql
+type Query {
+  example: String
+}
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+src/
+├── example/
+│   └── implementation.ts
+└── index.ts
+```
+
+Minimal configuration pattern:
+
+```json
+{
+  "key": "value"
+}
+```
+
+Use the platform version supported by the project or the documented standard for the target app.
+
+Minimal implementation pattern:
 
 ```typescript
-// Complete, working code example
+export function example() {
+  return 'value'
+}
 ```
 
-### Complete Example
-[Full, end-to-end working example that ties all steps together]
+If examples include placeholder identifiers, credentials, policies, or resource codes, replace them with the actual values configured for the app.
 
-```typescript
-// Full implementation
-```
+## Common failure modes
 
-## Anti-Patterns
+- [Wrong mechanism is chosen for the job.]
+- [Required platform registration or configuration is missing.]
+- [Implementation breaks because a contract is mismatched.]
+- [Security, auth, or cache behavior is missing or incorrect.]
 
-**Common mistakes developers make and how to fix them.**
+## Review checklist
 
-### Anti-Pattern: [Name]
+- [ ] Is this the correct mechanism for the use case?
+- [ ] Are the required platform declarations and registrations present?
+- [ ] Do implementation keys and contracts match exactly?
+- [ ] Are security, auth, and cache rules applied correctly?
+- [ ] Are example placeholder values replaced with real app-specific values where needed?
 
-**What happens**: [Describe what the developer does — the mistake]
+## Related skills
 
-**Why it fails**: [Explain the consequence. What breaks? What error occurs? What performance issue arises?]
-
-**Fix**: [Correct approach with code example]
-
-```typescript
-// Correct implementation
-```
-
----
-
-### Anti-Pattern: [Name]
-
-**What happens**: [Describe the mistake]
-
-**Why it fails**: [Consequence]
-
-**Fix**: [Correct approach with code example]
-
-```typescript
-// Correct implementation
-```
+- [`related-skill-name`](../related-skill/skill.md) - When to use that skill instead of this one
+- [`another-related-skill`](../another-related-skill/skill.md) - How it complements this skill
 
 ## Reference
 
-**Links to VTEX documentation and related resources.**
-
-- [VTEX Documentation Title](https://developers.vtex.com/docs/guides/...) — Why this is relevant to the skill
-- [VTEX Help Center Article](https://help.vtex.com/en/docs/...) — Why this is relevant to the skill
-- [Related Skill Name](../other-skill.md) — How this skill relates to other skills in the repository
+- [VTEX Documentation Title](https://developers.vtex.com/docs/guides/...) - Why this is relevant
+- [VTEX Documentation Title](https://developers.vtex.com/docs/guides/...) - Why this is relevant
