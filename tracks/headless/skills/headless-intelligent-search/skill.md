@@ -5,58 +5,62 @@ description: >
   storefront. Covers product_search, autocomplete_suggestions, facets, banners, correction_search, and
   top_searches endpoints, plus analytics event collection. Use for any custom frontend that integrates
   VTEX Intelligent Search API for product discovery and search result rendering.
-track: headless
-tags:
-  - intelligent-search
-  - search-api
-  - headless
-  - autocomplete
-  - facets
-  - analytics
-globs:
-  - "**/search/**/*.ts"
-  - "**/search/**/*.tsx"
-  - "**/facet*/**/*.{ts,tsx}"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+metadata:
+  track: headless
+  tags:
+    - intelligent-search
+    - search-api
+    - headless
+    - autocomplete
+    - facets
+    - analytics
+  globs:
+    - "**/search/**/*.ts"
+    - "**/search/**/*.tsx"
+    - "**/facet*/**/*.{ts,tsx}"
+  version: "1.0"
+  purpose: Integrate VTEX Intelligent Search API correctly with mandatory analytics events
+  applies_to:
+    - implementing product search in a headless storefront
+    - building faceted navigation and filtering
+    - adding autocomplete and search suggestions
+    - sending search analytics events
+  excludes:
+    - BFF architecture decisions (see headless-bff-architecture)
+    - checkout or cart operations (see headless-checkout-proxy)
+    - caching TTL strategy for search responses (see headless-caching-strategy)
+  decision_scope:
+    - direct-frontend-vs-bff-proxy-for-search
+    - api-sorting-vs-client-sorting
+    - analytics-event-implementation
+  vtex_docs_verified: "2026-03-16"
 ---
 
 # Intelligent Search API Integration
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: The VTEX Intelligent Search API — the only VTEX API that is fully public and designed for direct frontend consumption. Covers all search endpoints, query parameters, response structures, faceted navigation, and the critical requirement to send analytics events.
+Use this skill when implementing product search, category browsing, autocomplete, or faceted filtering in a headless VTEX storefront.
 
-**When to use it**: When implementing product search, category browsing, autocomplete, or faceted filtering in a headless VTEX storefront. This is the search solution for any custom headless frontend.
+- Building a search results page with product listings
+- Implementing faceted navigation (category, brand, price, color filters)
+- Adding autocomplete suggestions to a search input
+- Wiring up search analytics events for Intelligent Search ranking
 
-**What you'll learn**:
-- All Intelligent Search API endpoints and their purposes
-- How to implement faceted navigation with proper query parameters
-- How to paginate results correctly using `from`/`to` parameters
-- Why analytics events are mandatory and how to send them via the Intelligent Search Events API - Headless
+Do not use this skill for:
+- BFF architecture and API routing decisions (use [`headless-bff-architecture`](../headless-bff-architecture/skill.md))
+- Checkout or cart API integration (use [`headless-checkout-proxy`](../headless-checkout-proxy/skill.md))
+- Caching strategy and TTL configuration (use [`headless-caching-strategy`](../headless-caching-strategy/skill.md))
 
-## Key Concepts
+## Decision rules
 
-**Essential knowledge before implementation**:
+- Call Intelligent Search **directly from the frontend** — it is the ONE exception to the "everything through BFF" rule. It is fully public and requires no authentication.
+- Do NOT proxy Intelligent Search through the BFF unless you have a specific need (e.g., server-side rendering). Proxying adds latency on a high-frequency operation.
+- Always use the API's `sort` parameter and facet paths for filtering and sorting — never re-sort or re-filter results client-side.
+- Always include `from`, `to`, and `locale` parameters in every search request.
+- Always send analytics events to the Intelligent Search Events API — without them, search ranking degrades over time.
 
-### Concept 1: Intelligent Search Is a PUBLIC API
-
-Unlike most VTEX APIs, Intelligent Search does **not** require API keys or authentication tokens. It is designed to be called directly from the frontend. The base URL pattern is:
-
-```text
-https://{accountName}.{environment}.com.br/api/io/_v/api/intelligent-search/{endpoint}
-```
-
-This means:
-- **No BFF proxy needed** for search queries (and proxying adds unnecessary latency)
-- Results are CDN-cacheable for better performance
-- No risk of credential exposure
-
-This is the ONE exception to the "everything through BFF" rule in headless VTEX architecture.
-
-### Concept 2: Search Endpoints
-
-Intelligent Search provides these core endpoints:
+Search endpoints overview:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -68,60 +72,26 @@ Intelligent Search provides these core endpoints:
 | `/search_suggestions` | GET | Get suggested terms similar to the search term |
 | `/banners/{facets}` | GET | Get banners configured for a query |
 
-### Concept 3: Faceted Navigation
-
-Facets are the combination of filters applied to a search. The `facets` path parameter follows the format:
-
-```text
-/{facetKey1}/{facetValue1}/{facetKey2}/{facetValue2}
-```
-
-Filter combination rules:
+Facet combination rules:
 - **Same facet type → OR (union)**: Selecting "Red" and "Blue" for color returns products matching either color
 - **Different facet types → AND (intersection)**: Selecting "Red" color and "Nike" brand returns only red Nike products
 
-Common facet keys include: `category-1`, `category-2`, `brand`, `price`, `productClusterIds`, and custom specifications configured as filterable in Intelligent Search settings.
+## Hard constraints
 
-### Concept 4: Analytics Events (Mandatory)
+### Constraint: MUST send analytics events to Intelligent Search Events API
 
-Intelligent Search improves results based on shopper behavior. For headless implementations, you **must** send analytics events using the **Intelligent Search Events API - Headless**. Without events, search ranking cannot learn and results degrade over time.
+Every headless search implementation MUST send analytics events to the Intelligent Search Events API - Headless. At minimum, send search impression events when results are displayed and click events when a product is selected from search results.
 
-The events API base URL is:
-```text
-https://sp.vtex.com/event-api/v1/{accountName}/event
-```
+**Why this matters**
 
-**Architecture/Data Flow**:
+Intelligent Search uses machine learning to rank results based on user behavior. Without analytics events, the search engine has no behavioral data and cannot personalize or optimize results. Over time, search quality degrades compared to stores that send events. Additionally, VTEX Admin search analytics dashboards will show no data.
 
-```text
-Frontend (Browser)
-    │
-    ├── GET /api/io/_v/api/intelligent-search/product_search/...
-    │   └── Returns: products, facets, pagination info
-    │
-    ├── GET /api/io/_v/api/intelligent-search/facets/...
-    │   └── Returns: available filters with counts
-    │
-    ├── GET /api/io/_v/api/intelligent-search/autocomplete_suggestions?query=...
-    │   └── Returns: suggested terms + suggested products
-    │
-    └── POST https://sp.vtex.com/event-api/v1/{account}/event
-        └── Sends: search impressions, clicks, add-to-cart events
-```
+**Detection**
 
-## Constraints
+If a search implementation renders results from Intelligent Search but has no calls to `sp.vtex.com/event-api` or the Intelligent Search Events API → STOP immediately. Analytics events must be implemented alongside search.
 
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+**Correct**
 
-### Constraint: MUST Send Analytics Events
-
-**Rule**: Every headless search implementation MUST send analytics events to the Intelligent Search Events API - Headless. At minimum, send search impression events when results are displayed and click events when a product is selected from search results.
-
-**Why**: Intelligent Search uses machine learning to rank results based on user behavior. Without analytics events, the search engine has no behavioral data and cannot personalize or optimize results. Over time, search quality degrades compared to stores that send events. Additionally, VTEX Admin search analytics dashboards will show no data.
-
-**Detection**: If a search implementation renders results from Intelligent Search but has no calls to `sp.vtex.com/event-api` or the Intelligent Search Events API → STOP immediately. Analytics events must be implemented alongside search.
-
-✅ **CORRECT**:
 ```typescript
 // search-analytics.ts — sends events to Intelligent Search Events API
 const ACCOUNT_NAME = "mystore";
@@ -172,7 +142,8 @@ function onSearchResultsRendered(query: string, products: Product[]): void {
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // Search works but NO analytics events are sent — search ranking degrades
 async function searchProducts(query: string): Promise<Product[]> {
@@ -187,15 +158,20 @@ async function searchProducts(query: string): Promise<Product[]> {
 
 ---
 
-### Constraint: MUST Paginate Results Correctly
+### Constraint: MUST paginate results with `from` and `to` parameters
 
-**Rule**: Every product search request MUST include `from` and `to` query parameters to control pagination. The maximum page size is 50 items (`to - from` must not exceed 49, since indices are inclusive and zero-based).
+Every product search request MUST include `from` and `to` query parameters to control pagination. The maximum page size is 50 items (`to - from` must not exceed 49, since indices are inclusive and zero-based).
 
-**Why**: Without pagination parameters, the API defaults to a small result set. Requesting too many results in a single call (or not paginating at all) causes slow responses, high memory usage on the client, and poor user experience. Additionally, the API enforces a maximum of 50 items per request.
+**Why this matters**
 
-**Detection**: If a call to `/product_search/` does not include `from` and `to` query parameters → STOP immediately. Pagination must always be explicit.
+Without pagination parameters, the API defaults to a small result set. Requesting too many results in a single call (or not paginating at all) causes slow responses, high memory usage on the client, and poor user experience. The API enforces a maximum of 50 items per request.
 
-✅ **CORRECT**:
+**Detection**
+
+If a call to `/product_search/` does not include `from` and `to` query parameters → STOP immediately. Pagination must always be explicit.
+
+**Correct**
+
 ```typescript
 // Properly paginated search with from/to parameters
 interface SearchOptions {
@@ -238,7 +214,8 @@ const results = await searchProducts({
 });
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // No pagination — returns default small result set, no way to load more
 async function searchProducts(query: string): Promise<SearchResponse> {
@@ -252,15 +229,20 @@ async function searchProducts(query: string): Promise<SearchResponse> {
 
 ---
 
-### Constraint: Do NOT Unnecessarily Proxy Intelligent Search Through BFF
+### Constraint: Do NOT unnecessarily proxy Intelligent Search through BFF
 
-**Rule**: Intelligent Search API requests SHOULD be made directly from the frontend. Do not route search traffic through the BFF unless you have a specific need (e.g., server-side rendering, adding custom business logic).
+Intelligent Search API requests SHOULD be made directly from the frontend. Do not route search traffic through the BFF unless you have a specific need (e.g., server-side rendering, adding custom business logic).
 
-**Why**: Intelligent Search is a public API that does not require authentication. Adding a BFF proxy layer introduces an additional network hop, increases latency on every search operation, adds server cost, and prevents the CDN from caching responses efficiently. Search queries are high-frequency operations — even 50ms of added latency impacts conversion.
+**Why this matters**
 
-**Detection**: If all Intelligent Search calls go through a BFF endpoint instead of directly to VTEX → note this to the developer. It is not a security issue but a performance concern. If there is no justification (like SSR), recommend direct frontend calls.
+Intelligent Search is a public API that does not require authentication. Adding a BFF proxy layer introduces an additional network hop, increases latency on every search operation, adds server cost, and prevents the CDN from caching responses efficiently. Search queries are high-frequency operations — even 50ms of added latency impacts conversion.
 
-✅ **CORRECT**:
+**Detection**
+
+If all Intelligent Search calls go through a BFF endpoint instead of directly to VTEX → note this to the developer. It is not a security issue but a performance concern. If there is no justification (like SSR), recommend direct frontend calls.
+
+**Correct**
+
 ```typescript
 // Frontend — calls Intelligent Search directly (no BFF needed)
 const VTEX_SEARCH_BASE = `https://${ACCOUNT}.vtexcommercestable.com.br/api/io/_v/api/intelligent-search`;
@@ -284,7 +266,8 @@ export async function getFacets(facetPath: string, query: string, locale: string
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // BFF proxy for Intelligent Search — unnecessary overhead
 // server/routes/search.ts
@@ -299,13 +282,27 @@ router.get("/api/bff/search", async (req, res) => {
 });
 ```
 
-## Implementation Pattern
+## Preferred pattern
 
-**The canonical, recommended way to implement this feature or pattern.**
+Data flow for Intelligent Search in a headless storefront:
 
-### Step 1: Create a Search API Client
+```text
+Frontend (Browser)
+    │
+    ├── GET /api/io/_v/api/intelligent-search/product_search/...
+    │   └── Returns: products, facets, pagination info
+    │
+    ├── GET /api/io/_v/api/intelligent-search/facets/...
+    │   └── Returns: available filters with counts
+    │
+    ├── GET /api/io/_v/api/intelligent-search/autocomplete_suggestions?query=...
+    │   └── Returns: suggested terms + suggested products
+    │
+    └── POST https://sp.vtex.com/event-api/v1/{account}/event
+        └── Sends: search impressions, clicks, add-to-cart events
+```
 
-Build a typed client for all Intelligent Search endpoints. This runs in the frontend.
+Typed search API client for all endpoints:
 
 ```typescript
 // lib/intelligent-search-client.ts
@@ -321,54 +318,6 @@ interface ProductSearchParams {
   facets?: string;
   sort?: "price:asc" | "price:desc" | "orders:desc" | "name:asc" | "name:desc" | "release:desc" | "discount:desc";
   hideUnavailableItems?: boolean;
-}
-
-interface SearchProduct {
-  productId: string;
-  productName: string;
-  brand: string;
-  brandId: number;
-  link: string;
-  linkText: string;
-  categories: string[];
-  priceRange: {
-    sellingPrice: { highPrice: number; lowPrice: number };
-    listPrice: { highPrice: number; lowPrice: number };
-  };
-  items: Array<{
-    itemId: string;
-    name: string;
-    images: Array<{ imageUrl: string; imageLabel: string }>;
-    sellers: Array<{
-      sellerId: string;
-      sellerName: string;
-      commertialOffer: {
-        Price: number;
-        ListPrice: number;
-        AvailableQuantity: number;
-      };
-    }>;
-  }>;
-}
-
-interface ProductSearchResponse {
-  products: SearchProduct[];
-  recordsFiltered: number;
-  correction?: { misspelled: boolean };
-  fuzzy: string;
-  operator: string;
-  translated: boolean;
-  pagination: {
-    count: number;
-    current: { index: number; proxyUrl: string };
-    before: Array<{ index: number; proxyUrl: string }>;
-    after: Array<{ index: number; proxyUrl: string }>;
-    perPage: number;
-    next: { index: number; proxyUrl: string };
-    previous: { index: number; proxyUrl: string };
-    first: { index: number; proxyUrl: string };
-    last: { index: number; proxyUrl: string };
-  };
 }
 
 export async function productSearch(params: ProductSearchParams): Promise<ProductSearchResponse> {
@@ -393,39 +342,10 @@ export async function productSearch(params: ProductSearchParams): Promise<Produc
 }
 ```
 
-### Step 2: Implement Faceted Navigation
-
-Fetch available facets for the current query and render filter UI. Update the search when filters change.
+Faceted navigation helper:
 
 ```typescript
 // lib/facets.ts
-interface FacetValue {
-  id: string;
-  quantity: number;
-  name: string;
-  key: string;
-  value: string;
-  selected: boolean;
-  href: string;
-}
-
-interface Facet {
-  type: "TEXT" | "NUMBER" | "PRICERANGE";
-  name: string;
-  hidden: boolean;
-  quantity: number;
-  values: FacetValue[];
-}
-
-interface FacetsResponse {
-  facets: Facet[];
-  breadcrumb: Array<{ name: string; href: string }>;
-  queryArgs: {
-    query: string;
-    map: string;
-  };
-}
-
 export async function getFacets(
   facetPath: string,
   query: string,
@@ -453,42 +373,10 @@ export function buildFacetPath(selectedFilters: Record<string, string[]>): strin
 }
 ```
 
-### Step 3: Implement Autocomplete
-
-Wire up the autocomplete endpoint to your search input for real-time suggestions.
+Debounced autocomplete for search inputs:
 
 ```typescript
 // lib/autocomplete.ts
-interface AutocompleteSuggestion {
-  term: string;
-  count: number;
-  attributes: Array<{
-    key: string;
-    value: string;
-    labelKey: string;
-    labelValue: string;
-  }>;
-}
-
-interface AutocompleteResponse {
-  searches: AutocompleteSuggestion[];
-}
-
-export async function getAutocompleteSuggestions(
-  query: string,
-  locale: string
-): Promise<AutocompleteResponse> {
-  const params = new URLSearchParams({ query, locale });
-  const url = `${BASE_URL}/autocomplete_suggestions?${params}`;
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Autocomplete failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-// Debounced autocomplete for use in search inputs
 export function createDebouncedAutocomplete(delayMs: number = 300) {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -505,21 +393,21 @@ export function createDebouncedAutocomplete(delayMs: number = 300) {
     }
 
     timeoutId = setTimeout(async () => {
-      const suggestions = await getAutocompleteSuggestions(query, locale);
+      const params = new URLSearchParams({ query, locale });
+      const response = await fetch(`${BASE_URL}/autocomplete_suggestions?${params}`);
+      const suggestions = await response.json();
       callback(suggestions);
     }, delayMs);
   };
 }
 ```
 
-### Complete Example
-
-A full search implementation with products, facets, autocomplete, and analytics:
+Full search orchestration with analytics:
 
 ```typescript
 // search-page.ts — framework-agnostic search orchestration
-import { productSearch, ProductSearchResponse } from "./lib/intelligent-search-client";
-import { getFacets, buildFacetPath, FacetsResponse } from "./lib/facets";
+import { productSearch } from "./lib/intelligent-search-client";
+import { getFacets, buildFacetPath } from "./lib/facets";
 import { createDebouncedAutocomplete } from "./lib/autocomplete";
 import { sendSearchEvent } from "./search-analytics";
 
@@ -529,7 +417,6 @@ interface SearchState {
   pageSize: number;
   locale: string;
   selectedFilters: Record<string, string[]>;
-  sort?: string;
   results: ProductSearchResponse | null;
   facets: FacetsResponse | null;
 }
@@ -544,9 +431,6 @@ const state: SearchState = {
   facets: null,
 };
 
-const debouncedAutocomplete = createDebouncedAutocomplete(300);
-
-// Execute search with current state
 async function executeSearch(): Promise<void> {
   const facetPath = buildFacetPath(state.selectedFilters);
 
@@ -581,47 +465,7 @@ async function executeSearch(): Promise<void> {
   });
 }
 
-// Handle search input
-function onSearchInput(query: string): void {
-  debouncedAutocomplete(query, state.locale, (suggestions) => {
-    // Render autocomplete dropdown — implementation depends on your UI framework
-    renderAutocomplete(suggestions);
-  });
-}
-
-// Handle search submit
-function onSearchSubmit(query: string): void {
-  state.query = query;
-  state.page = 0;
-  state.selectedFilters = {};
-  executeSearch();
-}
-
-// Handle filter toggle
-function onFilterToggle(facetKey: string, facetValue: string): void {
-  const current = state.selectedFilters[facetKey] || [];
-  const index = current.indexOf(facetValue);
-
-  if (index === -1) {
-    state.selectedFilters[facetKey] = [...current, facetValue];
-  } else {
-    state.selectedFilters[facetKey] = current.filter((v) => v !== facetValue);
-    if (state.selectedFilters[facetKey].length === 0) {
-      delete state.selectedFilters[facetKey];
-    }
-  }
-
-  state.page = 0;
-  executeSearch();
-}
-
-// Handle pagination
-function onPageChange(newPage: number): void {
-  state.page = newPage;
-  executeSearch();
-}
-
-// Handle product click from search results
+// Handle product click from search results — send click event
 function onProductClick(productId: string, position: number): void {
   sendSearchEvent({
     type: "search.click",
@@ -635,85 +479,64 @@ function onProductClick(productId: string, position: number): void {
     products: [{ productId, position }],
   });
 }
-
-// Placeholder render function — replace with your framework's rendering
-function renderAutocomplete(suggestions: { searches: Array<{ term: string }> }): void {
-  // Your framework-specific rendering logic here
-  console.log("Autocomplete suggestions:", suggestions.searches);
-}
 ```
 
-## Anti-Patterns
+## Common failure modes
 
-**Common mistakes developers make and how to fix them.**
+- **Not sending the `locale` parameter**: Without `locale`, Intelligent Search may return results in the wrong language or fail to apply locale-specific relevance rules. Multi-language stores will display mixed-language results. Always include `locale` in every request.
 
-### Anti-Pattern: Not Sending the `locale` Parameter
+  ```typescript
+  // Always include locale in search parameters
+  const params = new URLSearchParams({
+    query: "shoes",
+    locale: "en-US", // Required for correct language processing
+    from: "0",
+    to: "19",
+  });
+  ```
 
-**What happens**: Developers omit the `locale` query parameter from search requests.
+- **Loading all products at once**: Setting very large `from`/`to` ranges (e.g., 0 to 999) or infinite scroll without limits. The API limits results to 50 items per request. Use proper pagination with reasonable page sizes (12-24 items per page).
 
-**Why it fails**: Without `locale`, Intelligent Search may return results in the wrong language or fail to apply locale-specific relevance rules. Multi-language stores will display mixed-language results, and search terms may not be properly tokenized for the target language.
+  ```typescript
+  // Proper pagination with bounded page sizes
+  const PAGE_SIZE = 24; // Reasonable default
+  const MAX_PAGE_SIZE = 50; // API maximum
 
-**Fix**: Always include the `locale` parameter in every Intelligent Search request.
+  function getSearchPage(query: string, page: number, locale: string) {
+    const safePageSize = Math.min(PAGE_SIZE, MAX_PAGE_SIZE);
+    const from = page * safePageSize;
+    const to = from + safePageSize - 1;
 
-```typescript
-// Always include locale in search parameters
-const params = new URLSearchParams({
-  query: "shoes",
-  locale: "en-US", // Required for correct language processing
-  from: "0",
-  to: "19",
-});
-```
+    return productSearch({ query, from, to, locale });
+  }
+  ```
 
----
+- **Rebuilding search ranking logic client-side**: Fetching results and then re-sorting or re-filtering them in the frontend discards Intelligent Search's ranking intelligence. Client-side filtering only works on the current page, not the full catalog. Use the API's `sort` parameter and facet paths.
 
-### Anti-Pattern: Loading All Products at Once
+  ```typescript
+  // Use API-level sorting — don't re-sort in the frontend
+  const results = await productSearch({
+    query: "shirt",
+    sort: "price:asc", // API handles sorting across entire result set
+    locale: "en-US",
+    from: 0,
+    to: 23,
+    facets: "category-1/clothing/color/red", // API handles filtering across entire catalog
+  });
+  ```
 
-**What happens**: Developers set very large `from`/`to` ranges (e.g., 0 to 999) or implement infinite scroll that loads all results without limit.
+## Review checklist
 
-**Why it fails**: The Intelligent Search API limits results to 50 items per request. Even if it allowed more, sending large payloads degrades performance for both the API and the client. Users experience long load times and high memory consumption. Additionally, loading products beyond what is visible wastes bandwidth.
-
-**Fix**: Use proper pagination with reasonable page sizes (12-24 items per page) and lazy-load subsequent pages only when the user scrolls or clicks "next page."
-
-```typescript
-// Proper pagination with bounded page sizes
-const PAGE_SIZE = 24; // Reasonable default
-const MAX_PAGE_SIZE = 50; // API maximum
-
-function getSearchPage(query: string, page: number, locale: string) {
-  const safePageSize = Math.min(PAGE_SIZE, MAX_PAGE_SIZE);
-  const from = page * safePageSize;
-  const to = from + safePageSize - 1;
-
-  return productSearch({ query, from, to, locale });
-}
-```
-
----
-
-### Anti-Pattern: Rebuilding Search Ranking Logic Client-Side
-
-**What happens**: Developers fetch search results and then re-sort or re-filter them in the frontend instead of using the API's built-in `sort` parameter and facet paths.
-
-**Why it fails**: Intelligent Search's ranking algorithm considers relevance, sales velocity, availability, and shopper behavior. Client-side re-sorting discards this intelligence. Additionally, client-side filtering only works on the current page of results, not the full catalog — a user filtering by "Red" would only see red items from the current 24 results, not from all matching products.
-
-**Fix**: Use the API's `sort` parameter and facet path for all filtering and sorting. Let the search engine do what it was designed to do.
-
-```typescript
-// Use API-level sorting — don't re-sort in the frontend
-const results = await productSearch({
-  query: "shirt",
-  sort: "price:asc", // API handles sorting across entire result set
-  locale: "en-US",
-  from: 0,
-  to: 23,
-  facets: "category-1/clothing/color/red", // API handles filtering across entire catalog
-});
-```
+- [ ] Is Intelligent Search called directly from the frontend (not unnecessarily routed through BFF)?
+- [ ] Does every search request include `from`, `to`, and `locale` parameters?
+- [ ] Are analytics events sent to `sp.vtex.com/event-api` after search results render?
+- [ ] Are click events sent when a user selects a product from search results?
+- [ ] Is sorting done via the API's `sort` parameter rather than client-side re-sorting?
+- [ ] Is filtering done via facet paths rather than client-side filtering?
+- [ ] Is autocomplete debounced to avoid excessive API calls?
+- [ ] Are page sizes bounded to ≤ 50 items per request?
 
 ## Reference
-
-**Links to VTEX documentation and related resources.**
 
 - [Headless catalog and search](https://developers.vtex.com/docs/guides/headless-catalog) — Overview of catalog browsing and search in headless stores
 - [Intelligent Search API reference](https://developers.vtex.com/docs/api-reference/intelligent-search-api) — Complete API reference for all search endpoints
