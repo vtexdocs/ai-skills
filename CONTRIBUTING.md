@@ -39,32 +39,40 @@ Open the file and update the YAML frontmatter at the top:
 ```yaml
 ---
 name: faststore-my-new-skill
-description: >
-  A comprehensive guide to [topic]. Covers [key area 1], [key area 2], and [key area 3].
-  Essential for developers working with [platform/feature]. Includes patterns for [common task],
-  constraints to avoid [common mistake], and anti-patterns that lead to [failure mode].
-track: faststore
-tags:
-  - faststore
-  - relevant-keyword
-  - another-keyword
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+description: Apply when deciding, designing, or implementing [capability] in [platform/context]. Covers when [mechanism A] is the right choice, the core contracts and implementation pattern, and the most important constraints to avoid common failures.
+metadata:
+  track: faststore
+  tags:
+    - faststore
+    - relevant-keyword
+    - another-keyword
+  version: "1.0"
+  purpose: Decide when to use [pattern] and how to implement it safely
+  applies_to:
+    - task type 1
+    - task type 2
+  excludes:
+    - use case this skill should not cover
+  decision_scope:
+    - decision-a-vs-b
+  vtex_docs_verified: "2026-03-17"
 ---
 ```
 
-The `description` field must be at least 20 words. It's used for AI trigger matching, so make it keyword-rich and specific about what the skill covers.
+The `description` field should be activation-oriented and specific. Start with `Apply when ...` so AI trigger matching can detect when the skill is relevant.
 
-### Step 4: Write the six required sections
+### Step 4: Write the required sections
 
-Every skill must have these six H2 sections in this exact order:
+Every new skill should use the decision-oriented template sections in this order:
 
-1. `## Overview`
-2. `## Key Concepts`
-3. `## Constraints`
-4. `## Implementation Pattern`
-5. `## Anti-Patterns`
-6. `## Reference`
+1. `## When this skill applies`
+2. `## Decision rules`
+3. `## Hard constraints`
+4. `## Preferred pattern`
+5. `## Common failure modes`
+6. `## Review checklist`
+7. `## Related skills` (optional)
+8. `## Reference`
 
 See [Skill Template Reference](#skill-template-reference) for what goes in each section.
 
@@ -105,7 +113,7 @@ This regenerates all platform exports. Commit both the skill file and the update
 
 ### Step 8: Update the track index
 
-Open `tracks/{track}/index.md` and add your skill to the skills table and the recommended learning order.
+Open `tracks/{track}/index.md` and add your skill to the skills table, grouping, and recommended learning order if the track uses grouped organization.
 
 ---
 
@@ -113,45 +121,55 @@ Open `tracks/{track}/index.md` and add your skill to the skills table and the re
 
 The canonical template is at `_templates/skill-template.md`. Here's what each section should contain.
 
-### Overview
+### When this skill applies
 
-Three things: what the skill covers, when to use it, and what the reader will learn. Keep it to a short paragraph or three bullet points. Don't repeat the frontmatter description verbatim.
+Describe the cases where the skill should be used and the nearby cases where it should not. This is the skill-selection layer. Keep it short and concrete.
 
-### Key Concepts
+### Decision rules
 
-Background knowledge a developer needs before reading the rest of the skill. Use `###` subsections for each concept. Include an architecture diagram or data flow description if the topic involves multiple interacting components.
+State the main decision criteria in flat bullets. This section should help an AI or developer decide whether this mechanism, pattern, or platform feature is the right choice before implementation starts.
 
-### Constraints
+### Hard constraints
 
 Rules that must be followed to avoid failures, security issues, or platform incompatibilities. This is the most important section.
 
-Each constraint needs four parts:
+Each constraint needs:
 
-**Rule**: A clear, unambiguous statement. Use "MUST" or "MUST NOT". Example: "MUST validate the `X-VTEX-signature` header on every callback."
+- A clear rule
+- `Why this matters`
+- `Detection`
+- `Correct` example
+- `Wrong` example
 
-**Why**: The consequence of violating the rule. What breaks? What security issue arises? Be specific.
+Keep platform constraints strong, but do not present example values as universal defaults. If an example uses placeholder identifiers, credentials, policies, `productCode`, or `resourceCode`, say that they must be replaced with the actual values configured for the app.
 
-**Detection**: A pattern the AI should watch for. Example: "If you see a callback handler without signature validation, STOP and add it." This is what triggers the AI to apply the constraint proactively.
+Use backticks consistently for technical identifiers such as file names, builders, directives, routes, resolver keys, and API clients.
 
-**Paired examples**: A `✅ CORRECT` code block and a `❌ WRONG` code block. Both must be annotated (` ```typescript `, ` ```python `, etc.). The wrong example should include a comment explaining what's wrong.
+### Preferred pattern
 
-Separate constraints with a horizontal rule (`---`).
+Show the canonical implementation shape in a compact way. Prefer a minimal file layout, minimal configuration pattern, and minimal working example over a long tutorial.
 
-### Implementation Pattern
+### Common failure modes
 
-The canonical, step-by-step approach for the skill's main task. Use `###` subsections for each step. End with a "Complete Example" subsection that shows the full implementation in one place.
+List the mistakes that the skill is specifically trying to prevent. Keep this section short and pattern-recognition friendly.
 
-All code blocks must be complete enough to run or adapt directly. Avoid pseudocode.
+### Review checklist
 
-### Anti-Patterns
+Turn the constraints into fast yes/no review questions. The checklist should match the constraints and examples exactly.
 
-Common mistakes developers make. Each anti-pattern needs:
+### Related skills
 
-- **What happens**: The mistake itself (what the developer does)
-- **Why it fails**: The consequence
-- **Fix**: The correct approach, with a code example
+Use this optional section for short cross-links to nearby skills when it helps the AI or developer choose between mechanisms or understand adjacent responsibilities. Keep it short.
 
-Anti-patterns are different from constraints. Constraints are rules to follow during implementation. Anti-patterns are mistakes to recognize and fix after the fact.
+Add `Related skills` when:
+- the skill sits near a real decision boundary, such as `graphql` vs `http-routes`
+- the user or AI would plausibly pick the wrong adjacent skill without guidance
+- another skill is a natural companion needed right after this one
+
+Skip `Related skills` when:
+- the links would only restate the obvious track structure
+- there is no meaningful ambiguity about when to use the skill
+- the section would become a second reference list instead of a decision aid
 
 ### Reference
 
@@ -162,7 +180,7 @@ Links to VTEX documentation. Use this format:
 - [Help Center Article](https://help.vtex.com/en/docs/...) — Why this is relevant
 ```
 
-Only link to `developers.vtex.com` or `help.vtex.com`. Don't link to third-party sites or GitHub issues. If you verified facts against the docs, update `vtex_docs_verified` in the frontmatter.
+Only link to `developers.vtex.com` or `help.vtex.com`. Don't link to third-party sites or GitHub issues. If you verified facts against the docs, update `metadata.vtex_docs_verified` in the frontmatter.
 
 ---
 
@@ -196,7 +214,7 @@ See any existing `tracks/*/index.md` for a complete example.
 
 ### Step 3: Add skills
 
-Follow the [Adding a New Skill](#adding-a-new-skill) steps. Set the `track` frontmatter field to your new track's directory name.
+Follow the [Adding a New Skill](#adding-a-new-skill) steps. Set the `metadata.track` frontmatter field to your new track's directory name.
 
 ### Step 4: Update the README
 
@@ -243,11 +261,12 @@ Before submitting a pull request, verify all of these:
 - [ ] `bun run export` completes with exit code 0
 - [ ] No `TBD`, `TODO`, or `[placeholder]` text in prose sections
 - [ ] All code blocks have language annotations on opening fences
-- [ ] The `description` frontmatter field is at least 20 words
-- [ ] All 6 required H2 sections are present in the correct order
-- [ ] Each constraint has a Detection field and paired CORRECT/WRONG examples
+- [ ] The `description` frontmatter field starts with `Apply when ...`
+- [ ] The decision-oriented sections are present in the correct order
+- [ ] Each hard constraint has `Why this matters`, `Detection`, and paired `Correct`/`Wrong` examples
+- [ ] Example values are clearly marked as placeholders or documented examples when they are not universal defaults
 - [ ] All VTEX doc links use `developers.vtex.com` or `help.vtex.com`
-- [ ] The `vtex_docs_verified` date reflects when you last checked the docs
+- [ ] The `metadata.vtex_docs_verified` date reflects when you last checked the docs
 - [ ] The track `index.md` includes the new skill in its table and learning order
 - [ ] The `exports/` directory is updated (run `bun run export` and commit the output)
 
