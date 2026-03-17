@@ -5,49 +5,62 @@ description: >
   Covers Feed v3 (pull) vs Hook (push), filter types (FromWorkflow and FromOrders), order status lifecycle,
   payload validation, and idempotent processing. Use for building order integrations between VTEX marketplaces
   and external systems such as ERPs, WMS, or fulfillment services.
-track: marketplace
-tags:
-  - marketplace
-  - order-integration
-  - feed-v3
-  - hook
-  - webhook
-  - order-status
-  - idempotency
-globs:
-  - "**/order/**/*.ts"
-  - "**/hook/**/*.ts"
-  - "**/feed/**/*.ts"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+metadata:
+  track: marketplace
+  tags:
+    - marketplace
+    - order-integration
+    - feed-v3
+    - hook
+    - webhook
+    - order-status
+    - idempotency
+  globs:
+    - "**/order/**/*.ts"
+    - "**/hook/**/*.ts"
+    - "**/feed/**/*.ts"
+  version: "1.0"
+  purpose: Choose between Feed v3 and Hook for order updates and implement secure, idempotent event processing
+  applies_to:
+    - order status change integrations
+    - ERP and WMS order sync
+    - webhook endpoint implementation
+  excludes:
+    - catalog synchronization (see marketplace-catalog-sync)
+    - fulfillment and invoice handling (see marketplace-fulfillment)
+  decision_scope:
+    - feed-pull-vs-hook-push
+    - fromworkflow-vs-fromorders-filter
+    - idempotent-event-processing
+  vtex_docs_verified: "2026-03-16"
 ---
 
 # Order Integration & Webhooks
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: VTEX order Feed v3 and Hook configuration for marketplace integrations, including webhook setup, order status lifecycle, payload structure, authentication validation, and idempotent event processing.
+Use this skill when building an integration that needs to react to order status changes in a VTEX marketplace — such as syncing orders to an ERP, triggering fulfillment workflows, or sending notifications to external systems.
 
-**When to use it**: When building an integration that needs to react to order status changes in a VTEX marketplace — such as syncing orders to an ERP, triggering fulfillment workflows, or sending notifications to external systems.
+- Configuring Feed v3 or Hook for order updates
+- Choosing between Feed (pull) and Hook (push) delivery models
+- Validating webhook authentication and processing events idempotently
+- Handling the complete order status lifecycle
 
-**What you'll learn**:
-- How to configure Feed v3 and Hook for order updates
-- The difference between Feed (pull) and Hook (push) and when to use each
-- How to validate webhook authentication and process events idempotently
-- How to handle the complete order status lifecycle
+Do not use this skill for:
+- Catalog or SKU synchronization (see `marketplace-catalog-sync`)
+- Invoice and tracking submission (see `marketplace-fulfillment`)
+- General API rate limiting (see `marketplace-rate-limiting`)
 
-## Key Concepts
+## Decision rules
 
-**Essential knowledge before implementation**:
+- Use **Hook (push)** for high-performance middleware that needs real-time order updates. Your endpoint must respond with HTTP 200 within 5000ms.
+- Use **Feed (pull)** for ERPs or systems with limited throughput where you control the consumption pace. Events persist in a queue until committed.
+- Use **Feed as a backup** alongside Hook to catch events missed during downtime.
+- Use **FromWorkflow** filter when you only need to react to order status changes (simpler, most common).
+- Use **FromOrders** filter when you need to filter by any order property using JSONata expressions (e.g., by sales channel).
+- The two filter types are **mutually exclusive**. Using both in the same configuration request returns `409 Conflict`.
+- Each appKey can configure only one feed and one hook. Different users sharing the same appKey access the same feed/hook.
 
-### Concept 1: Feed vs. Hook
-
-VTEX provides two mechanisms for consuming order updates:
-
-- **Feed (pull model)**: A queue of order update events. Your integration periodically calls `GET /api/orders/feed` to retrieve events, processes them, then commits them via `POST /api/orders/feed`. You control the pace.
-- **Hook (push model)**: VTEX sends order update events to your endpoint via POST whenever an event matches your filter. Your endpoint must respond with HTTP 200 within 5000ms.
-
-Key differences:
 | | Feed | Hook |
 |---|---|---|
 | Model | Pull (active) | Push (reactive) |
@@ -55,38 +68,7 @@ Key differences:
 | Reliability | Events persist in queue | Must be always available |
 | Best for | ERPs with limited throughput | High-performance middleware |
 
-Each appKey can configure only one feed and one hook. Different users sharing the same appKey access the same feed/hook.
-
-### Concept 2: Filter Types
-
-Both Feed and Hook support two filter types:
-
-**FromWorkflow** — Filter by order status changes only:
-```json
-{
-  "filter": {
-    "type": "FromWorkflow",
-    "status": ["ready-for-handling", "handling", "invoiced", "cancel"]
-  }
-}
-```
-
-**FromOrders** — Filter by any order property using JSONata expressions:
-```json
-{
-  "filter": {
-    "type": "FromOrders",
-    "expression": "status = \"ready-for-handling\" and salesChannel = \"2\"",
-    "disableSingleFire": false
-  }
-}
-```
-
-The two filter types are mutually exclusive. Using both in the same configuration request returns `409 Conflict`.
-
-### Concept 3: Hook Notification Payload
-
-When a Hook fires, VTEX sends a POST to your endpoint with this structure:
+**Hook Notification Payload**:
 
 ```json
 {
@@ -117,19 +99,22 @@ VTEX OMS                           Your Integration
    │◀── HTTP 200 ─────────────────────────│  (Must respond within 5000ms)
 ```
 
-## Constraints
-
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+## Hard constraints
 
 ### Constraint: Validate Webhook Authentication
 
-**Rule**: Your hook endpoint MUST validate the authentication headers sent by VTEX before processing any event. The `Origin.Account` and `Origin.Key` fields in the payload must match your expected values.
+Your hook endpoint MUST validate the authentication headers sent by VTEX before processing any event. The `Origin.Account` and `Origin.Key` fields in the payload must match your expected values.
 
-**Why**: Without auth validation, any actor can send fake order events to your endpoint, triggering unauthorized fulfillment actions, data corruption, or financial losses.
+**Why this matters**
 
-**Detection**: If you see a hook endpoint handler that processes events without checking `Origin.Account`, `Origin.Key`, or custom headers → STOP and add authentication validation.
+Without auth validation, any actor can send fake order events to your endpoint, triggering unauthorized fulfillment actions, data corruption, or financial losses.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see a hook endpoint handler that processes events without checking `Origin.Account`, `Origin.Key`, or custom headers → STOP and add authentication validation.
+
+**Correct**
+
 ```typescript
 import { RequestHandler } from "express";
 
@@ -192,7 +177,8 @@ async function processOrderEvent(payload: HookPayload): Promise<void> {
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: No authentication validation — accepts events from anyone
 const unsafeHookHandler: RequestHandler = async (req, res) => {
@@ -209,13 +195,18 @@ const unsafeHookHandler: RequestHandler = async (req, res) => {
 
 ### Constraint: Process Events Idempotently
 
-**Rule**: Your integration MUST process order events idempotently. Use the combination of `OrderId` + `State` + `LastChange` as a deduplication key to prevent duplicate processing.
+Your integration MUST process order events idempotently. Use the combination of `OrderId` + `State` + `LastChange` as a deduplication key to prevent duplicate processing.
 
-**Why**: VTEX may deliver the same hook notification multiple times (at-least-once delivery). Without idempotency, duplicate processing can result in double fulfillment, duplicate invoices, or inconsistent state.
+**Why this matters**
 
-**Detection**: If you see an order event handler without an `orderId` duplicate check or deduplication mechanism → warn about idempotency. If the handler directly mutates state without checking if the event was already processed → warn.
+VTEX may deliver the same hook notification multiple times (at-least-once delivery). Without idempotency, duplicate processing can result in double fulfillment, duplicate invoices, or inconsistent state.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see an order event handler without an `orderId` duplicate check or deduplication mechanism → warn about idempotency. If the handler directly mutates state without checking if the event was already processed → warn.
+
+**Correct**
+
 ```typescript
 interface ProcessedEvent {
   orderId: string;
@@ -294,7 +285,8 @@ async function cancelOrderInERP(orderId: string): Promise<void> {
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: No deduplication — processes every event even if already handled
 async function processWithoutIdempotency(payload: HookPayload): Promise<void> {
@@ -324,13 +316,18 @@ const database = {
 
 ### Constraint: Handle All Order Statuses
 
-**Rule**: Your integration MUST handle all possible order statuses, including `Status Null`. Unrecognized statuses must be logged but not crash the integration.
+Your integration MUST handle all possible order statuses, including `Status Null`. Unrecognized statuses must be logged but not crash the integration.
 
-**Why**: VTEX documents warn that `Status Null` may be unidentified and end up being mapped as another status, potentially leading to errors. Missing a status in your handler can cause orders to get stuck or lost.
+**Why this matters**
 
-**Detection**: If you see a status handler that only covers 2-3 statuses without a default/fallback case → warn about incomplete status handling.
+VTEX documents warn that `Status Null` may be unidentified and end up being mapped as another status, potentially leading to errors. Missing a status in your handler can cause orders to get stuck or lost.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see a status handler that only covers 2-3 statuses without a default/fallback case → warn about incomplete status handling.
+
+**Correct**
+
 ```typescript
 type OrderStatus =
   | "order-created"
@@ -416,7 +413,8 @@ async function logUnhandledStatus(orderId: string, state: string): Promise<void>
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Only handles 2 statuses, no fallback for unknown statuses
 async function incompleteHandler(orderId: string, state: string): Promise<void> {
@@ -431,11 +429,9 @@ async function incompleteHandler(orderId: string, state: string): Promise<void> 
 }
 ```
 
-## Implementation Pattern
+## Preferred pattern
 
-**The canonical, recommended way to implement order integration.**
-
-### Step 1: Configure the Hook
+### Configure the Hook
 
 Set up the hook with appropriate filters and your endpoint URL.
 
@@ -497,7 +493,7 @@ await configureOrderHook({
 });
 ```
 
-### Step 2: Build the Hook Endpoint with Auth and Idempotency
+### Build the Hook Endpoint with Auth and Idempotency
 
 ```typescript
 import express from "express";
@@ -515,10 +511,10 @@ const hookConfig: HookConfig = {
 app.post("/vtex/order-hook", createHookHandler(hookConfig));
 
 // The createHookHandler and idempotentProcessEvent functions
-// from the Constraints section above handle auth + deduplication
+// from the Hard constraints section above handle auth + deduplication
 ```
 
-### Step 3: Fetch Full Order Data and Process
+### Fetch Full Order Data and Process
 
 After receiving the hook notification, fetch the complete order data for processing.
 
@@ -605,7 +601,7 @@ async function cancelFulfillmentTask(orderId: string): Promise<void> {
 }
 ```
 
-### Step 4: Implement Feed as Fallback
+### Implement Feed as Fallback
 
 Use Feed v3 as a backup to catch any events the hook might miss during downtime.
 
@@ -723,51 +719,11 @@ app.listen(3000, () => {
 });
 ```
 
-## Anti-Patterns
+## Common failure modes
 
-**Common mistakes developers make and how to fix them.**
+- **Using List Orders API instead of Feed/Hook.** The `GET /api/oms/pvt/orders` endpoint depends on indexing, which can lag behind real-time updates. It's slower, less reliable, and more likely to hit rate limits when polled frequently. Feed v3 runs before indexing and doesn't depend on it. Use Feed v3 or Hook for order change detection; use List Orders only for ad-hoc queries.
 
-### Anti-Pattern: Using List Orders API Instead of Feed/Hook
-
-**What happens**: Developers poll `GET /api/oms/pvt/orders` with status filters to detect order changes instead of using Feed v3 or Hook.
-
-**Why it fails**: The List Orders API depends on indexing, which can lag behind real-time updates. It's slower, less reliable, and more likely to hit rate limits when polled frequently. Feed v3 runs before indexing and doesn't depend on it.
-
-**Fix**: Migrate to Feed v3 or Hook for order change detection. Use List Orders only for ad-hoc queries.
-
-```typescript
-// Correct: Use Feed v3 to consume order updates
-async function consumeOrderFeed(client: AxiosInstance): Promise<void> {
-  const response = await client.get("/api/orders/feed");
-  const events = response.data;
-
-  for (const event of events) {
-    await processOrderEvent({
-      Domain: "Marketplace",
-      OrderId: event.orderId,
-      State: event.state,
-      LastChange: event.lastChange,
-      Origin: { Account: "", Key: "" },
-    });
-  }
-
-  // Commit processed events
-  const handles = events.map((e: { handle: string }) => e.handle);
-  if (handles.length > 0) {
-    await client.post("/api/orders/feed", { handles });
-  }
-}
-```
-
----
-
-### Anti-Pattern: Blocking Hook Response with Long Processing
-
-**What happens**: The hook endpoint performs all order processing synchronously before responding to VTEX.
-
-**Why it fails**: VTEX requires the hook endpoint to respond with HTTP 200 within **5000ms**. If processing takes longer (e.g., ERP sync, complex database writes), VTEX considers the delivery failed and retries with increasing delays. Repeated failures can lead to hook deactivation.
-
-**Fix**: Acknowledge the event immediately, then process asynchronously via a queue.
+- **Blocking hook response with long processing.** VTEX requires the hook endpoint to respond with HTTP 200 within **5000ms**. If processing takes longer (e.g., ERP sync, complex database writes), VTEX considers the delivery failed and retries with increasing delays. Repeated failures can lead to hook deactivation. Acknowledge the event immediately, then process asynchronously via a queue.
 
 ```typescript
 import { RequestHandler } from "express";
@@ -805,9 +761,17 @@ async function enqueueOrderEvent(payload: HookPayload): Promise<void> {
 }
 ```
 
-## Reference
+## Review checklist
 
-**Links to VTEX documentation and related resources.**
+- [ ] Is the correct delivery model chosen (Feed for controlled throughput, Hook for real-time)?
+- [ ] Does the hook endpoint validate `Origin.Account`, `Origin.Key`, and custom headers?
+- [ ] Is event processing idempotent using `OrderId` + `State` + `LastChange` as deduplication key?
+- [ ] Does the status handler cover all order statuses with a default/fallback case?
+- [ ] Does the hook endpoint respond within **5000ms** (using async processing for heavy work)?
+- [ ] Is Feed v3 configured as a backup to catch missed hook events?
+- [ ] Are filter types not mixed (FromWorkflow and FromOrders are mutually exclusive)?
+
+## Reference
 
 - [Feed v3 Guide](https://developers.vtex.com/docs/guides/orders-feed) — Complete guide to Feed and Hook configuration, filter types, and best practices
 - [Orders API - Feed v3 Endpoints](https://developers.vtex.com/docs/api-reference/orders-api#get-/api/orders/feed) — API reference for feed retrieval and commit

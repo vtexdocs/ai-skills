@@ -5,77 +5,74 @@ description: >
   Covers VTEX rate limit headers (X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After), 429 status handling,
   exponential backoff with jitter, circuit breaker patterns, and request queuing. Use for any VTEX marketplace
   integration that must gracefully handle API throttling and maintain high availability.
-track: marketplace
-tags:
-  - marketplace
-  - rate-limiting
-  - resilience
-  - exponential-backoff
-  - circuit-breaker
-  - 429
-  - retry-after
-  - api-throttling
-globs:
-  - "**/middleware/**/*.ts"
-  - "**/rate-limit/**/*.ts"
-  - "**/retry/**/*.ts"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+metadata:
+  track: marketplace
+  tags:
+    - marketplace
+    - rate-limiting
+    - resilience
+    - exponential-backoff
+    - circuit-breaker
+    - 429
+    - retry-after
+    - api-throttling
+  globs:
+    - "**/middleware/**/*.ts"
+    - "**/rate-limit/**/*.ts"
+    - "**/retry/**/*.ts"
+  version: "1.0"
+  purpose: Handle VTEX API rate limits gracefully with exponential backoff, circuit breakers, and request queuing
+  applies_to:
+    - retry logic for VTEX API calls
+    - rate limit handling and 429 responses
+    - circuit breaker implementation
+    - request queue and throughput control
+  excludes:
+    - catalog-specific sync logic (see marketplace-catalog-sync)
+    - order event processing (see marketplace-order-hook)
+  decision_scope:
+    - proactive-vs-reactive-rate-management
+    - circuit-breaker-thresholds
+    - queue-vs-direct-request
+  vtex_docs_verified: "2026-03-16"
 ---
 
 # API Rate Limiting & Resilience
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: VTEX API rate limiting mechanics, response headers for rate limit awareness, and resilience patterns including exponential backoff with jitter, circuit breakers, and request queuing for marketplace integrations.
+Use this skill when building any integration that calls VTEX APIs — catalog sync, order processing, price/inventory updates, or fulfillment operations — and needs to handle rate limits gracefully without losing data or degrading performance.
 
-**When to use it**: When building any integration that calls VTEX APIs — catalog sync, order processing, price/inventory updates, or fulfillment operations — and needs to handle rate limits gracefully without losing data or degrading performance.
+- Implementing retry logic with exponential backoff and jitter
+- Reading and reacting to VTEX rate limit headers (`Retry-After`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
+- Building circuit breakers for high-throughput integrations
+- Controlling request throughput with queuing
 
-**What you'll learn**:
-- How VTEX rate limits work, including burst credits and per-route limits
-- How to read and react to rate limit headers (`Retry-After`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
-- How to implement exponential backoff with jitter to avoid thundering herd problems
-- How to build circuit breakers and request queues for high-throughput integrations
+Do not use this skill for:
+- Catalog-specific synchronization logic (see `marketplace-catalog-sync`)
+- Order event consumption and processing (see `marketplace-order-hook`)
+- Invoice and tracking submission (see `marketplace-fulfillment`)
 
-## Key Concepts
+## Decision rules
 
-**Essential knowledge before implementation**:
+- Always implement **exponential backoff with jitter** on 429 responses. Formula: `delay = min(maxDelay, baseDelay * 2^attempt) * (0.5 + random(0, 0.5))`.
+- Always **read the `Retry-After` header** on 429 responses. Use the greater of the `Retry-After` value and the calculated backoff delay.
+- Use a **circuit breaker** when a service consistently fails (e.g., after 5 consecutive failures), to prevent cascading failures and give the service time to recover.
+- Use a **request queue** to control throughput and avoid bursts that trigger rate limits.
+- Monitor `X-RateLimit-Remaining` **proactively** on successful responses and slow down before hitting 429.
+- VTEX rate limits vary by API:
+  - **Pricing API**: PUT/POST: 40 requests/second/account with 1000 burst credits. DELETE: 16 requests/second/account with 300 burst credits.
+  - **Catalog API**: Varies by endpoint; no published fixed limits.
+  - **Orders API**: Subject to general platform limits; VTEX recommends 1-minute backoff on 429.
+- **Burst Credits**: When you exceed the rate limit, excess requests consume burst credits (1 credit per excess request). When burst credits reach 0, the request is blocked with 429. Credits refill over time at the same rate as the route's limit when the route is not being used.
 
-### Concept 1: VTEX Rate Limit Mechanics
-
-VTEX enforces rate limits per route per account. When limits are exceeded:
-- **429 Too Many Requests** — Your request was rejected. The response includes a `Retry-After` header (in seconds) indicating when to retry.
-- **503 Service Unavailable** — A circuit breaker was activated because the target service received too many errors. Requests are temporarily blocked to let the service recover.
-
-Rate limits vary by API:
-- **Pricing API**: PUT/POST routes: 40 requests/second/account with 1000 burst credits. DELETE: 16 requests/second/account with 300 burst credits.
-- **Catalog API**: Varies by endpoint; no published fixed limits.
-- **Orders API**: Subject to general platform limits; VTEX recommends 1-minute backoff on 429.
-
-**Burst Credits**: When you exceed the rate limit, excess requests consume burst credits (1 credit per excess request). When burst credits reach 0, the request is blocked with 429. Credits refill over time at the same rate as the route's limit when the route is not being used.
-
-### Concept 2: Rate Limit Response Headers
-
-VTEX APIs return these headers to help your integration manage request rates:
+**Rate Limit Response Headers**:
 
 | Header | Description |
 |---|---|
 | `Retry-After` | Seconds to wait before retrying (present on 429 responses) |
 | `X-RateLimit-Remaining` | Number of requests remaining in the current window |
 | `X-RateLimit-Reset` | Timestamp (seconds) when the rate limit window resets |
-
-Always read `Retry-After` on 429 responses. Using a fixed retry interval instead ignores the server's guidance and may cause prolonged blocking.
-
-### Concept 3: Exponential Backoff with Jitter
-
-Exponential backoff increases the wait time between retries exponentially (e.g., 1s, 2s, 4s, 8s). **Jitter** adds randomness to prevent the "thundering herd" problem where many clients retry at the same time after a rate limit window resets.
-
-The formula: `delay = min(maxDelay, baseDelay * 2^attempt) * (0.5 + random(0, 0.5))`
-
-This ensures:
-- Failed requests are retried with increasing delays
-- Multiple clients don't retry simultaneously
-- The delay is bounded by a maximum to prevent excessively long waits
 
 **Architecture/Data Flow**:
 
@@ -95,19 +92,22 @@ Your Integration                          VTEX API
       │◀── 200 OK ─────────────────────────│  (success)
 ```
 
-## Constraints
-
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+## Hard constraints
 
 ### Constraint: Implement Exponential Backoff on 429 Responses
 
-**Rule**: When receiving a 429 response, the integration MUST wait before retrying using exponential backoff with jitter. The wait time MUST respect the `Retry-After` header when present.
+When receiving a 429 response, the integration MUST wait before retrying using exponential backoff with jitter. The wait time MUST respect the `Retry-After` header when present.
 
-**Why**: Immediate retries after a 429 will be rejected again and consume burst credits faster, leading to prolonged blocking. Without jitter, all clients retry simultaneously after the window resets, causing another rate limit spike (thundering herd).
+**Why this matters**
 
-**Detection**: If you see immediate retry on 429 (no delay, no backoff) → STOP and implement exponential backoff. If you see retry logic without reading the `Retry-After` header → warn that the header should be respected. If you see `while(true)` retry loops or `setInterval` with intervals less than 5 seconds → warn about tight loops.
+Immediate retries after a 429 will be rejected again and consume burst credits faster, leading to prolonged blocking. Without jitter, all clients retry simultaneously after the window resets, causing another rate limit spike (thundering herd).
 
-✅ **CORRECT**:
+**Detection**
+
+If you see immediate retry on 429 (no delay, no backoff) → STOP and implement exponential backoff. If you see retry logic without reading the `Retry-After` header → warn that the header should be respected. If you see `while(true)` retry loops or `setInterval` with intervals less than 5 seconds → warn about tight loops.
+
+**Correct**
+
 ```typescript
 import axios, { AxiosInstance, AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
 
@@ -202,7 +202,8 @@ async function requestWithRetry<T>(
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Immediate retry without backoff or Retry-After respect
 async function retryImmediately<T>(
@@ -229,13 +230,18 @@ async function retryImmediately<T>(
 
 ### Constraint: Respect the Retry-After Header
 
-**Rule**: When a 429 response includes a `Retry-After` header, the integration MUST wait at least the specified number of seconds before retrying. The backoff delay should be the maximum of the calculated backoff and the `Retry-After` value.
+When a 429 response includes a `Retry-After` header, the integration MUST wait at least the specified number of seconds before retrying. The backoff delay should be the maximum of the calculated backoff and the `Retry-After` value.
 
-**Why**: The `Retry-After` header is the server's explicit instruction on when it will accept requests again. Ignoring it results in requests being rejected until the specified time has passed, wasting bandwidth and potentially extending the block period.
+**Why this matters**
 
-**Detection**: If you see retry logic that does not read or use the `Retry-After` header value → warn that the header should be checked. If the retry delay is always a fixed value regardless of the header → warn.
+The `Retry-After` header is the server's explicit instruction on when it will accept requests again. Ignoring it results in requests being rejected until the specified time has passed, wasting bandwidth and potentially extending the block period.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see retry logic that does not read or use the `Retry-After` header value → warn that the header should be checked. If the retry delay is always a fixed value regardless of the header → warn.
+
+**Correct**
+
 ```typescript
 function getRetryDelayMs(error: AxiosError, attempt: number): number {
   const retryAfterHeader = error.response?.headers?.["retry-after"];
@@ -261,7 +267,8 @@ function getRetryDelayMs(error: AxiosError, attempt: number): number {
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Fixed 1-second retry ignoring Retry-After header
 async function fixedRetry<T>(
@@ -285,13 +292,18 @@ async function fixedRetry<T>(
 
 ### Constraint: No Tight Retry Loops
 
-**Rule**: Integrations MUST NOT use `while(true)` loops for retrying or `setInterval`/`setTimeout` with intervals less than 5 seconds for polling VTEX APIs.
+Integrations MUST NOT use `while(true)` loops for retrying or `setInterval`/`setTimeout` with intervals less than 5 seconds for polling VTEX APIs.
 
-**Why**: Tight loops generate excessive requests that quickly exhaust rate limits, degrade VTEX platform performance for all users, and can make the VTEX Admin unavailable for the account. VTEX explicitly warns that excessive 429 errors can make Admin unavailable.
+**Why this matters**
 
-**Detection**: If you see `while(true)` or `for(;;)` retry patterns without adequate delays → warn about tight loops. If you see `setInterval` with intervals less than 5000ms for API calls → warn about polling frequency.
+Tight loops generate excessive requests that quickly exhaust rate limits, degrade VTEX platform performance for all users, and can make the VTEX Admin unavailable for the account. VTEX explicitly warns that excessive 429 errors can make Admin unavailable.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see `while(true)` or `for(;;)` retry patterns without adequate delays → warn about tight loops. If you see `setInterval` with intervals less than 5000ms for API calls → warn about polling frequency.
+
+**Correct**
+
 ```typescript
 // Correct: Controlled polling with adequate intervals
 async function pollWithBackpressure(
@@ -340,7 +352,8 @@ async function commitEvents(client: AxiosInstance, handles: string[]): Promise<v
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Tight loop with no backpressure
 async function tightLoop(client: AxiosInstance): Promise<void> {
@@ -367,11 +380,9 @@ function createClient(): AxiosInstance {
 }
 ```
 
-## Implementation Pattern
+## Preferred pattern
 
-**The canonical, recommended way to implement rate-limit-aware VTEX API calls.**
-
-### Step 1: Create a Rate-Limit-Aware HTTP Client
+### Create a Rate-Limit-Aware HTTP Client
 
 Wrap your HTTP client with automatic retry logic.
 
@@ -415,7 +426,7 @@ function createRateLimitedClient(config: RateLimitedClientConfig): {
 }
 ```
 
-### Step 2: Implement a Circuit Breaker
+### Implement a Circuit Breaker
 
 Prevent cascading failures when a service is consistently failing.
 
@@ -491,7 +502,7 @@ class CircuitBreaker {
 }
 ```
 
-### Step 3: Implement a Request Queue
+### Implement a Request Queue
 
 Queue requests to control throughput and avoid bursts.
 
@@ -567,7 +578,7 @@ class RequestQueue {
 }
 ```
 
-### Step 4: Monitor Rate Limit Headers Proactively
+### Monitor Rate Limit Headers Proactively
 
 Read rate limit headers to slow down before hitting 429.
 
@@ -666,17 +677,9 @@ async function buildResilientIntegration(): Promise<void> {
 }
 ```
 
-## Anti-Patterns
+## Common failure modes
 
-**Common mistakes developers make and how to fix them.**
-
-### Anti-Pattern: Fixed Retry Delay Without Jitter
-
-**What happens**: Developers implement retry logic with a fixed delay (e.g., always wait 5 seconds) instead of exponential backoff with jitter.
-
-**Why it fails**: When multiple integration instances are rate-limited simultaneously, they all retry at the same time (5 seconds later), creating another burst that triggers rate limiting again. This "thundering herd" pattern can persist indefinitely.
-
-**Fix**: Use exponential backoff with random jitter so retries are spread across time.
+- **Fixed retry delay without jitter.** Using a fixed delay (e.g., always 5 seconds) instead of exponential backoff with jitter causes the "thundering herd" problem: all rate-limited clients retry simultaneously, creating another burst that triggers rate limiting again. Use exponential backoff with random jitter so retries are spread across time.
 
 ```typescript
 // Correct: Exponential backoff with jitter
@@ -696,15 +699,7 @@ function getRetryDelay(attempt: number): number {
 // attempt 4: ~8000-16000ms
 ```
 
----
-
-### Anti-Pattern: No Proactive Rate Management
-
-**What happens**: Developers only handle 429 errors reactively (after being rate limited) instead of monitoring rate limit headers to slow down proactively.
-
-**Why it fails**: By the time you receive a 429, you've already lost burst credits. Proactive monitoring of `X-RateLimit-Remaining` allows you to reduce request rate before hitting the limit, maintaining consistent throughput.
-
-**Fix**: Read rate limit headers on successful responses and adjust request pacing when remaining quota is low.
+- **No proactive rate management.** Only handling 429 errors reactively (after being rate limited) instead of monitoring rate limit headers to slow down proactively. By the time you receive a 429, you've already lost burst credits. Monitor `X-RateLimit-Remaining` on successful responses and reduce request rate when remaining quota is low.
 
 ```typescript
 // Correct: Proactive rate management
@@ -734,9 +729,17 @@ async function proactiveRateManagement(
 }
 ```
 
-## Reference
+## Review checklist
 
-**Links to VTEX documentation and related resources.**
+- [ ] Is exponential backoff with jitter implemented for 429 responses?
+- [ ] Is the `Retry-After` header read and respected on 429 responses?
+- [ ] Are there no tight retry loops (`while(true)`, `setInterval` < 5 seconds)?
+- [ ] Is a circuit breaker in place for consistently failing services?
+- [ ] Are `X-RateLimit-Remaining` headers monitored proactively to slow down before hitting limits?
+- [ ] Are the correct numeric thresholds used (maxRetries: 5, baseDelayMs: 1000, maxDelayMs: 60000)?
+- [ ] Are Pricing API limits respected (40 req/s PUT/POST, 16 req/s DELETE, burst credits)?
+
+## Reference
 
 - [Best Practices for Avoiding Rate Limit Errors](https://developers.vtex.com/docs/guides/best-practices-for-avoiding-rate-limit-errors) — Official VTEX guide on rate limit management and best practices
 - [Handling Errors and Exceptions](https://developers.vtex.com/docs/guides/handling-errors-and-exceptions) — VTEX guide on error handling including 429 and 5xx responses

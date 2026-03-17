@@ -5,65 +5,58 @@ description: >
   the changenotification endpoint, SKU suggestion lifecycle, product data mapping, price and inventory sync,
   and fulfillment simulation. Use for implementing seller-side catalog integration that pushes SKUs to VTEX
   marketplaces with proper notification handling and rate-limited batch synchronization.
-track: marketplace
-tags:
-  - marketplace
-  - catalog
-  - sku-integration
-  - changenotification
-  - seller-connector
-  - product-sync
-globs:
-  - "**/catalog/**/*.ts"
-  - "**/sku/**/*.ts"
-  - "**/notification/**/*.ts"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+metadata:
+  track: marketplace
+  tags:
+    - marketplace
+    - catalog
+    - sku-integration
+    - changenotification
+    - seller-connector
+    - product-sync
+  globs:
+    - "**/catalog/**/*.ts"
+    - "**/sku/**/*.ts"
+    - "**/notification/**/*.ts"
+  version: "1.0"
+  purpose: Integrate external seller catalogs with VTEX marketplaces via the Change Notification + SKU Suggestion flow
+  applies_to:
+    - seller connector catalog integration
+    - SKU notification and suggestion workflows
+    - price and inventory synchronization
+  excludes:
+    - marketplace-side catalog management (use direct Catalog API)
+    - order fulfillment (see marketplace-fulfillment)
+  decision_scope:
+    - changenotification-vs-direct-catalog-api
+    - suggestion-lifecycle-management
+    - batch-sync-throttling-strategy
+  vtex_docs_verified: "2026-03-16"
 ---
 
 # Catalog & SKU Integration
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: The complete SKU integration flow between an external seller and a VTEX marketplace, including catalog notifications, SKU suggestions, approval lifecycle, and price/inventory synchronization.
+Use this skill when building a seller connector that needs to push product catalog data into a VTEX marketplace, handle SKU approval workflows, or keep prices and inventory synchronized.
 
-**When to use it**: When building a seller connector that needs to push product catalog data into a VTEX marketplace, handle SKU approval workflows, or keep prices and inventory synchronized.
+- Building the Change Notification flow to register and update SKUs
+- Implementing the SKU suggestion lifecycle (send → pending → approved/denied)
+- Mapping product data to the VTEX catalog schema
+- Synchronizing prices and inventory via notification endpoints
 
-**What you'll learn**:
-- How to use the Change Notification endpoint to register and update SKUs
-- The SKU suggestion lifecycle (send → pending → approved/denied)
-- How to map product data to the VTEX catalog schema
-- How to synchronize prices and inventory via notification endpoints
+Do not use this skill for:
+- Marketplace-side catalog operations (direct Catalog API writes)
+- Order fulfillment or invoice handling (see `marketplace-fulfillment`)
+- Rate limiting patterns in isolation (see `marketplace-rate-limiting`)
 
-## Key Concepts
+## Decision rules
 
-**Essential knowledge before implementation**:
-
-### Concept 1: Change Notification Flow
-
-The `POST /api/catalog_system/pvt/skuseller/changenotification/{skuId}` endpoint is the entry point for all catalog integration. When called:
-- **200 OK** → The SKU already exists in the marketplace. The seller should update the SKU information.
-- **404 Not Found** → The SKU does not exist in the marketplace. The seller must send an SKU suggestion.
-
-This two-response pattern drives the entire integration: notify first, then either update or register based on the response.
-
-### Concept 2: SKU Suggestion Lifecycle
-
-The catalog is owned by the marketplace — the seller has no direct access. Every new SKU is sent as a **suggestion** via the `PUT Send SKU Suggestion` API. The lifecycle is:
-1. **Seller sends suggestion** with product name, SKU name, images, EAN, specifications
-2. **Suggestion enters "pending" state** in the marketplace's Received SKUs panel
-3. **Marketplace approves or denies** — approval creates an actual SKU in the catalog
-4. **Once approved**, the suggestion ceases to exist; the SKU can only be edited by the marketplace
-
-Suggestions can be updated by the seller only while still in pending state. Once approved or denied, updates require a new suggestion or direct marketplace action.
-
-### Concept 3: Price & Inventory Notifications
-
-Price and inventory changes use separate notification endpoints (not the catalog changenotification):
-- `POST /notificator/{sellerId}/changenotification/{skuId}/price` — notify price change
-- `POST /notificator/{sellerId}/changenotification/{skuId}/inventory` — notify inventory change
-
-After these notifications, the marketplace calls the seller's **Fulfillment Simulation** endpoint (`POST /pvt/orderForms/simulation`) to retrieve current data. This endpoint must respond within **2.5 seconds** or the product is considered unavailable.
+- Use `POST /api/catalog_system/pvt/skuseller/changenotification/{skuId}` as the entry point for all catalog integration. A **200 OK** means the SKU exists (update it); a **404 Not Found** means it does not (send a suggestion).
+- Use the `PUT Send SKU Suggestion` API to register new SKUs. The seller does not own the catalog — every new SKU must go through the suggestion/approval workflow.
+- Use separate notification endpoints for price and inventory changes (`/notificator/{sellerId}/changenotification/{skuId}/price` and `/inventory`), not the catalog changenotification.
+- After price/inventory notifications, the marketplace calls the seller's **Fulfillment Simulation** endpoint (`POST /pvt/orderForms/simulation`). This endpoint must respond within **2.5 seconds** or the product is considered unavailable.
+- Suggestions can only be updated while in "pending" state. Once approved or denied, the seller cannot modify them.
 
 **Architecture/Data Flow**:
 
@@ -82,19 +75,22 @@ Seller                          VTEX Marketplace
   │─── Response with price/stock ────▶│
 ```
 
-## Constraints
-
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+## Hard constraints
 
 ### Constraint: Use SKU Integration API, Not Direct Catalog API
 
-**Rule**: External sellers MUST use the Change Notification + SKU Suggestion flow to integrate SKUs. Direct Catalog API writes (`POST /api/catalog/pvt/product` or `POST /api/catalog/pvt/stockkeepingunit`) are for marketplace-side operations only.
+External sellers MUST use the Change Notification + SKU Suggestion flow to integrate SKUs. Direct Catalog API writes (`POST /api/catalog/pvt/product` or `POST /api/catalog/pvt/stockkeepingunit`) are for marketplace-side operations only.
 
-**Why**: The seller does not own the catalog. Direct catalog writes will fail with 403 Forbidden or create orphaned entries that bypass the approval workflow. The suggestion mechanism ensures marketplace quality control.
+**Why this matters**
 
-**Detection**: If you see direct Catalog API calls for product/SKU creation (e.g., `POST /api/catalog/pvt/product`, `POST /api/catalog/pvt/stockkeepingunit`) from a seller integration → warn that the SKU Integration API should be used instead.
+The seller does not own the catalog. Direct catalog writes will fail with 403 Forbidden or create orphaned entries that bypass the approval workflow. The suggestion mechanism ensures marketplace quality control.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see direct Catalog API calls for product/SKU creation (e.g., `POST /api/catalog/pvt/product`, `POST /api/catalog/pvt/stockkeepingunit`) from a seller integration → warn that the SKU Integration API should be used instead.
+
+**Correct**
+
 ```typescript
 import axios, { AxiosInstance } from "axios";
 
@@ -148,7 +144,8 @@ async function integrateSellerSku(
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Seller trying to write directly to marketplace catalog
 // This bypasses the suggestion/approval flow and will fail with 403
@@ -170,13 +167,18 @@ async function createSkuDirectly(
 
 ### Constraint: Handle Rate Limiting on Catalog Notifications
 
-**Rule**: All catalog notification calls MUST implement 429 handling with exponential backoff. Batch notifications MUST be throttled to respect VTEX API rate limits.
+All catalog notification calls MUST implement 429 handling with exponential backoff. Batch notifications MUST be throttled to respect VTEX API rate limits.
 
-**Why**: The Change Notification endpoint is rate-limited. Sending bulk notifications without throttling will trigger 429 responses and temporarily block the seller's API access, stalling the entire integration.
+**Why this matters**
 
-**Detection**: If you see catalog notification calls without 429 handling or retry logic → STOP and add rate limiting. If you see a tight loop sending notifications without delays → warn about rate limiting.
+The Change Notification endpoint is rate-limited. Sending bulk notifications without throttling will trigger 429 responses and temporarily block the seller's API access, stalling the entire integration.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see catalog notification calls without 429 handling or retry logic → STOP and add rate limiting. If you see a tight loop sending notifications without delays → warn about rate limiting.
+
+**Correct**
+
 ```typescript
 async function batchNotifySkus(
   client: AxiosInstance,
@@ -241,7 +243,8 @@ async function batchNotifySkus(
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: No rate limiting, no error handling, tight loop
 async function notifyAllSkus(
@@ -265,13 +268,18 @@ async function notifyAllSkus(
 
 ### Constraint: Handle Suggestion Lifecycle States
 
-**Rule**: Sellers MUST check the suggestion state before attempting updates. Suggestions can only be updated while in pending state.
+Sellers MUST check the suggestion state before attempting updates. Suggestions can only be updated while in pending state.
 
-**Why**: Attempting to update an already-approved or denied suggestion will fail silently or create duplicate entries. An approved suggestion becomes an SKU owned by the marketplace.
+**Why this matters**
 
-**Detection**: If you see SKU suggestion updates without checking current suggestion status → warn about suggestion lifecycle handling.
+Attempting to update an already-approved or denied suggestion will fail silently or create duplicate entries. An approved suggestion becomes an SKU owned by the marketplace.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see SKU suggestion updates without checking current suggestion status → warn about suggestion lifecycle handling.
+
+**Correct**
+
 ```typescript
 async function updateSkuSuggestion(
   client: AxiosInstance,
@@ -313,7 +321,8 @@ async function updateSkuSuggestion(
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Blindly sending suggestion update without checking state
 async function blindUpdateSuggestion(
@@ -332,11 +341,9 @@ async function blindUpdateSuggestion(
 }
 ```
 
-## Implementation Pattern
+## Preferred pattern
 
-**The canonical, recommended way to implement SKU catalog integration.**
-
-### Step 1: Set Up the Seller Connector Client
+### Set Up the Seller Connector Client
 
 Create an authenticated HTTP client for communicating with the VTEX marketplace.
 
@@ -364,7 +371,7 @@ function createMarketplaceClient(config: SellerConnectorConfig): AxiosInstance {
 }
 ```
 
-### Step 2: Implement the Change Notification Flow
+### Implement the Change Notification Flow
 
 Handle both the "exists" (200) and "new" (404) scenarios from the changenotification endpoint.
 
@@ -407,7 +414,7 @@ async function notifyAndSync(
 }
 ```
 
-### Step 3: Implement the Fulfillment Simulation Endpoint
+### Implement the Fulfillment Simulation Endpoint
 
 The marketplace calls this endpoint on the seller's side to retrieve current price and inventory data after a notification.
 
@@ -486,7 +493,7 @@ async function getSkuFromLocalCatalog(skuId: string): Promise<{
 }
 ```
 
-### Step 4: Notify Price and Inventory Changes
+### Notify Price and Inventory Changes
 
 Send separate notifications for price and inventory updates.
 
@@ -600,54 +607,11 @@ async function getLocalSkusNeedingSync(): Promise<
 }
 ```
 
-## Anti-Patterns
+## Common failure modes
 
-**Common mistakes developers make and how to fix them.**
+- **Polling for suggestion status in tight loops.** Suggestion approval is a manual or semi-automatic marketplace process that can take minutes to days. Tight polling wastes API quota and may trigger rate limits that block the entire integration. Use a scheduled job (cron) to check suggestion statuses periodically (e.g., every 15-30 minutes), or implement a webhook-based notification system.
 
-### Anti-Pattern: Polling for Suggestion Status in Tight Loops
-
-**What happens**: Developers send a suggestion then immediately poll for approval status in a tight loop, waiting for the marketplace to approve.
-
-**Why it fails**: Suggestion approval is a manual or semi-automatic marketplace process that can take minutes to days. Tight polling wastes API quota and may trigger rate limits that block the entire integration.
-
-**Fix**: Use a scheduled job (cron) to check suggestion statuses periodically (e.g., every 15-30 minutes), or implement a webhook-based notification system.
-
-```typescript
-// Correct: Scheduled periodic check, not a tight poll
-async function checkPendingSuggestions(
-  client: AxiosInstance,
-  sellerId: string,
-  pendingSkuIds: string[]
-): Promise<Array<{ skuId: string; status: string }>> {
-  const results: Array<{ skuId: string; status: string }> = [];
-
-  for (const skuId of pendingSkuIds) {
-    try {
-      const response = await client.get(
-        `/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${skuId}`
-      );
-      results.push({ skuId, status: response.data.Status });
-    } catch {
-      results.push({ skuId, status: "not_found" });
-    }
-
-    // Respect rate limits between checks
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-
-  return results;
-}
-```
-
----
-
-### Anti-Pattern: Ignoring Fulfillment Simulation Timeout
-
-**What happens**: The seller's fulfillment simulation endpoint performs complex database queries or external API calls that exceed the response time limit.
-
-**Why it fails**: VTEX marketplaces wait a maximum of **2.5 seconds** for a fulfillment simulation response. After that, the product is considered unavailable/inactive and won't appear in the storefront or checkout.
-
-**Fix**: Pre-cache price and inventory data. Use in-memory or Redis cache with event-driven updates so the simulation endpoint responds instantly.
+- **Ignoring the fulfillment simulation timeout.** The seller's fulfillment simulation endpoint performs complex database queries or external API calls that exceed the response time limit. VTEX marketplaces wait a maximum of **2.5 seconds** for a fulfillment simulation response. After that, the product is considered unavailable/inactive and won't appear in the storefront or checkout. Pre-cache price and inventory data using in-memory or Redis cache with event-driven updates so the simulation endpoint responds instantly.
 
 ```typescript
 import { RequestHandler } from "express";
@@ -692,9 +656,17 @@ const fastFulfillmentSimulation: RequestHandler = async (req, res) => {
 };
 ```
 
-## Reference
+## Review checklist
 
-**Links to VTEX documentation and related resources.**
+- [ ] Is the Change Notification + SKU Suggestion flow used (not direct Catalog API writes)?
+- [ ] Does the integration handle both 200 (exists) and 404 (new) responses from changenotification?
+- [ ] Are SKU suggestion updates guarded by a status check (only update while "Pending")?
+- [ ] Are batch catalog notifications throttled with 429 handling and exponential backoff?
+- [ ] Does the fulfillment simulation endpoint respond within **2.5 seconds**?
+- [ ] Are price and inventory notifications sent via the correct `/notificator/` endpoints?
+- [ ] Are placeholder values (account names, seller IDs, API keys) replaced with real values?
+
+## Reference
 
 - [External Seller Connector Guide](https://developers.vtex.com/docs/guides/external-seller-integration-connector) — Complete integration flow for external sellers connecting to VTEX marketplaces
 - [Change Notification API](https://developers.vtex.com/docs/api-reference/catalog-api#post-/api/catalog_system/pvt/skuseller/changenotification/-skuId-) — API reference for the changenotification endpoint

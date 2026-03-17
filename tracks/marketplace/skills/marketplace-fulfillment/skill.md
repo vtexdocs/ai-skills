@@ -5,79 +5,61 @@ description: >
   Covers the Order Invoice Notification API, invoice payload structure, tracking updates, partial invoicing
   for split shipments, and the authorize fulfillment flow. Use for building seller-side order fulfillment
   that integrates with VTEX marketplace order management including the 2.5s simulation timeout.
-track: marketplace
-tags:
-  - marketplace
-  - fulfillment
-  - invoice
-  - tracking
-  - order-management
-  - seller-connector
-globs:
-  - "**/fulfillment/**/*.ts"
-  - "**/simulation/**/*.ts"
-  - "**/invoice/**/*.ts"
-version: "1.0"
-vtex_docs_verified: "2026-03-16"
+metadata:
+  track: marketplace
+  tags:
+    - marketplace
+    - fulfillment
+    - invoice
+    - tracking
+    - order-management
+    - seller-connector
+  globs:
+    - "**/fulfillment/**/*.ts"
+    - "**/simulation/**/*.ts"
+    - "**/invoice/**/*.ts"
+  version: "1.0"
+  purpose: Implement seller-side fulfillment authorization, invoice notification, and tracking updates for VTEX marketplace orders
+  applies_to:
+    - seller order fulfillment flow
+    - invoice notification to marketplace
+    - tracking code and delivery updates
+    - partial invoicing for split shipments
+  excludes:
+    - catalog or SKU synchronization (see marketplace-catalog-sync)
+    - order event consumption via Feed/Hook (see marketplace-order-hook)
+  decision_scope:
+    - full-vs-partial-invoicing
+    - invoice-then-tracking-vs-combined
+    - return-invoice-for-cancellation
+  vtex_docs_verified: "2026-03-16"
 ---
 
 # Fulfillment, Invoice & Tracking
 
-## Overview
+## When this skill applies
 
-**What this skill covers**: The complete seller-side fulfillment flow for VTEX marketplace orders, including authorize fulfillment handling, invoice notification, tracking code updates, and partial invoicing for split shipments.
+Use this skill when building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
 
-**When to use it**: When building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
+- Handling the Authorize Fulfillment callback from the marketplace
+- Sending invoice notifications via `POST /api/oms/pvt/orders/{orderId}/invoice`
+- Updating tracking information via `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`
+- Implementing partial invoicing for split shipments
 
-**What you'll learn**:
-- How to handle the Authorize Fulfillment callback from the marketplace
-- How to send invoice notifications via `POST /api/oms/pvt/orders/{orderId}/invoice`
-- The required invoice payload fields and correct formatting
-- How to update tracking information and handle partial invoicing
+Do not use this skill for:
+- Catalog or SKU synchronization (see `marketplace-catalog-sync`)
+- Order event consumption via Feed/Hook (see `marketplace-order-hook`)
+- General API rate limiting (see `marketplace-rate-limiting`)
 
-## Key Concepts
+## Decision rules
 
-**Essential knowledge before implementation**:
-
-### Concept 1: Fulfillment Authorization Flow
-
-After payment is approved, the VTEX marketplace sends an **Authorize Fulfillment** request to the seller's endpoint (`POST /pvt/orders/{sellerOrderId}/fulfill`). This signals that the seller can begin the fulfillment process.
-
-The request body contains only the `marketplaceOrderId`. The seller must:
-1. Map the `marketplaceOrderId` to their internal order
-2. Begin picking, packing, and shipping
-3. Once ready, send the invoice notification back to the marketplace
-
-### Concept 2: Invoice Notification Endpoint
-
-The seller sends invoice data to the marketplace using:
-`POST /api/oms/pvt/orders/{orderId}/invoice`
-
-Required fields in the request body:
-- `type` — `"Output"` for sales invoices (shipment), `"Input"` for return invoices
-- `invoiceNumber` — Unique invoice identifier
-- `invoiceValue` — Total value in cents (e.g., 9990 = $99.90)
-- `issuanceDate` — ISO 8601 date string when the invoice was issued
-- `invoiceUrl` — URL to the invoice document (optional but recommended)
-- `invoiceKey` — NFe access key (required in Brazil, optional elsewhere)
-- `items` — Array of items with `id`, `quantity`, and `price`
-
-After receiving invoice information, the order status changes to **invoiced**. At this point, the order can no longer be canceled (unless a return invoice is sent first).
-
-### Concept 3: Tracking Updates
-
-Tracking information uses the **same invoice endpoint** but is sent separately:
-`POST /api/oms/pvt/orders/{orderId}/invoice`
-
-The tracking fields are:
-- `courier` — Carrier name
-- `trackingNumber` — Tracking identifier from the carrier
-- `trackingUrl` — URL for tracking the shipment
-
-For updating tracking on an existing invoice, use:
-`PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`
-
-This endpoint is used to add the tracking number after the invoice has been sent, or to update delivery status with `isDelivered: true`.
+- After payment is approved, the VTEX marketplace sends an **Authorize Fulfillment** request to the seller's endpoint (`POST /pvt/orders/{sellerOrderId}/fulfill`). Only begin fulfillment after receiving this callback.
+- Send invoices via `POST /api/oms/pvt/orders/{orderId}/invoice`. Required fields: `type`, `invoiceNumber`, `invoiceValue` (in cents), `issuanceDate`, and `items` array.
+- Use `type: "Output"` for sales invoices (shipment) and `type: "Input"` for return invoices.
+- Send tracking information **separately** after the carrier provides it, using `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`. Do not hardcode placeholder tracking values in the initial invoice.
+- For split shipments, send **one invoice per package** with only the items in that package. Each `invoiceValue` must reflect only its items.
+- Once an order is invoiced, it cannot be canceled without first sending a return invoice (`type: "Input"`).
+- The fulfillment simulation endpoint must respond within **2.5 seconds** or the product is considered unavailable.
 
 **Architecture/Data Flow**:
 
@@ -97,19 +79,22 @@ VTEX Marketplace                    External Seller
        │    (status → delivered)           │
 ```
 
-## Constraints
-
-**Rules that MUST be followed to avoid failures, security issues, or platform incompatibilities.**
+## Hard constraints
 
 ### Constraint: Send Correct Invoice Format with All Required Fields
 
-**Rule**: The invoice notification MUST include `type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, and `items` array. The `invoiceValue` MUST be in cents. The `items` array MUST match the items in the order.
+The invoice notification MUST include `type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, and `items` array. The `invoiceValue` MUST be in cents. The `items` array MUST match the items in the order.
 
-**Why**: Missing required fields cause the API to reject the invoice with 400 Bad Request, leaving the order stuck in "handling" status. Incorrect `invoiceValue` (e.g., using dollars instead of cents) causes financial discrepancies in marketplace reconciliation.
+**Why this matters**
 
-**Detection**: If you see an invoice notification payload missing `invoiceNumber`, `invoiceValue`, `issuanceDate`, or `items` → warn about missing required fields. If `invoiceValue` appears to be in dollars (e.g., `99.90` instead of `9990`) → warn about cents conversion.
+Missing required fields cause the API to reject the invoice with 400 Bad Request, leaving the order stuck in "handling" status. Incorrect `invoiceValue` (e.g., using dollars instead of cents) causes financial discrepancies in marketplace reconciliation.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see an invoice notification payload missing `invoiceNumber`, `invoiceValue`, `issuanceDate`, or `items` → warn about missing required fields. If `invoiceValue` appears to be in dollars (e.g., `99.90` instead of `9990`) → warn about cents conversion.
+
+**Correct**
+
 ```typescript
 import axios, { AxiosInstance } from "axios";
 
@@ -179,7 +164,8 @@ async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<voi
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Missing required fields, value in dollars instead of cents
 async function sendBrokenInvoice(
@@ -200,13 +186,18 @@ async function sendBrokenInvoice(
 
 ### Constraint: Update Tracking Promptly After Shipping
 
-**Rule**: Tracking information MUST be sent as soon as the carrier provides it. Use `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}` to add tracking to an existing invoice.
+Tracking information MUST be sent as soon as the carrier provides it. Use `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}` to add tracking to an existing invoice.
 
-**Why**: Late tracking updates prevent customers from seeing shipment status in the marketplace. The order remains in "invoiced" state instead of progressing to "delivering" and then "delivered". This generates customer support tickets and damages seller reputation.
+**Why this matters**
 
-**Detection**: If you see tracking information being batched for daily updates instead of sent in real-time → warn about prompt tracking updates. If tracking is included in the initial invoice call but the carrier hasn't provided it yet (hardcoded/empty values) → warn.
+Late tracking updates prevent customers from seeing shipment status in the marketplace. The order remains in "invoiced" state instead of progressing to "delivering" and then "delivered". This generates customer support tickets and damages seller reputation.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see tracking information being batched for daily updates instead of sent in real-time → warn about prompt tracking updates. If tracking is included in the initial invoice call but the carrier hasn't provided it yet (hardcoded/empty values) → warn.
+
+**Correct**
+
 ```typescript
 interface TrackingUpdate {
   courier: string;
@@ -257,7 +248,8 @@ async function onDeliveryConfirmed(
 }
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Sending empty/fake tracking data with the invoice
 async function invoiceWithFakeTracking(
@@ -283,13 +275,18 @@ async function invoiceWithFakeTracking(
 
 ### Constraint: Handle Partial Invoicing for Split Shipments
 
-**Rule**: For orders shipped in multiple packages, each shipment MUST have its own invoice with only the items included in that package. The `invoiceValue` MUST reflect only the items in that particular shipment.
+For orders shipped in multiple packages, each shipment MUST have its own invoice with only the items included in that package. The `invoiceValue` MUST reflect only the items in that particular shipment.
 
-**Why**: Sending a single invoice for the full order value when only partial items are shipped causes financial discrepancies. The marketplace cannot reconcile payments correctly, and the order status may not progress properly.
+**Why this matters**
 
-**Detection**: If you see a single invoice being sent with the full order value for partial shipments → warn about partial invoicing. If the items array doesn't match the actual items being shipped → warn.
+Sending a single invoice for the full order value when only partial items are shipped causes financial discrepancies. The marketplace cannot reconcile payments correctly, and the order status may not progress properly.
 
-✅ **CORRECT**:
+**Detection**
+
+If you see a single invoice being sent with the full order value for partial shipments → warn about partial invoicing. If the items array doesn't match the actual items being shipped → warn.
+
+**Correct**
+
 ```typescript
 interface OrderItem {
   id: string;
@@ -352,7 +349,8 @@ await sendPartialInvoices(client, "ORD-123", [
 ]);
 ```
 
-❌ **WRONG**:
+**Wrong**
+
 ```typescript
 // WRONG: Sending full order value for partial shipment
 async function wrongPartialInvoice(
@@ -376,11 +374,9 @@ async function wrongPartialInvoice(
 }
 ```
 
-## Implementation Pattern
+## Preferred pattern
 
-**The canonical, recommended way to implement fulfillment, invoicing, and tracking.**
-
-### Step 1: Implement the Authorize Fulfillment Endpoint
+### Implement the Authorize Fulfillment Endpoint
 
 The marketplace calls this endpoint when payment is approved.
 
@@ -440,7 +436,7 @@ app.use(express.json());
 app.post("/pvt/orders/:sellerOrderId/fulfill", authorizeFulfillmentHandler);
 ```
 
-### Step 2: Send Invoice After Fulfillment
+### Send Invoice After Fulfillment
 
 Once the order is packed and the invoice is generated, send the invoice notification.
 
@@ -493,7 +489,7 @@ async function generateInvoice(order: OrderMapping): Promise<{
 }
 ```
 
-### Step 3: Send Tracking When Carrier Picks Up
+### Send Tracking When Carrier Picks Up
 
 ```typescript
 async function handleCarrierPickup(
@@ -514,7 +510,7 @@ async function handleCarrierPickup(
 }
 ```
 
-### Step 4: Confirm Delivery
+### Confirm Delivery
 
 ```typescript
 async function handleDeliveryConfirmation(
@@ -609,43 +605,11 @@ async function waitForDeliveryConfirmation(
 }
 ```
 
-## Anti-Patterns
+## Common failure modes
 
-**Common mistakes developers make and how to fix them.**
+- **Sending invoice before fulfillment authorization.** The seller sends an invoice notification immediately when the order is placed, before receiving the Authorize Fulfillment callback from the marketplace. Payment may still be pending or under review. Invoicing before authorization can result in the invoice being rejected or the order being in an inconsistent state. Only send the invoice after receiving `POST /pvt/orders/{sellerOrderId}/fulfill`.
 
-### Anti-Pattern: Sending Invoice Before Fulfillment Authorization
-
-**What happens**: The seller sends an invoice notification immediately when the order is placed, before receiving the Authorize Fulfillment callback from the marketplace.
-
-**Why it fails**: The order hasn't been authorized for fulfillment yet — payment may still be pending or under review. Invoicing before authorization can result in the invoice being rejected or the order being in an inconsistent state.
-
-**Fix**: Only send the invoice after receiving the Authorize Fulfillment callback (`POST /pvt/orders/{sellerOrderId}/fulfill`).
-
-```typescript
-// Correct: Wait for fulfillment authorization before invoicing
-async function onFulfillmentAuthorized(
-  client: AxiosInstance,
-  sellerOrderId: string,
-  marketplaceOrderId: string
-): Promise<void> {
-  // Now it's safe to begin fulfillment and send invoice
-  const order = orderStore.get(sellerOrderId);
-  if (!order) return;
-
-  order.marketplaceOrderId = marketplaceOrderId;
-  await fulfillAndInvoice(client, order);
-}
-```
-
----
-
-### Anti-Pattern: Not Handling Return Invoices for Cancellation
-
-**What happens**: A seller tries to cancel an invoiced order by calling the Cancel Order endpoint directly without first sending a return invoice.
-
-**Why it fails**: Once an order is in "invoiced" status, it cannot be canceled without a return invoice (`type: "Input"`). The Cancel Order API will reject the request.
-
-**Fix**: Send a return invoice first, then request cancellation.
+- **Not handling return invoices for cancellation.** A seller tries to cancel an invoiced order by calling the Cancel Order endpoint directly without first sending a return invoice. Once an order is in "invoiced" status, it cannot be canceled without a return invoice (`type: "Input"`). The Cancel Order API will reject the request.
 
 ```typescript
 // Correct: Send return invoice before canceling an invoiced order
@@ -672,9 +636,19 @@ async function cancelInvoicedOrder(
 }
 ```
 
-## Reference
+- **Fulfillment simulation exceeding the 2.5-second timeout.** The seller's fulfillment simulation endpoint performs complex database queries or external API calls that exceed the response time limit. VTEX marketplaces wait a maximum of **2.5 seconds** for a fulfillment simulation response. After that, the product is considered unavailable/inactive and won't appear in the storefront or checkout. Pre-cache price and inventory data.
 
-**Links to VTEX documentation and related resources.**
+## Review checklist
+
+- [ ] Does the seller only begin fulfillment after receiving the Authorize Fulfillment callback?
+- [ ] Does the invoice payload include all required fields (`type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, `items`)?
+- [ ] Is `invoiceValue` in cents (not dollars)?
+- [ ] Is tracking sent separately after the carrier provides real data (not hardcoded placeholders)?
+- [ ] For split shipments, does each invoice cover only its package's items and value?
+- [ ] Is cancellation of invoiced orders handled via return invoice (`type: "Input"`) first?
+- [ ] Does the fulfillment simulation endpoint respond within **2.5 seconds**?
+
+## Reference
 
 - [External Seller Connector - Order Invoicing](https://developers.vtex.com/docs/guides/external-seller-integration-connector#order-invoicing) — Seller-side invoicing flow in the integration guide
 - [Order Invoice Notification API](https://developers.vtex.com/docs/api-reference/orders-api#post-/api/oms/pvt/orders/-orderId-/invoice) — API reference for sending invoice data
