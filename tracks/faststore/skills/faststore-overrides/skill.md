@@ -304,3 +304,4 @@ export default OverriddenAlert
 - [Creating a new section](https://developers.vtex.com/docs/guides/faststore/building-sections-creating-a-new-section) — Guide for creating custom sections when overrides are insufficient
 - [Troubleshooting overrides](https://developers.vtex.com/docs/troubleshooting/my-store-does-not-reflect-the-overrides-i-created) — Common issues and solutions when overrides don't work
 - [`faststore-theming`](../faststore-theming/skill.md) — Related skill for visual customizations that don't require overrides
+
