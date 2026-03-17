@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/vtexdocs/ai-skills/compare/v1.1.0...v1.1.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* **ci:** restore post-merge export commit using REPO_TOKEN ([eda05ae](https://github.com/vtexdocs/ai-skills/commit/eda05ae2f2b37b65152389d93ffd44ff72af887d))
+
 ## [1.1.0](https://github.com/vtexdocs/ai-skills/compare/v1.0.0...v1.1.0) (2026-03-17)
 
 
