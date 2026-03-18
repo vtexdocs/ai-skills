@@ -65,3 +65,4 @@
 
 * rewrite README with hero section, badges, and Quick Start guide ([99c2d90](https://github.com/vtexdocs/ai-skills/commit/99c2d90))
 * add VTEX IO track index with skill groupings and learning order ([8fe6f5d](https://github.com/vtexdocs/ai-skills/commit/8fe6f5d))
+
