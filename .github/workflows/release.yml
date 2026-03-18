@@ -1,9 +1,8 @@
 name: Create Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -14,6 +13,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -67,44 +68,10 @@ jobs:
 
           ls -lh dist/
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          name: "VTEX AI Skills ${{ github.ref_name }}"
-          body: |
-            ## VTEX AI Skills ${{ github.ref_name }}
-
-            21 AI agent skills for VTEX platform development across 5 tracks.
-
-            ### Quick Install
-
-            **AGENTS.md** (works with Cursor, Copilot, Codex, Windsurf, and more):
-            ```bash
-            curl -sL https://github.com/vtexdocs/ai-skills/releases/download/${{ github.ref_name }}/agents-md.tar.gz | tar xz -C /path/to/your-project/
-            ```
-
-            **Cursor rules:**
-            ```bash
-            mkdir -p .cursor/rules
-            curl -sL https://github.com/vtexdocs/ai-skills/releases/download/${{ github.ref_name }}/cursor-rules.tar.gz | tar xz -C .cursor/rules/
-            ```
-
-            **GitHub Copilot:**
-            ```bash
-            mkdir -p .github
-            curl -sL https://github.com/vtexdocs/ai-skills/releases/download/${{ github.ref_name }}/copilot-instructions.tar.gz | tar xz -C .github/
-            ```
-
-            **Open Plugin (Cursor plugin format):**
-            ```bash
-            curl -sL https://github.com/vtexdocs/ai-skills/releases/download/${{ github.ref_name }}/open-plugin.tar.gz | tar xz -C /path/to/your-project/
-            ```
-
-            See the [README](https://github.com/vtexdocs/ai-skills#quick-start) for all platforms.
+          tag_name: ${{ github.event.release.tag_name }}
           files: |
             dist/agents-md.tar.gz
             dist/cursor-rules.tar.gz
@@ -113,4 +80,3 @@ jobs:
             dist/opencode-skills.tar.gz
             dist/open-plugin.tar.gz
             dist/all-exports.tar.gz
-          generate_release_notes: true
