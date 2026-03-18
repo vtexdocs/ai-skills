@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0](https://github.com/vtexdocs/ai-skills/compare/v1.1.1...v1.2.0) (2026-03-18)
+
+
+### Features
+
+* **release:** add Release Please for automated version bumping ([2d758be](https://github.com/vtexdocs/ai-skills/commit/2d758be95da02b1956d0209bae463700d19cb04a))
+* **tooling:** support dual-format frontmatter in export script and fix description quoting ([1e11a64](https://github.com/vtexdocs/ai-skills/commit/1e11a64c725b4a18614b21bed548bf2c2c23cf82))
+* **tooling:** support dual-format frontmatter in validator ([203e811](https://github.com/vtexdocs/ai-skills/commit/203e811a0af7853bc6495b7038e9177c46372a4f))
+
+
+### Bug Fixes
+
+* **ci:** remove post-merge export commit, let release.yml own exports ([2ca8887](https://github.com/vtexdocs/ai-skills/commit/2ca8887f87fbd2120a6e138af2bc4521ab70f3e4))
+* **ci:** restore post-merge export commit using REPO_TOKEN ([eda05ae](https://github.com/vtexdocs/ai-skills/commit/eda05ae2f2b37b65152389d93ffd44ff72af887d))
+* **ci:** trigger release pipeline after cleaning empty releases ([054354c](https://github.com/vtexdocs/ai-skills/commit/054354c60d624ffadbcd93a8b938d3509e1b9f9c))
+* **ci:** trigger release workflow on release published event ([a56b595](https://github.com/vtexdocs/ai-skills/commit/a56b5953e3109ea6d58002427cdcbf779746e5dc))
+* **ci:** use REPO_TOKEN in release-please to trigger downstream workflows ([e0fbe25](https://github.com/vtexdocs/ai-skills/commit/e0fbe253d2e981c565a6bfbdd566279aaea9448f))
+
 ## [1.1.1](https://github.com/vtexdocs/ai-skills/compare/v1.1.0...v1.1.1) (2026-03-18)
 
 
@@ -65,4 +83,3 @@
 
 * rewrite README with hero section, badges, and Quick Start guide ([99c2d90](https://github.com/vtexdocs/ai-skills/commit/99c2d90))
 * add VTEX IO track index with skill groupings and learning order ([8fe6f5d](https://github.com/vtexdocs/ai-skills/commit/8fe6f5d))
-
