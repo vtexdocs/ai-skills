@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/vtexdocs/ai-skills/compare/v1.2.0...v1.2.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* **ci:** migrate from deprecated google-github-actions to googleapis/release-please-action ([3c8300b](https://github.com/vtexdocs/ai-skills/commit/3c8300bc272ae87f4272cd6a5086e761351f398d))
+
 ## [1.2.0](https://github.com/vtexdocs/ai-skills/compare/v1.1.1...v1.2.0) (2026-03-18)
 
 
