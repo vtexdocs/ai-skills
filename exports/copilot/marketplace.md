@@ -2,6 +2,28 @@
 
 # Catalog & SKU Integration
 
+## Two Catalog change notification routes
+
+VTEX exposes two `POST` routes under `api/catalog_system/pvt/skuseller/changenotification`. They are **not** interchangeable — the path shape tells the platform which identifier you are sending.
+
+| Route | Path pattern | Meaning |
+| ----- | ------------ | ------- |
+| Change notification **with marketplace SKU ID** | `.../changenotification/{skuId}` | `{skuId}` is the **SKU ID in the marketplace catalog** (VTEX). There is **no** `sellerId` in the URL. |
+| Change notification **with seller ID and seller SKU ID** | `.../changenotification/{sellerId}/{skuId}` | `{sellerId}` is the seller account on the marketplace; `{skuId}` is the **seller’s own SKU code** (the same ID used in `PUT` SKU Suggestion paths). |
+
+**Seller connector integrations** (external seller pushing catalog into a VTEX marketplace) MUST use the **second** route: seller ID + seller SKU ID. The single-segment route is for cases where you already know the **marketplace** SKU ID.
+
+Official Developers reference pages sometimes swap or mix descriptions between these two operations; trust the **URL shape**: if the documented example mentions `sellerId` but the path only has one segment, that documentation is inconsistent — the seller-scoped flow always uses **two** path segments after `changenotification/`.
+
+### SKU suggestions (Send / get / update)
+
+Use the **Marketplace API — Suggestions** contract, not the store hostname:
+
+- **Base URL:** `https://api.vtex.com/{accountName}` (as in the [Send SKU Suggestion](https://developers.vtex.com/docs/api-reference/marketplace-apis-suggestions#put-/suggestions/-sellerId-/-sellerSkuId-) reference).
+- **Path:** `PUT` (and related verbs) on `/suggestions/{sellerId}/{sellerSkuId}` — full example: `PUT https://api.vtex.com/{accountName}/suggestions/{sellerId}/{sellerSkuId}`.
+
+The same App Key and App Token used for the marketplace account apply to `api.vtex.com` requests. **Do not** build suggestion URLs as `https://{account}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/seller/.../suggestion/...` when following the public Marketplace API; that is a different Catalog System surface.
+
 ## When this skill applies
 
 Use this skill when building a seller connector that needs to push product catalog data into a VTEX marketplace, handle SKU approval workflows, or keep prices and inventory synchronized.
@@ -18,9 +40,10 @@ Do not use this skill for:
 
 ## Decision rules
 
-- Use `POST /api/catalog_system/pvt/skuseller/changenotification/{skuId}` as the entry point for all catalog integration. A **200 OK** means the SKU exists (update it); a **404 Not Found** means it does not (send a suggestion).
-- Use the `PUT Send SKU Suggestion` API to register new SKUs. The seller does not own the catalog — every new SKU must go through the suggestion/approval workflow.
-- Use separate notification endpoints for price and inventory changes (`/notificator/{sellerId}/changenotification/{skuId}/price` and `/inventory`), not the catalog changenotification.
+- For **seller-side** catalog integration, use `POST /api/catalog_system/pvt/skuseller/changenotification/{sellerId}/{sellerSkuId}` (seller Id in the marketplace account + **seller’s SKU ID**). A **200 OK** means the SKU already exists in the marketplace for that seller (update path); a **404 Not Found** means it does not (send a SKU suggestion). Do **not** use `POST .../changenotification/{skuId}` with the seller’s SKU code — that single-segment route expects the **marketplace** SKU ID.
+- Use `POST .../changenotification/{skuId}` only when the identifier you have is the **VTEX marketplace** SKU ID (no seller segment in the path).
+- Use **`PUT`** on [`/suggestions/{sellerId}/{sellerSkuId}`](https://developers.vtex.com/docs/api-reference/marketplace-apis-suggestions#put-/suggestions/-sellerId-/-sellerSkuId-) under **`https://api.vtex.com/{accountName}`** (Send SKU Suggestion) to register or update pending suggestions. The seller does not own the catalog — every new SKU must go through the suggestion/approval workflow.
+- Use separate notification endpoints for price and inventory: `POST /notificator/{sellerId}/changenotification/{sellerSkuId}/price` and `POST /notificator/{sellerId}/changenotification/{sellerSkuId}/inventory`. The path segment after `changenotification/` is the **seller SKU ID** (the seller’s own SKU code — the same identifier used in suggestions and seller-scoped catalog flows), not the marketplace VTEX SKU ID. Reference docs may label this segment `skuId`; read it as **sellerSkuId** in seller-connector integrations.
 - After price/inventory notifications, the marketplace calls the seller's **Fulfillment Simulation** endpoint (`POST /pvt/orderForms/simulation`). This endpoint must respond within **2.5 seconds** or the product is considered unavailable.
 - Suggestions can only be updated while in "pending" state. Once approved or denied, the seller cannot modify them.
 
@@ -85,12 +108,13 @@ async function integrateSellerSku(
   sellerSkuId: string,
   skuData: SkuSuggestion
 ): Promise<void> {
-  const baseUrl = `https://${marketplaceAccount}.vtexcommercestable.com.br`;
+  const storeBaseUrl = `https://${marketplaceAccount}.vtexcommercestable.com.br`;
+  const suggestionUrl = `https://api.vtex.com/${marketplaceAccount}/suggestions/${sellerId}/${sellerSkuId}`;
 
-  // Step 1: Send change notification to check if SKU exists
+  // Step 1: Seller-scoped change notification (Catalog API — store host)
   try {
     await client.post(
-      `${baseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerSkuId}`
+      `${storeBaseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${sellerSkuId}`
     );
     // 200 OK — SKU exists, marketplace will fetch updates via fulfillment simulation
     console.log(`SKU ${sellerSkuId} exists in marketplace, update triggered`);
@@ -98,10 +122,7 @@ async function integrateSellerSku(
     if (axios.isAxiosError(error) && error.response?.status === 404) {
       // 404 — SKU not found, send suggestion
       console.log(`SKU ${sellerSkuId} not found, sending suggestion`);
-      await client.put(
-        `${baseUrl}/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
-        skuData
-      );
+      await client.put(suggestionUrl, skuData);
       console.log(`SKU suggestion sent for ${sellerSkuId}`);
     } else {
       throw error;
@@ -113,8 +134,19 @@ async function integrateSellerSku(
 **Wrong**
 
 ```typescript
-// WRONG: Seller trying to write directly to marketplace catalog
-// This bypasses the suggestion/approval flow and will fail with 403
+// WRONG: Marketplace-SKU-only path with the seller's SKU code (misroutes the notification).
+// .../changenotification/{skuId} expects the VTEX marketplace SKU ID, not sellerSkuId.
+await client.post(
+  `https://${marketplaceAccount}.vtexcommercestable.com.br/api/catalog_system/pvt/skuseller/changenotification/${sellerSkuId}`
+);
+
+// WRONG: SKU Suggestion on the store host + Catalog path — public contract is api.vtex.com + /suggestions/...
+await client.put(
+  `https://${marketplaceAccount}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
+  skuData
+);
+
+// WRONG: Seller writing directly to marketplace catalog — bypasses suggestion/approval; expect 403
 async function createSkuDirectly(
   client: AxiosInstance,
   marketplaceAccount: string,
@@ -125,6 +157,7 @@ async function createSkuDirectly(
     `https://${marketplaceAccount}.vtexcommercestable.com.br/api/catalog/pvt/product`,
     productData
   );
+  // Will fail: 403 Forbidden — seller lacks catalog write permissions
   // Will fail: 403 Forbidden — seller lacks catalog write permissions
 }
 ```
@@ -150,29 +183,29 @@ async function batchNotifySkus(
   client: AxiosInstance,
   baseUrl: string,
   sellerId: string,
-  skuIds: string[],
+  sellerSkuIds: string[],
   concurrency: number = 5,
   delayMs: number = 200
 ): Promise<void> {
-  const results: Array<{ skuId: string; status: "exists" | "new" | "error" }> = [];
+  const results: Array<{ sellerSkuId: string; status: "exists" | "new" | "error" }> = [];
 
-  for (let i = 0; i < skuIds.length; i += concurrency) {
-    const batch = skuIds.slice(i, i + concurrency);
+  for (let i = 0; i < sellerSkuIds.length; i += concurrency) {
+    const batch = sellerSkuIds.slice(i, i + concurrency);
 
     const batchResults = await Promise.allSettled(
-      batch.map(async (skuId) => {
+      batch.map(async (sellerSkuId) => {
         try {
           await client.post(
-            `${baseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${skuId}`
+            `${baseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${sellerSkuId}`
           );
-          return { skuId, status: "exists" as const };
+          return { sellerSkuId, status: "exists" as const };
         } catch (error: unknown) {
           if (
             error instanceof Error &&
             "response" in error &&
             (error as { response?: { status?: number } }).response?.status === 404
           ) {
-            return { skuId, status: "new" as const };
+            return { sellerSkuId, status: "new" as const };
           }
           if (
             error instanceof Error &&
@@ -188,7 +221,7 @@ async function batchNotifySkus(
             );
             console.warn(`Rate limited. Waiting ${retryAfter}s before retry.`);
             await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-            return { skuId, status: "error" as const };
+            return { sellerSkuId, status: "error" as const };
           }
           throw error;
         }
@@ -202,7 +235,7 @@ async function batchNotifySkus(
     }
 
     // Throttle between batches
-    if (i + concurrency < skuIds.length) {
+    if (i + concurrency < sellerSkuIds.length) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -217,13 +250,13 @@ async function notifyAllSkus(
   client: AxiosInstance,
   baseUrl: string,
   sellerId: string,
-  skuIds: string[]
+  sellerSkuIds: string[]
 ): Promise<void> {
   // Fires all requests simultaneously — will trigger 429 rate limits
   await Promise.all(
-    skuIds.map((skuId) =>
+    sellerSkuIds.map((sellerSkuId) =>
       client.post(
-        `${baseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${skuId}`
+        `${baseUrl}/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${sellerSkuId}`
       )
     )
   );
@@ -249,24 +282,21 @@ If you see SKU suggestion updates without checking current suggestion status →
 ```typescript
 async function updateSkuSuggestion(
   client: AxiosInstance,
-  baseUrl: string,
+  marketplaceAccount: string,
   sellerId: string,
   sellerSkuId: string,
   updatedData: Record<string, unknown>
 ): Promise<boolean> {
+  const suggestionUrl = `https://api.vtex.com/${marketplaceAccount}/suggestions/${sellerId}/${sellerSkuId}`;
+
   // Check current suggestion status before updating
   try {
-    const response = await client.get(
-      `${baseUrl}/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`
-    );
+    const response = await client.get(suggestionUrl);
 
     const suggestion = response.data;
     if (suggestion.Status === "Pending") {
       // Safe to update — suggestion hasn't been processed yet
-      await client.put(
-        `${baseUrl}/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
-        updatedData
-      );
+      await client.put(suggestionUrl, updatedData);
       return true;
     }
 
@@ -278,10 +308,7 @@ async function updateSkuSuggestion(
     return false;
   } catch {
     // Suggestion may not exist — send as new
-    await client.put(
-      `${baseUrl}/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
-      updatedData
-    );
+    await client.put(suggestionUrl, updatedData);
     return true;
   }
 }
@@ -293,7 +320,7 @@ async function updateSkuSuggestion(
 // WRONG: Blindly sending suggestion update without checking state
 async function blindUpdateSuggestion(
   client: AxiosInstance,
-  baseUrl: string,
+  marketplaceAccount: string,
   sellerId: string,
   sellerSkuId: string,
   data: Record<string, unknown>
@@ -301,7 +328,7 @@ async function blindUpdateSuggestion(
   // If the suggestion was already approved, this fails silently
   // or creates a duplicate that confuses the marketplace operator
   await client.put(
-    `${baseUrl}/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
+    `https://api.vtex.com/${marketplaceAccount}/suggestions/${sellerId}/${sellerSkuId}`,
     data
   );
 }
@@ -325,6 +352,7 @@ interface SellerConnectorConfig {
 
 function createMarketplaceClient(config: SellerConnectorConfig): AxiosInstance {
   return axios.create({
+    // Catalog System routes (e.g. changenotification) use the store host.
     baseURL: `https://${config.marketplaceAccount}.vtexcommercestable.com.br`,
     headers: {
       "Content-Type": "application/json",
@@ -335,6 +363,9 @@ function createMarketplaceClient(config: SellerConnectorConfig): AxiosInstance {
     timeout: 10000,
   });
 }
+
+// Use the same headers for PUT/GET on https://api.vtex.com/{account}/suggestions/...
+// (pass a full URL on the same axios instance, or set baseURL to https://api.vtex.com/{account} for suggestion-only calls).
 ```
 
 ### Implement the Change Notification Flow
@@ -350,23 +381,23 @@ interface CatalogNotificationResult {
 
 async function notifyAndSync(
   client: AxiosInstance,
+  marketplaceAccount: string,
   sellerId: string,
   sellerSkuId: string,
   skuData: SkuSuggestion
 ): Promise<CatalogNotificationResult> {
+  const suggestionUrl = `https://api.vtex.com/${marketplaceAccount}/suggestions/${sellerId}/${sellerSkuId}`;
+
   try {
     await client.post(
-      `/api/catalog_system/pvt/skuseller/changenotification/${sellerSkuId}`
+      `/api/catalog_system/pvt/skuseller/changenotification/${sellerId}/${sellerSkuId}`
     );
     // SKU exists — marketplace will call fulfillment simulation to get updates
     return { skuId: sellerSkuId, action: "updated" };
   } catch (error: unknown) {
     if (axios.isAxiosError(error) && error.response?.status === 404) {
       try {
-        await client.put(
-          `/api/catalog_system/pvt/sku/seller/${sellerId}/suggestion/${sellerSkuId}`,
-          skuData
-        );
+        await client.put(suggestionUrl, skuData);
         return { skuId: sellerSkuId, action: "suggestion_sent" };
       } catch (suggestionError: unknown) {
         const message = suggestionError instanceof Error ? suggestionError.message : "Unknown error";
@@ -461,37 +492,37 @@ async function getSkuFromLocalCatalog(skuId: string): Promise<{
 
 ### Notify Price and Inventory Changes
 
-Send separate notifications for price and inventory updates.
+Send separate notifications for price and inventory updates. The `{sellerSkuId}` segment in the URL is the **seller’s SKU identifier** (same code you use in your catalog and in `changenotification/{sellerId}/{sellerSkuId}` / suggestions). Do not pass the marketplace’s internal VTEX SKU ID here unless your integration is explicitly keyed that way.
 
 ```typescript
 async function notifyPriceChange(
   client: AxiosInstance,
   sellerId: string,
-  skuId: string
+  sellerSkuId: string
 ): Promise<void> {
   await client.post(
-    `/notificator/${sellerId}/changenotification/${skuId}/price`
+    `/notificator/${sellerId}/changenotification/${sellerSkuId}/price`
   );
 }
 
 async function notifyInventoryChange(
   client: AxiosInstance,
   sellerId: string,
-  skuId: string
+  sellerSkuId: string
 ): Promise<void> {
   await client.post(
-    `/notificator/${sellerId}/changenotification/${skuId}/inventory`
+    `/notificator/${sellerId}/changenotification/${sellerSkuId}/inventory`
   );
 }
 
 async function syncPriceAndInventory(
   client: AxiosInstance,
   sellerId: string,
-  skuIds: string[]
+  sellerSkuIds: string[]
 ): Promise<void> {
-  for (const skuId of skuIds) {
-    await notifyPriceChange(client, sellerId, skuId);
-    await notifyInventoryChange(client, sellerId, skuId);
+  for (const sellerSkuId of sellerSkuIds) {
+    await notifyPriceChange(client, sellerId, sellerSkuId);
+    await notifyInventoryChange(client, sellerId, sellerSkuId);
 
     // Throttle to avoid rate limits
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -535,6 +566,7 @@ async function runCatalogSync(): Promise<void> {
 
     const result = await notifyAndSync(
       client,
+      config.marketplaceAccount,
       config.sellerId,
       sku.sellerSkuId,
       skuSuggestion
@@ -546,9 +578,9 @@ async function runCatalogSync(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
-  // Sync prices and inventory for all active SKUs
-  const activeSkuIds = skusToSync.map((s) => s.sellerSkuId);
-  await syncPriceAndInventory(client, config.sellerId, activeSkuIds);
+  // Sync prices and inventory for all active SKUs (seller SKU IDs)
+  const activeSellerSkuIds = skusToSync.map((s) => s.sellerSkuId);
+  await syncPriceAndInventory(client, config.sellerId, activeSellerSkuIds);
 }
 
 async function getLocalSkusNeedingSync(): Promise<
@@ -574,6 +606,8 @@ async function getLocalSkusNeedingSync(): Promise<
 ```
 
 ## Common failure modes
+
+- **Calling the single-segment change notification with the seller’s SKU ID.** `POST .../changenotification/{skuId}` resolves the **marketplace** SKU ID. Passing the seller’s catalog code there will not match the intended SKU and breaks the integration flow. Seller connectors must use `POST .../changenotification/{sellerId}/{sellerSkuId}`. If public API reference text describes `sellerId` in the body but shows a one-segment URL, treat that as a documentation mismatch and follow the path shape above.
 
 - **Polling for suggestion status in tight loops.** Suggestion approval is a manual or semi-automatic marketplace process that can take minutes to days. Tight polling wastes API quota and may trigger rate limits that block the entire integration. Use a scheduled job (cron) to check suggestion statuses periodically (e.g., every 15-30 minutes), or implement a webhook-based notification system.
 
@@ -625,20 +659,23 @@ const fastFulfillmentSimulation: RequestHandler = async (req, res) => {
 ## Review checklist
 
 - [ ] Is the Change Notification + SKU Suggestion flow used (not direct Catalog API writes)?
+- [ ] Does catalog change notification use `.../changenotification/{sellerId}/{sellerSkuId}` (not the single-segment marketplace-SKU route with a seller SKU code)?
 - [ ] Does the integration handle both 200 (exists) and 404 (new) responses from changenotification?
 - [ ] Are SKU suggestion updates guarded by a status check (only update while "Pending")?
+- [ ] Are `PUT`/`GET` suggestion calls sent to `https://api.vtex.com/{account}/suggestions/{sellerId}/{sellerSkuId}`, not to the store hostname?
 - [ ] Are batch catalog notifications throttled with 429 handling and exponential backoff?
 - [ ] Does the fulfillment simulation endpoint respond within **2.5 seconds**?
-- [ ] Are price and inventory notifications sent via the correct `/notificator/` endpoints?
+- [ ] Are price and inventory notifications sent via the correct `/notificator/{sellerId}/changenotification/{sellerSkuId}/price|inventory` paths (seller SKU ID in the path)?
 - [ ] Are placeholder values (account names, seller IDs, API keys) replaced with real values?
 
 ## Reference
 
 - [External Seller Connector Guide](https://developers.vtex.com/docs/guides/external-seller-integration-connector) — Complete integration flow for external sellers connecting to VTEX marketplaces
-- [Change Notification API](https://developers.vtex.com/docs/api-reference/catalog-api#post-/api/catalog_system/pvt/skuseller/changenotification/-skuId-) — API reference for the changenotification endpoint
-- [Marketplace API - Manage Suggestions](https://developers.vtex.com/docs/guides/marketplace-api#manage-suggestions) — API reference for sending and managing SKU suggestions
-- [External Marketplace Integration - Stock Update](https://developers.vtex.com/docs/guides/external-marketplace-integration-stock-update) — Guide for keeping inventory synchronized
-- [External Marketplace Integration - Price Update](https://developers.vtex.com/docs/guides/external-marketplace-integration-price-update) — Guide for keeping prices synchronized
+- [Change notification (marketplace SKU ID)](https://developers.vtex.com/docs/api-reference/catalog-api#post-/api/catalog_system/pvt/skuseller/changenotification/-skuId-) — `POST .../changenotification/{skuId}`; path uses **marketplace** SKU ID only
+- [Change notification (seller ID and seller SKU ID)](https://developers.vtex.com/docs/api-reference/catalog-api#post-/api/catalog_system/pvt/skuseller/changenotification/-sellerId-/-skuId-) — `POST .../changenotification/{sellerId}/{skuId}`; **use this for seller connector catalog integration**
+- [Send SKU Suggestion (`PUT /suggestions/{sellerId}/{sellerSkuId}`)](https://developers.vtex.com/docs/api-reference/marketplace-apis-suggestions#put-/suggestions/-sellerId-/-sellerSkuId-) — base URL `https://api.vtex.com/{accountName}`
+- [Marketplace API — Suggestions](https://developers.vtex.com/docs/api-reference/marketplace-apis-suggestions) — full Suggestions API reference
+- [Marketplace API - Manage Suggestions (guide)](https://developers.vtex.com/docs/guides/marketplace-api#manage-suggestions) — narrative guide for SKU suggestions workflow
 - [Catalog Management for VTEX Marketplace](https://developers.vtex.com/docs/guides/external-seller-integration-vtex-marketplace-operation) — Marketplace-side catalog operations and SKU approval workflows
 
 ---
@@ -650,8 +687,8 @@ const fastFulfillmentSimulation: RequestHandler = async (req, res) => {
 Use this skill when building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
 
 - Handling the Authorize Fulfillment callback from the marketplace
-- Sending invoice notifications via `POST /api/oms/pvt/orders/{orderId}/invoice`
-- Updating tracking information via `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`
+- Sending invoice notifications via `POST /api/oms/pvt/orders/{marketplaceOrderId}/invoice` (VTEX marketplace order ID in the path — not the seller’s internal order number)
+- Updating tracking information via `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}`
 - Implementing partial invoicing for split shipments
 
 Do not use this skill for:
