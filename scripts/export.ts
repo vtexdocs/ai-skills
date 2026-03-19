@@ -5,6 +5,7 @@ import {
   statSync,
   writeFileSync,
 } from "fs";
+import { spawnSync } from "child_process";
 import matter from "gray-matter";
 import { join, dirname } from "path";
 
@@ -463,6 +464,18 @@ async function main(): Promise<void> {
   }
 
   console.log("Export complete.");
+
+  if (platforms.length === Object.keys(exporters).length) {
+    console.log("\nGenerating banner...");
+    const result = spawnSync("python3", ["scripts/generate_banner.py"], {
+      stdio: "inherit",
+      encoding: "utf-8",
+    });
+    if (result.status !== 0) {
+      console.warn("Banner generation failed (python3/cairosvg not available). Skipping.");
+    }
+  }
+
   process.exit(0);
 }
 

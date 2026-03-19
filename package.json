@@ -10,7 +10,9 @@
     "export:copilot": "bun run scripts/export.ts --platform copilot",
     "export:claude": "bun run scripts/export.ts --platform claude",
     "export:agents-md": "bun run scripts/export.ts --platform agents-md",
-    "export:opencode": "bun run scripts/export.ts --platform opencode"
+    "export:opencode": "bun run scripts/export.ts --platform opencode",
+    "banner": "python3 scripts/generate_banner.py",
+    "banner:compare": "python3 scripts/generate_banner.py --compare"
   },
   "keywords": [
     "vtex",
