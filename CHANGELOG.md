@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1](https://github.com/vtexdocs/ai-skills/compare/v1.2.0...v1.2.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* **ci:** migrate from deprecated google-github-actions to googleapis/release-please-action ([3c8300b](https://github.com/vtexdocs/ai-skills/commit/3c8300bc272ae87f4272cd6a5086e761351f398d))
+* **opencode:** rewrite cross-skill links to use SKILL.md casing in exports ([0350067](https://github.com/vtexdocs/ai-skills/commit/03500672d6eb6825010b0fc4cd8912444dc5fe15))
+* **opencode:** rewrite cross-skill links to use SKILL.md casing in exports ([649835d](https://github.com/vtexdocs/ai-skills/commit/649835d58c35984c68975ebbc3e3b73b21a9b3c5))
+
 ## [1.2.0](https://github.com/vtexdocs/ai-skills/compare/v1.1.1...v1.2.0) (2026-03-18)
 
 
