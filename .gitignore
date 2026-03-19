@@ -33,3 +33,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Banner generator (downloaded at runtime, not committed)
+assets/fonts/
+assets/icons/
+assets/banner_reference.png
+assets/banner_comparison.png
