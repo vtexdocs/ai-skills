@@ -181,6 +181,12 @@ Turn the constraints into fast yes/no review questions. The checklist should mat
 
 Use this optional section for short cross-links to nearby skills when it helps the AI or developer choose between mechanisms or understand adjacent responsibilities. Keep it short.
 
+Cross-skill links use a relative path from the current skill's directory:
+
+```markdown
+- [`headless-bff-architecture`](../headless-bff-architecture/skill.md) — Use for general BFF and API routing
+```
+
 Add `Related skills` when:
 - the skill sits near a real decision boundary, such as `graphql` vs `http-routes`
 - the user or AI would plausibly pick the wrong adjacent skill without guidance
