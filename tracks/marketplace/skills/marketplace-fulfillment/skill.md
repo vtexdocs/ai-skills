@@ -32,7 +32,7 @@ metadata:
     - full-vs-partial-invoicing
     - invoice-then-tracking-vs-combined
     - return-invoice-for-cancellation
-  vtex_docs_verified: "2026-03-16"
+  vtex_docs_verified: "2026-03-19"
 ---
 
 # Fulfillment, Invoice & Tracking
@@ -42,8 +42,8 @@ metadata:
 Use this skill when building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
 
 - Handling the Authorize Fulfillment callback from the marketplace
-- Sending invoice notifications via `POST /api/oms/pvt/orders/{orderId}/invoice`
-- Updating tracking information via `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`
+- Sending invoice notifications via `POST /api/oms/pvt/orders/{marketplaceOrderId}/invoice` (VTEX marketplace order ID in the path — not the seller’s internal order number)
+- Updating tracking information via `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}`
 - Implementing partial invoicing for split shipments
 
 Do not use this skill for:
