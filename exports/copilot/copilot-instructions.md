@@ -3644,28 +3644,6 @@ function onProductClick(productId: string, position: number): void {
 
 # Catalog & SKU Integration
 
-## Two Catalog change notification routes
-
-VTEX exposes two `POST` routes under `api/catalog_system/pvt/skuseller/changenotification`. They are **not** interchangeable — the path shape tells the platform which identifier you are sending.
-
-| Route | Path pattern | Meaning |
-| ----- | ------------ | ------- |
-| Change notification **with marketplace SKU ID** | `.../changenotification/{skuId}` | `{skuId}` is the **SKU ID in the marketplace catalog** (VTEX). There is **no** `sellerId` in the URL. |
-| Change notification **with seller ID and seller SKU ID** | `.../changenotification/{sellerId}/{skuId}` | `{sellerId}` is the seller account on the marketplace; `{skuId}` is the **seller’s own SKU code** (the same ID used in `PUT` SKU Suggestion paths). |
-
-**Seller connector integrations** (external seller pushing catalog into a VTEX marketplace) MUST use the **second** route: seller ID + seller SKU ID. The single-segment route is for cases where you already know the **marketplace** SKU ID.
-
-Official Developers reference pages sometimes swap or mix descriptions between these two operations; trust the **URL shape**: if the documented example mentions `sellerId` but the path only has one segment, that documentation is inconsistent — the seller-scoped flow always uses **two** path segments after `changenotification/`.
-
-### SKU suggestions (Send / get / update)
-
-Use the **Marketplace API — Suggestions** contract, not the store hostname:
-
-- **Base URL:** `https://api.vtex.com/{accountName}` (as in the [Send SKU Suggestion](https://developers.vtex.com/docs/api-reference/marketplace-apis-suggestions#put-/suggestions/-sellerId-/-sellerSkuId-) reference).
-- **Path:** `PUT` (and related verbs) on `/suggestions/{sellerId}/{sellerSkuId}` — full example: `PUT https://api.vtex.com/{accountName}/suggestions/{sellerId}/{sellerSkuId}`.
-
-The same App Key and App Token used for the marketplace account apply to `api.vtex.com` requests. **Do not** build suggestion URLs as `https://{account}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/seller/.../suggestion/...` when following the public Marketplace API; that is a different Catalog System surface.
-
 ## When this skill applies
 
 Use this skill when building a seller connector that needs to push product catalog data into a VTEX marketplace, handle SKU approval workflows, or keep prices and inventory synchronized.
@@ -3681,6 +3659,17 @@ Do not use this skill for:
 - Rate limiting patterns in isolation (see `marketplace-rate-limiting`)
 
 ## Decision rules
+
+VTEX exposes two `POST` routes under `api/catalog_system/pvt/skuseller/changenotification`. They are **not** interchangeable — the path shape tells the platform which identifier you are sending.
+
+| Route | Path pattern | Meaning |
+| ----- | ------------ | ------- |
+| Change notification **with marketplace SKU ID** | `.../changenotification/{skuId}` | `{skuId}` is the **SKU ID in the marketplace catalog** (VTEX). There is **no** `sellerId` in the URL. |
+| Change notification **with seller ID and seller SKU ID** | `.../changenotification/{sellerId}/{skuId}` | `{sellerId}` is the seller account on the marketplace; `{skuId}` is the **seller's own SKU code** (the same ID used in `PUT` SKU Suggestion paths). |
+
+**Seller connector integrations** MUST use the **second** route. Official docs sometimes mix descriptions between these two — trust the **URL shape**: the seller-scoped flow always uses **two** path segments after `changenotification/`.
+
+SKU suggestions (`PUT`/`GET`) must go to `https://api.vtex.com/{accountName}/suggestions/{sellerId}/{sellerSkuId}`, not the store hostname. The same App Key and App Token apply. Do not build suggestion URLs using `{account}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/seller/...` — that is a different Catalog System surface.
 
 - For **seller-side** catalog integration, use `POST /api/catalog_system/pvt/skuseller/changenotification/{sellerId}/{sellerSkuId}` (seller Id in the marketplace account + **seller’s SKU ID**). A **200 OK** means the SKU already exists in the marketplace for that seller (update path); a **404 Not Found** means it does not (send a SKU suggestion). Do **not** use `POST .../changenotification/{skuId}` with the seller’s SKU code — that single-segment route expects the **marketplace** SKU ID.
 - Use `POST .../changenotification/{skuId}` only when the identifier you have is the **VTEX marketplace** SKU ID (no seller segment in the path).
