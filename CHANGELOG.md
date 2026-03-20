@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/vtexdocs/ai-skills/compare/v1.2.1...v1.3.0) (2026-03-20)
+
+
+### Features
+
+* add programmatic banner generator ([ded8b13](https://github.com/vtexdocs/ai-skills/commit/ded8b13bfe69f4ffe5b95299152cfdb769e2f33b))
+* add programmatic banner generator with DM Sans + Lucide icons ([c1f5c6f](https://github.com/vtexdocs/ai-skills/commit/c1f5c6fd2bdfe95085a00e9d0453d6ad2154986d))
+
+
+### Bug Fixes
+
+* **marketplace:** move route context into decision rules — ## When this skill applies must be first H2 per template ([a022a03](https://github.com/vtexdocs/ai-skills/commit/a022a038e24d6ef817c3be55709e79761cac8731))
+
 ## [1.2.1](https://github.com/vtexdocs/ai-skills/compare/v1.2.0...v1.2.1) (2026-03-19)
 
 
