@@ -1,0 +1,433 @@
+<!-- globs: **/payment/**/*.ts, **/connector/**/*.ts, **/provider/**/*.ts -->
+
+Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or working with payment/connector endpoint files. Covers all nine required endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request, Create Auth Token, Provider Auth Redirect, and Get Credentials. Use for building or debugging any payment connector that integrates with the VTEX Payment Gateway.
+
+# PPP Endpoint Implementation
+
+## When this skill applies
+
+Use this skill when:
+- Building a new payment connector middleware that integrates a PSP with the VTEX Payment Gateway
+- Implementing, debugging, or extending any of the 9 PPP endpoints
+- Preparing a connector for VTEX Payment Provider Test Suite homologation
+
+Do not use this skill for:
+- Idempotency and duplicate prevention logic — use [`payment-idempotency`](payment-payment-idempotency.md)
+- Async payment flows and callback URLs — use [`payment-async-flow`](payment-payment-async-flow.md)
+- PCI compliance and Secure Proxy card handling — use [`payment-pci-security`](payment-payment-pci-security.md)
+
+## Decision rules
+
+- The connector MUST implement all 6 payment-flow endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request.
+- The configuration flow (3 endpoints: Create Auth Token, Provider Auth Redirect, Get Credentials) is optional but recommended for merchant onboarding.
+- All endpoints must be served over HTTPS on port 443 with TLS 1.2.
+- The connector must respond in under 5 seconds during homologation tests and under 20 seconds in production.
+- The provider must be PCI-DSS certified or use Secure Proxy for card payments.
+- The Gateway initiates all calls. The middleware never calls the Gateway except via `callbackUrl` (async notifications) and Secure Proxy (card data forwarding).
+
+## Hard constraints
+
+### Constraint: Implement all required payment flow endpoints
+
+The connector MUST implement all six payment-flow endpoints: GET `/manifest`, POST `/payments`, POST `/payments/{paymentId}/cancellations`, POST `/payments/{paymentId}/settlements`, POST `/payments/{paymentId}/refunds`, and POST `/payments/{paymentId}/inbound-request/{action}`.
+
+**Why this matters**
+The VTEX Payment Provider Test Suite validates every endpoint during homologation. Missing endpoints cause test failures and the connector will not be approved. At runtime, the Gateway expects all endpoints — a missing cancel endpoint means payments cannot be voided.
+
+**Detection**
+If the connector router/handler file does not define handlers for all 6 payment-flow paths, STOP and add the missing endpoints before proceeding.
+
+**Correct**
+```typescript
+import { Router } from "express";
+
+const router = Router();
+
+// All 6 payment-flow endpoints implemented
+router.get("/manifest", manifestHandler);
+router.post("/payments", createPaymentHandler);
+router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
+router.post("/payments/:paymentId/settlements", capturePaymentHandler);
+router.post("/payments/:paymentId/refunds", refundPaymentHandler);
+router.post("/payments/:paymentId/inbound-request/:action", inboundRequestHandler);
+
+export default router;
+```
+
+**Wrong**
+```typescript
+import { Router } from "express";
+
+const router = Router();
+
+// Missing manifest, inbound-request, and refund endpoints
+// This will fail homologation and break runtime operations
+router.post("/payments", createPaymentHandler);
+router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
+router.post("/payments/:paymentId/settlements", capturePaymentHandler);
+
+export default router;
+```
+
+### Constraint: Return correct HTTP status codes and response shapes
+
+Each endpoint MUST return the exact response shape documented in the PPP API. Create Payment MUST return `paymentId`, `status`, `authorizationId`, `tid`, `nsu`, `acquirer`, `code`, `message`, `delayToAutoSettle`, `delayToAutoSettleAfterAntifraud`, and `delayToCancel`. Cancel MUST return `paymentId`, `cancellationId`, `code`, `message`, `requestId`. Capture MUST return `paymentId`, `settleId`, `value`, `code`, `message`, `requestId`. Refund MUST return `paymentId`, `refundId`, `value`, `code`, `message`, `requestId`.
+
+**Why this matters**
+The Gateway parses these fields programmatically. Missing fields cause deserialization errors and the Gateway treats the payment as failed. Incorrect `delayToAutoSettle` values cause payments to auto-cancel or auto-capture at wrong times.
+
+**Detection**
+If a response object is missing any of the required fields for its endpoint, STOP and add the missing fields.
+
+**Correct**
+```typescript
+interface CreatePaymentResponse {
+  paymentId: string;
+  status: "approved" | "denied" | "undefined";
+  authorizationId: string | null;
+  nsu: string | null;
+  tid: string | null;
+  acquirer: string | null;
+  code: string | null;
+  message: string | null;
+  delayToAutoSettle: number;
+  delayToAutoSettleAfterAntifraud: number;
+  delayToCancel: number;
+  paymentUrl?: string;
+}
+
+async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+  const { paymentId, value, currency, paymentMethod, card, callbackUrl } = req.body;
+
+  const result = await processPaymentWithAcquirer(req.body);
+
+  const response: CreatePaymentResponse = {
+    paymentId,
+    status: result.status,
+    authorizationId: result.authorizationId ?? null,
+    nsu: result.nsu ?? null,
+    tid: result.tid ?? null,
+    acquirer: "MyAcquirer",
+    code: result.code ?? null,
+    message: result.message ?? null,
+    delayToAutoSettle: 21600,    // 6 hours in seconds
+    delayToAutoSettleAfterAntifraud: 1800, // 30 minutes in seconds
+    delayToCancel: 21600,         // 6 hours in seconds
+  };
+
+  res.status(200).json(response);
+}
+```
+
+**Wrong**
+```typescript
+// Missing required fields — Gateway will reject this response
+async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+  const result = await processPaymentWithAcquirer(req.body);
+
+  // Missing: authorizationId, nsu, tid, acquirer, code, message,
+  // delayToAutoSettle, delayToAutoSettleAfterAntifraud, delayToCancel
+  res.status(200).json({
+    paymentId: req.body.paymentId,
+    status: result.status,
+  });
+}
+```
+
+### Constraint: Manifest must declare all supported payment methods
+
+The GET `/manifest` endpoint MUST return a `paymentMethods` array listing every payment method the connector supports, with the correct `name` and `allowsSplit` configuration for each.
+
+**Why this matters**
+The Gateway reads the manifest to determine which payment methods are available. If a method is missing, merchants cannot configure it in the VTEX Admin. An incorrect `allowsSplit` value causes split payment failures.
+
+**Detection**
+If the manifest handler returns an empty `paymentMethods` array or hardcodes methods the provider does not actually support, STOP and fix the manifest.
+
+**Correct**
+```typescript
+async function manifestHandler(_req: Request, res: Response): Promise<void> {
+  const manifest = {
+    paymentMethods: [
+      { name: "Visa", allowsSplit: "onCapture" },
+      { name: "Mastercard", allowsSplit: "onCapture" },
+      { name: "American Express", allowsSplit: "onCapture" },
+      { name: "BankInvoice", allowsSplit: "onAuthorize" },
+      { name: "Pix", allowsSplit: "disabled" },
+    ],
+  };
+
+  res.status(200).json(manifest);
+}
+```
+
+**Wrong**
+```typescript
+// Empty manifest — no payment methods will appear in the Admin
+async function manifestHandler(_req: Request, res: Response): Promise<void> {
+  res.status(200).json({ paymentMethods: [] });
+}
+```
+
+## Preferred pattern
+
+Architecture overview:
+
+```text
+Shopper → VTEX Checkout → VTEX Payment Gateway → [Your Connector Middleware] → Acquirer/PSP
+                                ↕
+                    Configuration Flow (Admin)
+```
+
+Recommended TypeScript interfaces for all endpoint contracts:
+
+```typescript
+// --- Manifest ---
+interface ManifestResponse {
+  paymentMethods: Array<{
+    name: string;
+    allowsSplit: "onCapture" | "onAuthorize" | "disabled";
+  }>;
+}
+
+// --- Create Payment ---
+interface CreatePaymentRequest {
+  reference: string;
+  orderId: string;
+  transactionId: string;
+  paymentId: string;
+  paymentMethod: string;
+  value: number;
+  currency: string;
+  installments: number;
+  card?: {
+    holder: string;
+    number: string;
+    csc: string;
+    expiration: { month: string; year: string };
+  };
+  miniCart: Record<string, unknown>;
+  callbackUrl: string;
+  returnUrl?: string;
+}
+
+interface CreatePaymentResponse {
+  paymentId: string;
+  status: "approved" | "denied" | "undefined";
+  authorizationId: string | null;
+  nsu: string | null;
+  tid: string | null;
+  acquirer: string | null;
+  code: string | null;
+  message: string | null;
+  delayToAutoSettle: number;
+  delayToAutoSettleAfterAntifraud: number;
+  delayToCancel: number;
+  paymentUrl?: string;
+}
+
+// --- Cancel Payment ---
+interface CancelPaymentResponse {
+  paymentId: string;
+  cancellationId: string | null;
+  code: string | null;
+  message: string | null;
+  requestId: string;
+}
+
+// --- Capture/Settle Payment ---
+interface CapturePaymentResponse {
+  paymentId: string;
+  settleId: string | null;
+  value: number;
+  code: string | null;
+  message: string | null;
+  requestId: string;
+}
+
+// --- Refund Payment ---
+interface RefundPaymentResponse {
+  paymentId: string;
+  refundId: string | null;
+  value: number;
+  code: string | null;
+  message: string | null;
+  requestId: string;
+}
+
+// --- Inbound Request ---
+interface InboundResponse {
+  requestId: string;
+  paymentId: string;
+  responseData: {
+    statusCode: number;
+    contentType: string;
+    content: string;
+  };
+}
+```
+
+Complete payment flow router with all 6 endpoints:
+
+```typescript
+import { Router, Request, Response } from "express";
+
+const router = Router();
+
+router.get("/manifest", async (_req: Request, res: Response) => {
+  res.status(200).json({
+    paymentMethods: [
+      { name: "Visa", allowsSplit: "onCapture" },
+      { name: "Mastercard", allowsSplit: "onCapture" },
+      { name: "Pix", allowsSplit: "disabled" },
+    ],
+  });
+});
+
+router.post("/payments", async (req: Request, res: Response) => {
+  const body: CreatePaymentRequest = req.body;
+  const result = await processWithAcquirer(body);
+
+  const response: CreatePaymentResponse = {
+    paymentId: body.paymentId,
+    status: result.status,
+    authorizationId: result.authorizationId ?? null,
+    nsu: result.nsu ?? null,
+    tid: result.tid ?? null,
+    acquirer: "MyProvider",
+    code: result.code ?? null,
+    message: result.message ?? null,
+    delayToAutoSettle: 21600,
+    delayToAutoSettleAfterAntifraud: 1800,
+    delayToCancel: 21600,
+  };
+  res.status(200).json(response);
+});
+
+router.post("/payments/:paymentId/cancellations", async (req: Request, res: Response) => {
+  const { paymentId } = req.params;
+  const { requestId } = req.body;
+  const result = await cancelWithAcquirer(paymentId);
+
+  res.status(200).json({
+    paymentId,
+    cancellationId: result.cancellationId ?? null,
+    code: result.code ?? null,
+    message: result.message ?? "Successfully cancelled",
+    requestId,
+  });
+});
+
+router.post("/payments/:paymentId/settlements", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await captureWithAcquirer(body.paymentId, body.value);
+
+  res.status(200).json({
+    paymentId: body.paymentId,
+    settleId: result.settleId ?? null,
+    value: result.capturedValue ?? body.value,
+    code: result.code ?? null,
+    message: result.message ?? null,
+    requestId: body.requestId,
+  });
+});
+
+router.post("/payments/:paymentId/refunds", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await refundWithAcquirer(body.paymentId, body.value);
+
+  res.status(200).json({
+    paymentId: body.paymentId,
+    refundId: result.refundId ?? null,
+    value: result.refundedValue ?? body.value,
+    code: result.code ?? null,
+    message: result.message ?? null,
+    requestId: body.requestId,
+  });
+});
+
+router.post("/payments/:paymentId/inbound-request/:action", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await handleInbound(body);
+
+  res.status(200).json({
+    requestId: body.requestId,
+    paymentId: body.paymentId,
+    responseData: {
+      statusCode: 200,
+      contentType: "application/json",
+      content: JSON.stringify(result),
+    },
+  });
+});
+
+export default router;
+```
+
+Configuration flow endpoints (optional, for merchant onboarding):
+
+```typescript
+import { Router, Request, Response } from "express";
+
+const configRouter = Router();
+
+// 1. POST /authorization/token
+configRouter.post("/authorization/token", async (req: Request, res: Response) => {
+  const { applicationId, returnUrl } = req.body;
+  const token = await generateAuthorizationToken(applicationId, returnUrl);
+  res.status(200).json({ applicationId, token });
+});
+
+// 2. GET /authorization/redirect
+configRouter.get("/authorization/redirect", async (req: Request, res: Response) => {
+  const { token } = req.query;
+  const providerLoginUrl = buildProviderLoginUrl(token as string);
+  res.redirect(302, providerLoginUrl);
+});
+
+// 3. GET /authorization/credentials
+configRouter.get("/authorization/credentials", async (req: Request, res: Response) => {
+  const { authorizationCode } = req.query;
+  const credentials = await exchangeCodeForCredentials(authorizationCode as string);
+  res.status(200).json({
+    applicationId: "vtex",
+    appKey: credentials.appKey,
+    appToken: credentials.appToken,
+  });
+});
+
+export default configRouter;
+```
+
+## Common failure modes
+
+- **Partial endpoint implementation** — Implementing only Create Payment and Capture while skipping Manifest, Cancel, Refund, and Inbound Request. The Test Suite tests all endpoints and will fail homologation. At runtime, the Gateway cannot cancel or refund payments.
+- **Incorrect HTTP methods** — Using POST for the Manifest endpoint or GET for Create Payment. The Gateway sends specific HTTP methods; mismatched handlers return 404 or 405.
+- **Missing or zero delay values** — Omitting `delayToAutoSettle`, `delayToAutoSettleAfterAntifraud`, or `delayToCancel` from the Create Payment response, or setting them to zero. This causes immediate auto-capture or auto-cancel, leading to premature settlement or lost payments.
+- **Incomplete response shapes** — Returning only `paymentId` and `status` without `authorizationId`, `tid`, `nsu`, `acquirer`, etc. The Gateway deserializes all fields and treats missing ones as failures.
+
+## Review checklist
+
+- [ ] Are all 6 payment-flow endpoints implemented (Manifest, Create Payment, Cancel, Capture, Refund, Inbound Request)?
+- [ ] Does each endpoint return the complete response shape with all required fields?
+- [ ] Does the Manifest declare all payment methods the provider actually supports?
+- [ ] Are the correct HTTP methods used (GET for Manifest, POST for everything else)?
+- [ ] Are `delayToAutoSettle`, `delayToAutoSettleAfterAntifraud`, and `delayToCancel` set to sensible non-zero values?
+- [ ] Is the connector served over HTTPS on port 443 with TLS 1.2?
+- [ ] Does the connector respond within 5 seconds for test suite and 20 seconds in production?
+- [ ] Are configuration flow endpoints implemented if merchant self-onboarding is needed?
+
+## Related skills
+
+- [`payment-idempotency`](payment-payment-idempotency.md) — Idempotency keys (`paymentId`, `requestId`) and state machine for duplicate prevention
+- [`payment-async-flow`](payment-payment-async-flow.md) — Async payment methods, `callbackUrl`, and the 7-day retry window
+- [`payment-pci-security`](payment-payment-pci-security.md) — PCI compliance, Secure Proxy, and card data handling
+
+## Reference
+
+- [Payment Provider Protocol Overview](https://developers.vtex.com/docs/guides/payment-provider-protocol-api-overview) — API overview with endpoint requirements, common parameters, and test suite info
+- [Implementing a Payment Provider](https://developers.vtex.com/docs/guides/payments-integration-implementing-a-payment-provider) — Step-by-step guide covering all 9 endpoints with request/response examples
+- [Payment Provider Protocol (Help Center)](https://help.vtex.com/en/docs/tutorials/payment-provider-protocol) — High-level protocol explanation including payment flow diagrams and callback URL usage
+- [Purchase Flows](https://developers.vtex.com/docs/guides/payments-integration-purchase-flows) — Authorization, capture, and cancellation flow details
+- [Payment Provider Protocol API Reference](https://developers.vtex.com/docs/api-reference/payment-provider-protocol) — Full OpenAPI specification for all PPP endpoints
+- [Integrating a New Payment Provider on VTEX](https://developers.vtex.com/docs/guides/integrating-a-new-payment-provider-on-vtex) — End-to-end integration guide from development to homologation

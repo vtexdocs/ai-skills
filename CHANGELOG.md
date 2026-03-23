@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.1](https://github.com/vtexdocs/ai-skills/compare/v1.3.0...v1.3.1) (2026-03-23)
+
+### Features
+
+* **kiro:** add Kiro Power exporter to the export pipeline ([COMMIT_HASH](https://github.com/vtexdocs/ai-skills/commit/COMMIT_HASH))
+  - Register a new `kiro` platform exporter that converts canonical VTEX skills into a Kiro Power package (POWER.md + steering files)
+  - Add `rewriteSkillLinks`, `buildKiroSkillSteering`, `buildKiroPowerMd`, and `buildKiroTrackSteering` builder functions to `scripts/export.ts`
+  - Register the `kiro` exporter in the `exporters` object
+  - Add `export:kiro` script to `package.json`
+  - Generate `exports/kiro/` with POWER.md, 21 skill steering files, and 5 track-consolidated steering files
+
 ## [1.3.0](https://github.com/vtexdocs/ai-skills/compare/v1.2.1...v1.3.0) (2026-03-20)
 
 
