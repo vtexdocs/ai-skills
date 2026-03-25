@@ -1,0 +1,1360 @@
+# FastStore Implementation & Customization
+
+# FastStore Data Layer & API Integration
+
+## When this skill applies
+
+Use this skill when:
+- You need to fetch product data, extend existing queries with additional fields, or integrate third-party APIs.
+- You need data beyond what native FastStore components display by default.
+- You are creating API extensions in `src/graphql/vtex/` or `src/graphql/thirdParty/`.
+- You are adding GraphQL fragments in `src/fragments/` to include new fields in predefined queries.
+- You are writing server-side resolvers that call VTEX REST APIs or external services.
+
+Do not use this skill for:
+- Client-side state management (cart, session, search) — use the `faststore-state-management` skill.
+- Visual theming — use the `faststore-theming` skill.
+- Component replacement or props overriding — use the `faststore-overrides` skill.
+
+## Decision rules
+
+- Use the FastStore GraphQL API for all catalog data (products, collections, search results, prices) — never make direct REST calls from client-side code.
+- Use VTEX API extensions (`src/graphql/vtex/`) when accessing VTEX platform data not exposed by default (e.g., custom product fields, installment details).
+- Use third-party API extensions (`src/graphql/thirdParty/`) when integrating external data sources (e.g., reviews, ratings, external inventory).
+- Use server fragments (`src/fragments/ServerProduct.ts`) for data needed at page load (SSR).
+- Use client fragments (`src/fragments/ClientProduct.ts`) for data that can load after initial render.
+- Keep API keys and secrets in server-side resolvers only — never in client-side code or `NEXT_PUBLIC_` environment variables.
+- Do not create custom Next.js API routes (`pages/api/`) — use the API extension system instead.
+
+## Hard constraints
+
+### Constraint: Use the GraphQL Layer for Catalog Data
+
+MUST use the FastStore GraphQL API for fetching catalog data (products, collections, search results, prices). MUST NOT make direct REST calls to VTEX Catalog APIs (`/api/catalog/`, `/api/catalog_system/`) from client-side code.
+
+**Why this matters**
+The FastStore API handles authentication, caching, request batching, and data normalization. Direct REST calls bypass all of these optimizations and expose your VTEX domain structure to the browser. They also create CORS issues, duplicate data fetching logic, and miss the type safety that GraphQL provides. Server-side REST calls to VTEX APIs are acceptable in GraphQL resolvers — that's exactly what API extensions are for.
+
+**Detection**
+If you see `fetch('https://{account}.vtexcommercestable.com.br/api/catalog')` or `fetch('https://{account}.myvtex.com/api/catalog')` in client-side code (components, hooks, useEffect) → warn that this bypasses the GraphQL layer. If it's in a file under `src/graphql/` resolvers → this is acceptable (that's the API extension pattern). If you see `axios` or `fetch` with VTEX API paths in any file under `src/components/` or `src/pages/` → STOP and refactor to use the GraphQL API.
+
+**Correct**
+```typescript
+// src/graphql/vtex/resolvers/product.ts
+// Server-side resolver — REST calls to VTEX APIs are correct here
+import type { Resolver } from '@faststore/api'
+
+const productResolver: Record<string, Resolver> = {
+  StoreProduct: {
+    customAttribute: async (root, _args, context) => {
+      // Server-side: safe to call VTEX REST APIs in resolvers
+      const response = await context.clients.commerce.catalog.getProduct(
+        root.productID
+      )
+      return response.customAttribute
+    },
+  },
+}
+
+export default productResolver
+```
+
+**Wrong**
+```typescript
+// src/components/ProductCustomData.tsx
+// WRONG: Direct REST call to VTEX Catalog API from a client component
+import React, { useEffect, useState } from 'react'
+
+interface ProductCustomDataProps {
+  productId: string
+}
+
+export default function ProductCustomData({ productId }: ProductCustomDataProps) {
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    // WRONG: Direct REST call from the browser
+    // This exposes the VTEX domain, bypasses caching, and creates CORS issues.
+    fetch(`https://mystore.vtexcommercestable.com.br/api/catalog/pvt/product/${productId}`)
+      .then((res) => res.json())
+      .then(setData)
+  }, [productId])
+
+  return <div>{data?.Name}</div>
+}
+```
+
+---
+
+### Constraint: Never Expose API Keys in Client-Side Code
+
+MUST NOT include VTEX API keys (`VTEX_APP_KEY`, `VTEX_APP_TOKEN`) or any secret credentials in client-side code, environment variables prefixed with `NEXT_PUBLIC_`, or any file that gets bundled into the browser.
+
+**Why this matters**
+API keys in client-side code are visible to anyone who inspects the page source or network requests. VTEX API keys provide access to catalog management, order processing, and account administration. Exposed keys can be used to modify products, access customer data, or disrupt store operations. This is a critical security vulnerability.
+
+**Detection**
+If you see `VTEX_APP_KEY`, `VTEX_APP_TOKEN`, `X-VTEX-API-AppKey`, or `X-VTEX-API-AppToken` in any file under `src/components/`, `src/pages/`, or any file that runs in the browser → STOP immediately. This is a critical security issue. If you see `NEXT_PUBLIC_VTEX_APP_KEY` or `NEXT_PUBLIC_VTEX_APP_TOKEN` in `.env` files → STOP immediately. The `NEXT_PUBLIC_` prefix makes these values available in the browser bundle.
+
+**Correct**
+```typescript
+// src/graphql/vtex/resolvers/installments.ts
+// API keys are used ONLY in server-side resolvers, accessed via context
+import type { Resolver } from '@faststore/api'
+
+const installmentResolver: Record<string, Resolver> = {
+  StoreProduct: {
+    availableInstallments: async (root, _args, context) => {
+      // context.clients handles authentication automatically
+      // No API keys are hardcoded or exposed
+      const product = await context.clients.commerce.catalog.getProduct(
+        root.productID
+      )
+
+      const installments = product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+
+      return installments.map((inst: any) => ({
+        count: inst.NumberOfInstallments,
+        value: inst.Value,
+        totalValue: inst.TotalValuePlusInterestRate,
+        interestRate: inst.InterestRate,
+      }))
+    },
+  },
+}
+
+export default installmentResolver
+```
+
+**Wrong**
+```typescript
+// src/components/ProductInstallments.tsx
+// CRITICAL SECURITY ISSUE: API keys exposed in client-side code
+import React, { useEffect, useState } from 'react'
+
+export default function ProductInstallments({ productId }: { productId: string }) {
+  const [installments, setInstallments] = useState([])
+
+  useEffect(() => {
+    fetch(`https://mystore.vtexcommercestable.com.br/api/catalog/pvt/product/${productId}`, {
+      headers: {
+        // CRITICAL: These keys are now visible to EVERY visitor of your site.
+        // Anyone can extract them from the browser's network tab.
+        'X-VTEX-API-AppKey': 'vtexappkey-mystore-ABCDEF',
+        'X-VTEX-API-AppToken': 'very-secret-token-12345',
+      },
+    })
+      .then((res) => res.json())
+      .then((data) => setInstallments(data.Installments))
+  }, [productId])
+
+  return <div>{installments.length} installments available</div>
+}
+```
+
+---
+
+### Constraint: Follow the API Extension Directory Structure
+
+MUST place API extension files in the correct directory structure: `src/graphql/vtex/` for VTEX API extensions and `src/graphql/thirdParty/` for third-party API extensions. Each must contain `typeDefs/` and `resolvers/` subdirectories.
+
+**Why this matters**
+FastStore's build system discovers and compiles API extensions from these specific directories. Files placed elsewhere will not be included in the GraphQL schema and resolvers will not execute. There will be no error at build time — the extended fields simply won't exist, causing runtime GraphQL errors when components try to query them.
+
+**Detection**
+If you see GraphQL type definitions (`.graphql` files) or resolver files outside of `src/graphql/vtex/` or `src/graphql/thirdParty/` → warn that they will not be discovered by the build system. If the `typeDefs/` or `resolvers/` subdirectory is missing → warn about incorrect structure.
+
+**Correct**
+```graphql
+# src/graphql/vtex/typeDefs/product.graphql
+type StoreProduct {
+  availableInstallments: [Installment]
+}
+
+type Installment {
+  count: Int
+  value: Float
+  totalValue: Float
+  interestRate: Float
+}
+```
+
+```typescript
+// src/graphql/vtex/resolvers/product.ts
+import type { Resolver } from '@faststore/api'
+
+const productResolver: Record<string, Resolver> = {
+  StoreProduct: {
+    availableInstallments: async (root, _args, context) => {
+      const product = await context.clients.commerce.catalog.getProduct(
+        root.productID
+      )
+      const installments =
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+
+      return installments.map((inst: any) => ({
+        count: inst.NumberOfInstallments,
+        value: inst.Value,
+        totalValue: inst.TotalValuePlusInterestRate,
+        interestRate: inst.InterestRate,
+      }))
+    },
+  },
+}
+
+export default productResolver
+```
+
+```typescript
+// src/graphql/vtex/resolvers/index.ts
+import { default as StoreProductResolver } from './product'
+
+const resolvers = {
+  ...StoreProductResolver,
+}
+
+export default resolvers
+```
+
+**Wrong**
+```typescript
+// WRONG: Resolver placed in src/api/ instead of src/graphql/vtex/resolvers/
+// src/api/resolvers/product.ts
+// This file will NOT be discovered by FastStore's build system.
+// The GraphQL schema will NOT include the extended fields.
+// Components querying these fields will get runtime errors.
+
+const productResolver = {
+  StoreProduct: {
+    availableInstallments: async (root: any) => {
+      return []
+    },
+  },
+}
+
+export default productResolver
+```
+
+## Preferred pattern
+
+Recommended file layout for API extensions:
+
+```text
+src/
+├── graphql/
+│   ├── vtex/
+│   │   ├── typeDefs/
+│   │   │   └── product.graphql
+│   │   └── resolvers/
+│   │       ├── product.ts
+│   │       └── index.ts
+│   └── thirdParty/
+│       ├── typeDefs/
+│       │   └── extra.graphql
+│       └── resolvers/
+│           ├── reviews.ts
+│           └── index.ts
+└── fragments/
+    ├── ServerProduct.ts    ← server-side fragment (SSR)
+    └── ClientProduct.ts    ← client-side fragment (post-render)
+```
+
+Minimal API extension — add a field to `StoreProduct`:
+
+```graphql
+# src/graphql/vtex/typeDefs/product.graphql
+type StoreProduct {
+  availableInstallments: [Installment]
+}
+
+type Installment {
+  count: Int!
+  value: Float!
+  totalValue: Float!
+  interestRate: Float!
+}
+```
+
+```typescript
+// src/graphql/vtex/resolvers/product.ts
+import type { Resolver } from '@faststore/api'
+
+const productResolver: Record<string, Resolver> = {
+  StoreProduct: {
+    availableInstallments: async (root, _args, context) => {
+      const product = await context.clients.commerce.catalog.getProduct(
+        root.productID
+      )
+      const installments =
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+
+      return installments.map((inst: any) => ({
+        count: inst.NumberOfInstallments,
+        value: inst.Value,
+        totalValue: inst.TotalValuePlusInterestRate,
+        interestRate: inst.InterestRate,
+      }))
+    },
+  },
+}
+
+export default productResolver
+```
+
+Include the new field in queries via fragments:
+
+```typescript
+// src/fragments/ServerProduct.ts
+import { gql } from '@faststore/core/api'
+
+export const fragment = gql(`
+  fragment ServerProduct on Query {
+    product(locator: $locator) {
+      availableInstallments {
+        count
+        value
+        totalValue
+        interestRate
+      }
+    }
+  }
+`)
+```
+
+Third-party API extension (e.g., product reviews):
+
+```typescript
+// src/graphql/thirdParty/resolvers/reviews.ts
+import type { Resolver } from '@faststore/api'
+
+const REVIEWS_API_KEY = process.env.REVIEWS_API_KEY // Server-only env var (no NEXT_PUBLIC_ prefix)
+
+const reviewsResolver: Record<string, Resolver> = {
+  StoreProduct: {
+    reviews: async (root) => {
+      const response = await fetch(
+        `https://api.reviews-service.com/products/${root.productID}/reviews`,
+        {
+          headers: {
+            Authorization: `Bearer ${REVIEWS_API_KEY}`,
+          },
+        }
+      )
+      const data = await response.json()
+      return {
+        averageRating: data.average_rating,
+        totalReviews: data.total_count,
+        reviews: data.reviews.slice(0, 5).map((r: any) => ({
+          author: r.author_name,
+          rating: r.rating,
+          text: r.review_text,
+          date: r.created_at,
+        })),
+      }
+    },
+  },
+}
+
+export default reviewsResolver
+```
+
+## Common failure modes
+
+- Making direct REST calls to VTEX Catalog APIs from React components — creates CORS issues, bypasses caching, and exposes VTEX account structure to the browser.
+- Exposing API keys (`VTEX_APP_KEY`, `VTEX_APP_TOKEN`) in client-side code or `NEXT_PUBLIC_` environment variables — critical security vulnerability.
+- Placing resolvers or type definitions outside `src/graphql/vtex/` or `src/graphql/thirdParty/` — they will not be discovered by the build system.
+- Creating custom Next.js API routes (`pages/api/`) instead of using the API extension system — bypasses caching, type safety, and request batching.
+- Forgetting to create the resolver index file (`src/graphql/vtex/resolvers/index.ts`) that re-exports all resolvers.
+
+## Review checklist
+
+- [ ] Is all catalog data fetched via the FastStore GraphQL API (not direct REST calls from components)?
+- [ ] Are API extension files in `src/graphql/vtex/` or `src/graphql/thirdParty/` with proper `typeDefs/` and `resolvers/` subdirectories?
+- [ ] Does the resolver index file re-export all resolvers?
+- [ ] Are API keys and secrets used only in server-side resolvers (no `NEXT_PUBLIC_` prefix)?
+- [ ] Are fragments created in `src/fragments/` to include new fields in predefined queries?
+- [ ] Are there no custom Next.js API routes that could be replaced with API extensions?
+
+## Reference
+
+- [FastStore API overview](https://developers.vtex.com/docs/guides/faststore/faststore-api-overview) — Introduction to the GraphQL API and its capabilities
+- [API extensions overview](https://developers.vtex.com/docs/guides/faststore/api-extensions-overview) — Guide to extending the FastStore API with custom data
+- [Extending VTEX API schemas](https://developers.vtex.com/docs/guides/faststore/api-extensions-extending-api-schema) — Step-by-step for adding VTEX platform data to the GraphQL schema
+- [Extending third-party API schemas](https://developers.vtex.com/docs/guides/faststore/api-extensions-extending-api-schema#extending-faststore-api-with-third-party-api-schemas) — Integrating external data sources
+- [Extending queries using fragments](https://developers.vtex.com/docs/guides/faststore/api-extensions-extending-queries-using-fragments) — How to add fields to predefined queries using fragments
+- [Consuming API extensions with custom components](https://developers.vtex.com/docs/guides/faststore/api-extensions-consuming-api-extensions) — Using extended data in React components
+- [GraphQL schema objects](https://developers.vtex.com/docs/guides/faststore/schema-objects) — Reference for all native GraphQL types (StoreProduct, StoreOffer, etc.)
+- [GraphQL queries reference](https://developers.vtex.com/docs/guides/faststore/schema-queries) — All predefined queries available in the FastStore API
+- [API extension troubleshooting](https://developers.vtex.com/docs/guides/faststore/api-extensions-troubleshooting) — Common issues with API extensions and their solutions
+- [`faststore-state-management`](faststore-faststore-state-management.md) — Related skill for client-side state management with SDK hooks
+
+---
+
+# FastStore Section & Component Overrides
+
+## When this skill applies
+
+Use this skill when:
+- You need to customize the behavior or appearance of a FastStore storefront component beyond what theming and design tokens can achieve.
+- You need to replace a native component entirely with a custom implementation.
+- You need to inject custom logic or modify props on native components within a section.
+- You are working with files in `src/components/overrides/`.
+
+Do not use this skill for:
+- Visual-only changes (colors, typography, spacing) — use the `faststore-theming` skill and design tokens instead.
+- Building custom state management for cart, session, or search — use the `faststore-state-management` skill.
+- Extending the GraphQL data layer — use the `faststore-data-fetching` skill.
+
+## Decision rules
+
+- Use overrides when theming alone cannot achieve the desired change (e.g., replacing a component, adding logic, changing behavior).
+- Use the `components` map with `{ Component: CustomComponent }` when replacing a native component entirely.
+- Use the `components` map with `{ props: { ... } }` when only changing props on a native component without replacing it.
+- Use the `className` option on `getOverriddenSection()` for wrapper-level styling alongside behavioral changes.
+- Prefer theming with design tokens for purely visual changes — overrides are heavier and more tightly coupled.
+- Only override components listed as overridable in the FastStore native sections documentation. Undocumented component names are silently ignored.
+- Components prefixed with `__experimental` can be overridden but their props are not accessible and may change without notice.
+
+## Hard constraints
+
+### Constraint: Use the Override API — Never Modify FastStore Core
+
+MUST use `getOverriddenSection()` from `@faststore/core` to customize sections. MUST NOT directly modify files in `node_modules/@faststore/` or import internal source files.
+
+**Why this matters**
+Modifying `node_modules` is ephemeral (changes are lost on `npm install`) and importing from internal paths like `@faststore/core/src/` creates tight coupling to implementation details that can break on any FastStore update.
+
+**Detection**
+If you see imports from `@faststore/core/src/` (internal source paths) → STOP. These are private implementation details. Only import from the public API: `@faststore/core` and `@faststore/core/experimental`. If you see direct file edits in `node_modules/@faststore/` → STOP immediately and use the override system instead.
+
+**Correct**
+```typescript
+// src/components/overrides/ProductDetails.tsx
+import { getOverriddenSection } from '@faststore/core'
+import { ProductDetailsSection } from '@faststore/core'
+
+import CustomProductTitle from '../CustomProductTitle'
+
+const OverriddenProductDetails = getOverriddenSection({
+  Section: ProductDetailsSection,
+  components: {
+    ProductTitle: { Component: CustomProductTitle },
+  },
+})
+
+export default OverriddenProductDetails
+```
+
+**Wrong**
+```typescript
+// WRONG: Importing from internal source paths
+import { ProductDetails } from '@faststore/core/src/components/sections/ProductDetails'
+// This path is an implementation detail that can change without notice.
+// It bypasses the public API and will break on FastStore updates.
+
+// WRONG: Modifying node_modules directly
+// Editing node_modules/@faststore/core/dist/components/ProductDetails.js
+// Changes are lost on every npm install and cannot be version-controlled.
+```
+
+---
+
+### Constraint: Override Files Must Live in src/components/overrides/
+
+MUST place override files in the `src/components/overrides/` directory, named after the section being overridden (e.g., `ProductDetails.tsx`).
+
+**Why this matters**
+FastStore's build system scans `src/components/overrides/` to discover and apply section overrides. Files placed elsewhere will not be detected and the override will silently fail — the native section will render instead with no error message.
+
+**Detection**
+If you see override-related code (calls to `getOverriddenSection`) in files outside `src/components/overrides/` → warn that the override will not be applied. Check that the filename matches a valid native section name from the FastStore section list.
+
+**Correct**
+```typescript
+// src/components/overrides/Alert.tsx
+// File is in the correct directory and named after the Alert section
+import { getOverriddenSection } from '@faststore/core'
+import { AlertSection } from '@faststore/core'
+
+import CustomIcon from '../CustomIcon'
+
+const OverriddenAlert = getOverriddenSection({
+  Section: AlertSection,
+  components: {
+    Icon: { Component: CustomIcon },
+  },
+})
+
+export default OverriddenAlert
+```
+
+**Wrong**
+```typescript
+// src/components/MyCustomAlert.tsx
+// WRONG: File is NOT in src/components/overrides/
+// FastStore will NOT discover this override.
+// The native Alert section will render unchanged.
+import { getOverriddenSection } from '@faststore/core'
+import { AlertSection } from '@faststore/core'
+
+const OverriddenAlert = getOverriddenSection({
+  Section: AlertSection,
+  components: {
+    Icon: { Component: CustomIcon },
+  },
+})
+
+export default OverriddenAlert
+```
+
+---
+
+### Constraint: Override Only Documented Overridable Components
+
+MUST only override components listed as overridable in the FastStore native sections documentation. Components prefixed with `__experimental` can be overridden but their props are not accessible.
+
+**Why this matters**
+Attempting to override a component not listed as overridable will silently fail. The override configuration will be ignored and the native component will render. Components marked `__experimental` have unstable prop interfaces that may change without notice.
+
+**Detection**
+If you see a component name in the `components` override map that does not appear in the FastStore list of overridable components for that section → warn that this override may not work. If the component is prefixed with `__experimental` → warn about inaccessible props and instability.
+
+**Correct**
+```typescript
+// src/components/overrides/ProductDetails.tsx
+// ProductTitle is a documented overridable component of ProductDetails section
+import { getOverriddenSection } from '@faststore/core'
+import { ProductDetailsSection } from '@faststore/core'
+
+const OverriddenProductDetails = getOverriddenSection({
+  Section: ProductDetailsSection,
+  components: {
+    ProductTitle: {
+      props: {
+        refNumber: true,
+        showDiscountBadge: false,
+      },
+    },
+  },
+})
+
+export default OverriddenProductDetails
+```
+
+**Wrong**
+```typescript
+// src/components/overrides/ProductDetails.tsx
+// "InternalPriceCalculator" is NOT a documented overridable component
+import { getOverriddenSection } from '@faststore/core'
+import { ProductDetailsSection } from '@faststore/core'
+
+const OverriddenProductDetails = getOverriddenSection({
+  Section: ProductDetailsSection,
+  components: {
+    // This component name does not exist in the overridable list.
+    // The override will be silently ignored.
+    InternalPriceCalculator: { Component: MyPriceCalculator },
+  },
+})
+
+export default OverriddenProductDetails
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+src/
+├── components/
+│   ├── overrides/
+│   │   ├── ProductDetails.tsx    ← override file (named after section)
+│   │   ├── Alert.tsx
+│   │   └── simple-alert.module.scss
+│   ├── CustomBuyButton.tsx       ← custom component
+│   └── BoldIcon.tsx
+```
+
+Minimal override — replace a component:
+
+```typescript
+// src/components/overrides/ProductDetails.tsx
+import { getOverriddenSection } from '@faststore/core'
+import { ProductDetailsSection } from '@faststore/core'
+
+import CustomBuyButton from '../CustomBuyButton'
+
+const OverriddenProductDetails = getOverriddenSection({
+  Section: ProductDetailsSection,
+  components: {
+    BuyButton: { Component: CustomBuyButton },
+  },
+})
+
+export default OverriddenProductDetails
+```
+
+Override props without replacing the component:
+
+```typescript
+// src/components/overrides/ProductDetails.tsx
+import { getOverriddenSection } from '@faststore/core'
+import { ProductDetailsSection } from '@faststore/core'
+
+const OverriddenProductDetails = getOverriddenSection({
+  Section: ProductDetailsSection,
+  components: {
+    BuyButton: {
+      props: {
+        size: 'small',
+        iconPosition: 'left',
+      },
+    },
+  },
+})
+
+export default OverriddenProductDetails
+```
+
+Override with custom styling:
+
+```typescript
+// src/components/overrides/Alert.tsx
+import { getOverriddenSection } from '@faststore/core'
+import { AlertSection } from '@faststore/core'
+import styles from './simple-alert.module.scss'
+
+import BoldIcon from '../BoldIcon'
+
+const OverriddenAlert = getOverriddenSection({
+  Section: AlertSection,
+  className: styles.simpleAlert,
+  components: {
+    Icon: { Component: BoldIcon },
+  },
+})
+
+export default OverriddenAlert
+```
+
+## Common failure modes
+
+- Monkey-patching `node_modules/@faststore/` or using `patch-package` for changes the override system supports. Changes are lost on install and create maintenance burden.
+- Using CSS `!important` to force visual changes instead of the override API for behavioral changes or design tokens for visual changes.
+- Creating wrapper components around native sections instead of using `getOverriddenSection()`. Wrappers bypass CMS integration, analytics tracking, and section discovery.
+- Placing override files outside `src/components/overrides/` — they will be silently ignored.
+- Overriding a component name not listed in the FastStore overridable components documentation — the override is silently ignored.
+
+## Review checklist
+
+- [ ] Is the override file located in `src/components/overrides/` and named after the target section?
+- [ ] Does the file use `getOverriddenSection()` from `@faststore/core`?
+- [ ] Are all overridden component names documented as overridable for that section?
+- [ ] Are imports only from `@faststore/core` or `@faststore/core/experimental` (not internal source paths)?
+- [ ] Could this change be achieved with design tokens instead of an override?
+- [ ] Does the override export as default?
+
+## Reference
+
+- [Overrides overview](https://developers.vtex.com/docs/guides/faststore/overrides-overview) — Introduction to the FastStore override system and when to use it
+- [getOverriddenSection function](https://developers.vtex.com/docs/guides/faststore/overrides-getoverriddensection-function) — API reference for the core override function
+- [Override native components and props](https://developers.vtex.com/docs/guides/faststore/overrides-components-and-props-v1) — Step-by-step guide for overriding component props
+- [Override a native component](https://developers.vtex.com/docs/guides/faststore/overrides-native-component) — Guide for replacing a native component entirely
+- [List of native sections and overridable components](https://developers.vtex.com/docs/guides/faststore/building-sections-list-of-native-sections) — Complete reference of which components can be overridden per section
+- [Creating a new section](https://developers.vtex.com/docs/guides/faststore/building-sections-creating-a-new-section) — Guide for creating custom sections when overrides are insufficient
+- [Troubleshooting overrides](https://developers.vtex.com/docs/troubleshooting/my-store-does-not-reflect-the-overrides-i-created) — Common issues and solutions when overrides don't work
+- [`faststore-theming`](faststore-faststore-theming.md) — Related skill for visual customizations that don't require overrides
+
+---
+
+# FastStore SDK State Management
+
+## When this skill applies
+
+Use this skill when:
+- You are building any interactive ecommerce feature that involves the shopping cart, user session, product search/filtering, or analytics tracking.
+- You need to add, remove, or update cart items.
+- You need to read or change session data (currency, locale, sales channel, postal code).
+- You need to manage faceted search state (sort order, selected facets, pagination).
+- You are working with `@faststore/sdk` hooks (`useCart`, `useSession`, `useSearch`).
+
+Do not use this skill for:
+- Visual-only changes — use the `faststore-theming` skill.
+- Replacing or customizing native components — use the `faststore-overrides` skill.
+- Extending the GraphQL schema or fetching custom data — use the `faststore-data-fetching` skill.
+
+## Decision rules
+
+- Use `useCart()` for all cart operations — it handles platform validation, price verification, and analytics automatically.
+- Use `useSession()` for all session data — it triggers `validateSession` mutations that keep the platform synchronized.
+- Use `useSearch()` within `SearchProvider` for all search state — it synchronizes with URL parameters and supports browser back-button navigation.
+- Do not build custom state management (React Context, Redux, Zustand, `useState`/`useReducer`) for cart, session, or search. The SDK hooks are wired into the FastStore platform integration layer.
+- Always check `isValidating` from `useCart()` and block checkout navigation during validation.
+- Use `sendAnalyticsEvent()` from the SDK for GA4-compatible ecommerce event tracking.
+
+## Hard constraints
+
+### Constraint: Use @faststore/sdk for Cart, Session, and Search State
+
+MUST use `@faststore/sdk` hooks (`useCart`, `useSession`, `useSearch`) for managing cart, session, and search state. MUST NOT build custom state management (React Context, Redux, Zustand, useState/useReducer) for these domains.
+
+**Why this matters**
+The SDK hooks are wired into the FastStore platform integration layer. `useCart()` triggers cart validation mutations. `useSession()` propagates locale/currency changes to all data queries. `useSearch()` synchronizes with URL parameters and triggers search re-fetches. Custom state bypasses all of this — carts won't be validated, prices may be stale, search won't sync with URLs, and analytics events won't fire.
+
+**Detection**
+If you see `useState` or `useReducer` managing cart items, cart totals, session locale, session currency, or search facets → STOP. These should use `useCart()`, `useSession()`, or `useSearch()` from `@faststore/sdk`. If you see `createContext` with names like `CartContext`, `SessionContext`, or `SearchContext` → STOP. The SDK already provides these contexts.
+
+**Correct**
+```typescript
+// src/components/MiniCart.tsx
+import React from 'react'
+import { useCart } from '@faststore/sdk'
+
+export default function MiniCart() {
+  const { items, totalItems, isValidating, removeItem } = useCart()
+
+  if (totalItems === 0) {
+    return <p>Your cart is empty</p>
+  }
+
+  return (
+    <div data-fs-mini-cart>
+      <h3>Cart ({totalItems} items)</h3>
+      {isValidating && <span>Updating cart...</span>}
+      <ul>
+        {items.map((item) => (
+          <li key={item.id}>
+            <span>{item.itemOffered.name}</span>
+            <span>${item.price}</span>
+            <button onClick={() => removeItem(item.id)}>Remove</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+```
+
+**Wrong**
+```typescript
+// WRONG: Building a custom cart context instead of using @faststore/sdk
+import React, { createContext, useContext, useReducer } from 'react'
+
+interface CartItem {
+  id: string
+  name: string
+  price: number
+  quantity: number
+}
+
+// This custom context duplicates what @faststore/sdk already provides.
+// Cart changes here will NOT trigger platform validation.
+// Prices and availability will NOT be verified against VTEX.
+// Analytics events will NOT fire for add-to-cart actions.
+const CartContext = createContext<{
+  items: CartItem[]
+  dispatch: React.Dispatch<any>
+}>({ items: [], dispatch: () => {} })
+
+function cartReducer(state: CartItem[], action: any) {
+  switch (action.type) {
+    case 'ADD':
+      return [...state, action.payload]
+    case 'REMOVE':
+      return state.filter((item) => item.id !== action.payload)
+    default:
+      return state
+  }
+}
+
+export function CartProvider({ children }: { children: React.ReactNode }) {
+  const [items, dispatch] = useReducer(cartReducer, [])
+  return (
+    <CartContext.Provider value={{ items, dispatch }}>
+      {children}
+    </CartContext.Provider>
+  )
+}
+```
+
+---
+
+### Constraint: Always Handle Cart Validation State
+
+MUST check the `isValidating` flag from `useCart()` and show appropriate loading states during cart validation. MUST NOT allow checkout navigation while `isValidating` is `true`.
+
+**Why this matters**
+Cart validation is an asynchronous operation that checks items against the VTEX platform for current prices, availability, and applicable promotions. If a user proceeds to checkout during validation, they may see stale prices or encounter errors. The `isValidating` flag exists to prevent this.
+
+**Detection**
+If you see `useCart()` destructured without `isValidating` in components that have checkout links or "Proceed to Checkout" buttons → warn that the validation state is not being handled. If you see a checkout link or button that does not check `isValidating` before navigating → warn about potential stale cart data.
+
+**Correct**
+```typescript
+// src/components/CartSummary.tsx
+import React from 'react'
+import { useCart } from '@faststore/sdk'
+
+export default function CartSummary() {
+  const { items, totalItems, isValidating } = useCart()
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  )
+
+  return (
+    <div data-fs-cart-summary>
+      <p>{totalItems} item{totalItems !== 1 ? 's' : ''} in your cart</p>
+      <p>Subtotal: ${subtotal.toFixed(2)}</p>
+      {isValidating && (
+        <p data-fs-cart-validating>Verifying prices and availability...</p>
+      )}
+      <a
+        href="/checkout"
+        data-fs-checkout-button
+        aria-disabled={isValidating}
+        onClick={(e) => {
+          if (isValidating) {
+            e.preventDefault()
+          }
+        }}
+      >
+        {isValidating ? 'Updating cart...' : 'Proceed to Checkout'}
+      </a>
+    </div>
+  )
+}
+```
+
+**Wrong**
+```typescript
+// WRONG: Ignoring cart validation state
+import React from 'react'
+import { useCart } from '@faststore/sdk'
+
+export default function CartSummary() {
+  const { items, totalItems } = useCart()
+  // Missing isValidating — user can click checkout while cart is being validated.
+  // This can lead to price mismatches at checkout or failed orders.
+
+  return (
+    <div>
+      <p>{totalItems} items</p>
+      <a href="/checkout">Proceed to Checkout</a>
+      {/* No loading state. No validation check. User may proceed with stale prices. */}
+    </div>
+  )
+}
+```
+
+---
+
+### Constraint: Do Not Store Session Data in localStorage
+
+MUST use `useSession()` from `@faststore/sdk` for accessing session data (currency, locale, channel, person). MUST NOT read/write session data directly to `localStorage` or `sessionStorage`.
+
+**Why this matters**
+The SDK's session module manages synchronization with the VTEX platform. When session data changes, the SDK triggers a `validateSession` mutation that updates the server-side session and re-validates the cart. Writing directly to `localStorage` bypasses this validation — the platform won't know about the change, prices may display in the wrong currency, and cart items may not reflect the correct sales channel.
+
+**Detection**
+If you see `localStorage.getItem` or `localStorage.setItem` with keys related to session data (currency, locale, channel, region, postalCode) → STOP. These should be managed through `useSession()`. If you see `sessionStorage` used for the same purpose → STOP.
+
+**Correct**
+```typescript
+// src/components/LocaleSwitcher.tsx
+import React from 'react'
+import { useSession } from '@faststore/sdk'
+
+export default function LocaleSwitcher() {
+  const { locale, currency, setSession } = useSession()
+
+  const handleLocaleChange = (newLocale: string, newCurrency: string) => {
+    // setSession triggers platform validation and re-fetches data
+    setSession({
+      locale: newLocale,
+      currency: { code: newCurrency, symbol: newCurrency === 'USD' ? '$' : 'R$' },
+    })
+  }
+
+  return (
+    <div data-fs-locale-switcher>
+      <button
+        onClick={() => handleLocaleChange('en-US', 'USD')}
+        aria-pressed={locale === 'en-US'}
+      >
+        EN
+      </button>
+      <button
+        onClick={() => handleLocaleChange('pt-BR', 'BRL')}
+        aria-pressed={locale === 'pt-BR'}
+      >
+        PT
+      </button>
+      <span>Current: {locale} ({currency.code})</span>
+    </div>
+  )
+}
+```
+
+**Wrong**
+```typescript
+// WRONG: Managing session data manually via localStorage
+import React, { useState, useEffect } from 'react'
+
+export default function LocaleSwitcher() {
+  const [locale, setLocale] = useState('en-US')
+
+  useEffect(() => {
+    // WRONG: Reading session data from localStorage
+    const saved = localStorage.getItem('store-locale')
+    if (saved) setLocale(saved)
+  }, [])
+
+  const handleLocaleChange = (newLocale: string) => {
+    // WRONG: Writing session data to localStorage
+    // The VTEX platform does NOT know about this change.
+    // Product prices, availability, and cart will NOT update.
+    localStorage.setItem('store-locale', newLocale)
+    setLocale(newLocale)
+  }
+
+  return (
+    <div>
+      <button onClick={() => handleLocaleChange('en-US')}>EN</button>
+      <button onClick={() => handleLocaleChange('pt-BR')}>PT</button>
+    </div>
+  )
+}
+```
+
+## Preferred pattern
+
+Recommended usage of SDK hooks together:
+
+```typescript
+// src/components/CartDrawer.tsx
+import React from 'react'
+import { useCart } from '@faststore/sdk'
+import { useSession } from '@faststore/sdk'
+import { Button, Loader } from '@faststore/ui'
+
+export default function CartDrawer() {
+  const { items, totalItems, isValidating, removeItem, updateItemQuantity } =
+    useCart()
+  const { currency, locale } = useSession()
+
+  const formatter = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency.code,
+  })
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  )
+
+  if (totalItems === 0) {
+    return (
+      <div data-fs-cart-drawer>
+        <h2>Your Cart</h2>
+        <p>Your cart is empty. Start shopping to add items.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div data-fs-cart-drawer>
+      <h2>Your Cart ({totalItems} items)</h2>
+
+      {isValidating && (
+        <div data-fs-cart-loading>
+          <Loader />
+          <span>Verifying prices and availability...</span>
+        </div>
+      )}
+
+      <ul data-fs-cart-items>
+        {items.map((item) => (
+          <li key={item.id} data-fs-cart-item>
+            <span data-fs-cart-item-name>{item.itemOffered.name}</span>
+            <span data-fs-cart-item-price>{formatter.format(item.price)}</span>
+            <div data-fs-cart-item-quantity>
+              <Button
+                variant="tertiary"
+                onClick={() => updateItemQuantity(item.id, item.quantity - 1)}
+                disabled={item.quantity <= 1}
+              >
+                -
+              </Button>
+              <span>{item.quantity}</span>
+              <Button
+                variant="tertiary"
+                onClick={() => updateItemQuantity(item.id, item.quantity + 1)}
+              >
+                +
+              </Button>
+            </div>
+            <Button variant="tertiary" onClick={() => removeItem(item.id)}>
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+
+      <div data-fs-cart-summary>
+        <span>Subtotal: {formatter.format(subtotal)}</span>
+        <a
+          href="/checkout"
+          data-fs-checkout-button
+          aria-disabled={isValidating}
+          onClick={(e) => {
+            if (isValidating) e.preventDefault()
+          }}
+        >
+          {isValidating ? 'Updating cart...' : 'Proceed to Checkout'}
+        </a>
+      </div>
+    </div>
+  )
+}
+```
+
+Search state with `useSearch()`:
+
+```typescript
+// src/components/FacetFilter.tsx
+import { useSearch } from '@faststore/sdk'
+
+export default function FacetFilter() {
+  const { state, setState } = useSearch()
+
+  const toggleFacet = (facetKey: string, facetValue: string) => {
+    const currentFacets = state.selectedFacets || []
+    const exists = currentFacets.some(
+      (f) => f.key === facetKey && f.value === facetValue
+    )
+
+    const newFacets = exists
+      ? currentFacets.filter(
+          (f) => !(f.key === facetKey && f.value === facetValue)
+        )
+      : [...currentFacets, { key: facetKey, value: facetValue }]
+
+    setState({
+      ...state,
+      selectedFacets: newFacets,
+      page: 0, // Reset pagination when filters change
+    })
+  }
+
+  return (
+    <div data-fs-facet-filter>
+      <button onClick={() => toggleFacet('brand', 'Nike')}>
+        Nike {state.selectedFacets?.some((f) => f.key === 'brand' && f.value === 'Nike') ? '✓' : ''}
+      </button>
+    </div>
+  )
+}
+```
+
+## Common failure modes
+
+- Creating a custom React Context for cart state (`CartContext`, `useReducer`) — disconnects from VTEX platform validation, analytics, and checkout.
+- Storing session data (locale, currency, postal code) in `localStorage` — the SDK's `validateSession` mutation never fires, so the platform is out of sync.
+- Building custom search state with `useState` — loses URL synchronization, breaks back-button navigation, and bypasses the SDK's optimized query generation.
+- Ignoring the `isValidating` flag from `useCart()` — users can proceed to checkout with stale prices or out-of-stock items.
+- Using `useCart_unstable` or `useSession_unstable` hooks without understanding they have unstable interfaces that may change.
+
+## Review checklist
+
+- [ ] Is cart state managed exclusively via `useCart()` from `@faststore/sdk`?
+- [ ] Is session data accessed exclusively via `useSession()` from `@faststore/sdk`?
+- [ ] Is search state managed via `useSearch()` within a `SearchProvider` context?
+- [ ] Is the `isValidating` flag checked before allowing checkout navigation?
+- [ ] Is there no custom React Context, Redux, or Zustand store duplicating SDK state?
+- [ ] Is there no direct `localStorage`/`sessionStorage` access for session-related data?
+
+## Reference
+
+- [FastStore SDK overview](https://developers.vtex.com/docs/guides/faststore/sdk-overview) — Introduction to the SDK modules and their responsibilities
+- [useCart hook](https://developers.vtex.com/docs/guides/faststore/sdk-use-cart) — API reference for the cart hook with all properties and functions
+- [Cart module overview](https://developers.vtex.com/docs/guides/faststore/cart-overview) — Cart data structure, validation, and platform integration
+- [Session module](https://developers.vtex.com/docs/guides/faststore/sdk-session) — Session data structure, currency, locale, and channel management
+- [useSearch hook](https://developers.vtex.com/docs/guides/faststore/sdk-use-search) — API reference for the search hook with sorting, facets, and pagination
+- [SearchProvider](https://developers.vtex.com/docs/guides/faststore/search-search-provider) — Context provider required for useSearch to function
+- [Analytics module](https://developers.vtex.com/docs/guides/faststore/sdk-analytics) — GA4-compatible analytics event tracking
+- [Experimental hooks and components](https://developers.vtex.com/docs/guides/faststore/sdk-experimental-exports) — Unstable hooks for advanced use cases (useCart_unstable, useSession_unstable)
+- [`faststore-data-fetching`](faststore-faststore-data-fetching.md) — Related skill for fetching product data via the GraphQL API
+
+---
+
+# FastStore Theming & Design Tokens
+
+## When this skill applies
+
+Use this skill when:
+- You need to change the visual appearance of a FastStore storefront — colors, typography, spacing, borders, or component-specific styles.
+- You are working with files in `src/themes/` or creating `custom-theme.scss`.
+- You need to customize individual component styles using local tokens and `[data-fs-*]` data attributes.
+- You are setting up a brand identity on top of the Brandless default theme.
+
+Do not use this skill for:
+- Changes that require replacing a component, injecting logic, or modifying behavior — use the `faststore-overrides` skill.
+- Client-side state management — use the `faststore-state-management` skill.
+- Data fetching or API extensions — use the `faststore-data-fetching` skill.
+
+## Decision rules
+
+- Use theming as the first approach before considering overrides — it is lighter and more maintainable.
+- Use global tokens (`:root` scope) when the change should propagate store-wide (e.g., brand colors, font families).
+- Use local tokens (`[data-fs-*]` scope) when the change applies to a single component (e.g., button background color).
+- Use `[data-fs-*]` data attributes to target components — never use `.fs-*` class names or generic tag selectors.
+- Place all theme files in `src/themes/` with `custom-theme.scss` as the entry point — files elsewhere are not discovered.
+- Reference design tokens via `var(--fs-*)` instead of hardcoding hex colors, pixel sizes, or font values.
+- Use CSS modules for custom (non-FastStore) components to avoid conflicting with FastStore's structural styles.
+
+## Hard constraints
+
+### Constraint: Use Design Tokens — Not Inline Styles
+
+MUST use design tokens (global or local) to style FastStore components. MUST NOT use inline `style={}` props on FastStore components for theming purposes.
+
+**Why this matters**
+Inline styles bypass the design token hierarchy, cannot be overridden by themes, do not participate in responsive breakpoints, and create maintenance nightmares. They also defeat CSS caching since styles are embedded in HTML. Design tokens ensure consistency and allow store-wide changes from a single file.
+
+**Detection**
+If you see `style={{` or `style={` on FastStore native components (components imported from `@faststore/ui` or `@faststore/core`) → warn that this bypasses the theming system. Suggest using design tokens or CSS modules instead. Exception: inline styles are acceptable on fully custom components that are not part of the FastStore UI library.
+
+**Correct**
+```scss
+// src/themes/custom-theme.scss
+// Override the BuyButton's primary background color using design tokens
+[data-fs-buy-button] {
+  --fs-button-primary-bkg-color: #e31c58;
+  --fs-button-primary-bkg-color-hover: #c4174d;
+  --fs-button-primary-text-color: var(--fs-color-text-inverse);
+
+  [data-fs-button-wrapper] {
+    border-radius: var(--fs-border-radius-pill);
+  }
+}
+```
+
+**Wrong**
+```typescript
+// WRONG: Using inline styles on a FastStore component
+import { BuyButton } from '@faststore/ui'
+
+function ProductActions() {
+  return (
+    <BuyButton
+      style={{ backgroundColor: '#e31c58', color: 'white', borderRadius: '999px' }}
+    >
+      Add to Cart
+    </BuyButton>
+  )
+  // Inline styles bypass the design token hierarchy.
+  // They cannot be changed store-wide from the theme file.
+  // They do not respond to dark mode or other theme variants.
+}
+```
+
+---
+
+### Constraint: Place Theme Files in src/themes/
+
+MUST place custom theme SCSS files in the `src/themes/` directory. The primary theme file must be named `custom-theme.scss`.
+
+**Why this matters**
+FastStore's build system imports theme files from `src/themes/custom-theme.scss`. Files placed elsewhere will not be picked up by the build and your token overrides will have no effect. There will be no error — the default Brandless theme will render instead.
+
+**Detection**
+If you see token override declarations (variables starting with `--fs-`) in SCSS files outside `src/themes/` → warn that these may not be applied. If the file `src/themes/custom-theme.scss` does not exist in the project → warn that no custom theme is active.
+
+**Correct**
+```scss
+// src/themes/custom-theme.scss
+// Global token overrides — applied store-wide
+:root {
+  --fs-color-main-0: #003232;
+  --fs-color-main-1: #004c4c;
+  --fs-color-main-2: #006666;
+  --fs-color-main-3: #008080;
+  --fs-color-main-4: #00b3b3;
+
+  --fs-color-accent-0: #e31c58;
+  --fs-color-accent-1: #c4174d;
+  --fs-color-accent-2: #a51342;
+
+  --fs-text-face-body: 'Inter', -apple-system, system-ui, BlinkMacSystemFont, sans-serif;
+  --fs-text-face-title: 'Poppins', var(--fs-text-face-body);
+
+  --fs-text-size-title-huge: 3.5rem;
+  --fs-text-size-title-page: 2.25rem;
+}
+
+// Component-specific token overrides
+[data-fs-price] {
+  --fs-price-listing-color: #cb4242;
+}
+```
+
+**Wrong**
+```scss
+// src/styles/my-theme.scss
+// WRONG: This file is in src/styles/, not src/themes/
+// FastStore will NOT import this file. Token overrides will be ignored.
+:root {
+  --fs-color-main-0: #003232;
+  --fs-color-accent-0: #e31c58;
+}
+
+// Also WRONG: Creating a theme in the project root
+// ./theme.scss — this will not be discovered by the build system
+```
+
+---
+
+### Constraint: Use Data Attributes for Component Targeting
+
+MUST use FastStore's `data-fs-*` data attributes to target components in theme SCSS files. MUST NOT use class names or tag selectors to target FastStore native components.
+
+**Why this matters**
+FastStore components use data attributes as their public styling API (e.g., `data-fs-button`, `data-fs-price`, `data-fs-hero`). Class names are implementation details that can change between versions. Using data attributes ensures your theme survives FastStore updates. Each component documents its available data attributes in the customization section of its docs.
+
+**Detection**
+If you see CSS selectors targeting `.fs-*` class names or generic tag selectors (`button`, `h1`, `div`) to style FastStore components → warn about fragility. Suggest using `[data-fs-*]` selectors instead.
+
+**Correct**
+```scss
+// src/themes/custom-theme.scss
+// Target the Hero section using its data attribute
+[data-fs-hero] {
+  --fs-hero-text-size: var(--fs-text-size-title-huge);
+  --fs-hero-heading-weight: var(--fs-text-weight-bold);
+
+  [data-fs-hero-heading] {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  [data-fs-hero-image] {
+    border-radius: var(--fs-border-radius);
+    filter: brightness(0.9);
+  }
+}
+```
+
+**Wrong**
+```scss
+// src/themes/custom-theme.scss
+// WRONG: Targeting by class names — these are internal and may change
+.fs-hero {
+  font-size: 3.5rem;
+}
+
+.fs-hero h1 {
+  text-transform: uppercase;
+}
+
+// WRONG: Using generic tag selectors
+section > div > h1 {
+  font-weight: bold;
+}
+// These are fragile selectors that break when FastStore restructures its HTML.
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+src/
+└── themes/
+    └── custom-theme.scss    ← main entry point (auto-imported by FastStore)
+```
+
+Minimal custom theme:
+
+```scss
+// src/themes/custom-theme.scss
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap');
+
+// Global Token Overrides
+:root {
+  --fs-color-main-0: #003232;
+  --fs-color-main-1: #004c4c;
+  --fs-color-accent-0: #e31c58;
+  --fs-color-accent-1: #c4174d;
+
+  --fs-text-face-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --fs-text-face-title: 'Poppins', var(--fs-text-face-body);
+}
+
+// Component-specific overrides
+[data-fs-button] {
+  --fs-button-border-radius: var(--fs-border-radius-pill);
+
+  &[data-fs-button-variant="primary"] {
+    --fs-button-primary-bkg-color: var(--fs-color-accent-0);
+    --fs-button-primary-bkg-color-hover: var(--fs-color-accent-1);
+    --fs-button-primary-text-color: var(--fs-color-text-inverse);
+  }
+}
+
+[data-fs-price] {
+  --fs-price-listing-color: #cb4242;
+  --fs-price-listing-text-decoration: line-through;
+}
+
+[data-fs-navbar] {
+  --fs-navbar-bkg-color: var(--fs-color-main-0);
+  --fs-navbar-text-color: var(--fs-color-text-inverse);
+}
+```
+
+For custom (non-FastStore) components, use CSS modules to avoid conflicts:
+
+```scss
+// src/components/CustomBanner.module.scss
+.customBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-spacing-3); // Still reference FastStore tokens for consistency
+  padding: var(--fs-spacing-4);
+  background-color: var(--fs-color-main-0);
+  color: var(--fs-color-text-inverse);
+  border-radius: var(--fs-border-radius);
+}
+```
+
+## Common failure modes
+
+- Using `!important` declarations — creates specificity dead-ends and defeats the cascading nature of design tokens. Use the correct token at the correct selector specificity instead.
+- Hardcoding hex colors, pixel sizes, and font values directly in component styles instead of referencing `var(--fs-*)` tokens. Changes cannot propagate store-wide.
+- Creating a parallel CSS system (Tailwind, Bootstrap, custom global stylesheet) that conflicts with FastStore's structural styles and doubles the CSS payload.
+- Placing theme files outside `src/themes/` — they will not be discovered by the build system.
+- Targeting FastStore components with `.fs-*` class names or generic tag selectors instead of `[data-fs-*]` data attributes.
+
+## Review checklist
+
+- [ ] Is the theme file located in `src/themes/custom-theme.scss`?
+- [ ] Are global token overrides placed in `:root` scope?
+- [ ] Are component-level overrides using `[data-fs-*]` data attribute selectors?
+- [ ] Are all values referencing design tokens via `var(--fs-*)` instead of hardcoded values?
+- [ ] Is there no use of `!important` declarations?
+- [ ] Could this change be achieved without overrides (is theming sufficient)?
+- [ ] Are custom component styles scoped with CSS modules to avoid conflicts?
+
+## Reference
+
+- [Theming overview](https://developers.vtex.com/docs/guides/faststore/using-themes-overview) — Introduction to theming concepts, Brandless architecture, and token hierarchy
+- [Global tokens](https://developers.vtex.com/docs/guides/faststore/global-tokens-overview) — Complete reference for all global design tokens (colors, typography, spacing, borders)
+- [Global tokens: Colors](https://developers.vtex.com/docs/guides/faststore/global-tokens-colors) — Color token reference and palette structure
+- [Global tokens: Typography](https://developers.vtex.com/docs/guides/faststore/global-tokens-typography) — Font family, size, and weight tokens
+- [Global tokens: Spacing](https://developers.vtex.com/docs/guides/faststore/global-tokens-spacing) — Spacing scale tokens
+- [Styling a component](https://developers.vtex.com/docs/guides/faststore/using-themes-components) — Guide for customizing individual component styles with local tokens
+- [Available themes](https://developers.vtex.com/docs/guides/faststore/themes-overview) — Pre-built themes (Midnight, Soft Blue) available as starting points
+- [Importing FastStore UI component styles](https://developers.vtex.com/docs/guides/faststore/using-themes-importing-ui-components-styles) — How to import and use component styles in custom sections
+- [`faststore-overrides`](faststore-faststore-overrides.md) — Related skill for when theming alone is insufficient and behavioral changes are needed
