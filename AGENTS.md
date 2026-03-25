@@ -13,6 +13,7 @@ This file provides instructions for AI coding agents working on this repository.
 All skills use the decision-oriented template at `_templates/skill-template.md`.
 
 Required H2 sections (in order):
+
 1. `## When this skill applies`
 2. `## Decision rules`
 3. `## Hard constraints`
@@ -29,7 +30,7 @@ Required H2 sections (in order):
 name: skill-name-kebab-case
 description: Apply when [trigger condition]. Covers [key areas]. Use for [specific task].
 metadata:
-  track: faststore  # one of: faststore, payment, vtex-io, marketplace, headless
+  track: faststore # one of: architecture, faststore, payment, vtex-io, marketplace, headless
   tags: [keyword1, keyword2]
   globs: ["src/path/**/*.ts"]
   version: "1.0"
@@ -73,12 +74,12 @@ Releases are automated via [Release Please](https://github.com/googleapis/releas
 
 **Commit prefix → version bump:**
 
-| Prefix | Bump | Example |
-|---|---|---|
-| `feat:` / `feat(scope):` | minor | new skill, new export platform |
-| `fix:` / `fix(scope):` | patch | bug fix, broken URL |
-| `refactor:` / `refactor(scope):` | patch | skill content improvement |
-| `chore:`, `docs:` | none | no release PR opened |
-| `feat!:` or `BREAKING CHANGE:` in footer | major | removed skill, renamed track |
+| Prefix                                   | Bump  | Example                        |
+| ---------------------------------------- | ----- | ------------------------------ |
+| `feat:` / `feat(scope):`                 | minor | new skill, new export platform |
+| `fix:` / `fix(scope):`                   | patch | bug fix, broken URL            |
+| `refactor:` / `refactor(scope):`         | patch | skill content improvement      |
+| `chore:`, `docs:`                        | none  | no release PR opened           |
+| `feat!:` or `BREAKING CHANGE:` in footer | major | removed skill, renamed track   |
 
 Use `refactor(track):` for skill content changes so they appear in the changelog under "Skill Improvements" without triggering a minor bump.

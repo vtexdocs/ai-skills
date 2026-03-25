@@ -4,7 +4,7 @@
 
 <h1 align="center">VTEX AI Skills</h1>
 <p align="center">
-  <strong>21 AI agent skills for VTEX platform development — one source, five export formats.</strong>
+  <strong>22 AI agent skills for VTEX platform development — one source, five export formats.</strong>
 </p>
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
@@ -13,8 +13,8 @@
   <a href="#contributing">Contributing</a>
 </p>
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-21-F71963" alt="21 skills">
-  <img src="https://img.shields.io/badge/tracks-5-blue" alt="5 tracks">
+  <img src="https://img.shields.io/badge/skills-22-F71963" alt="22 skills">
+  <img src="https://img.shields.io/badge/tracks-6-blue" alt="6 tracks">
   <img src="https://img.shields.io/badge/platforms-5-green" alt="5 platforms">
   <img src="https://img.shields.io/github/license/vtexdocs/ai-skills" alt="License">
   <img src="https://img.shields.io/github/actions/workflow/status/vtexdocs/ai-skills/generate-exports.yml?label=exports" alt="Build">
@@ -108,13 +108,13 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 
 ## Supported Platforms
 
-| Platform | Format | Auto-detection | Files |
-|---|---|---|---|
-| **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 6 |
-| **Cursor** | `.mdc` rules | ✅ Glob + description | 26 |
-| **GitHub Copilot** | Instructions | ✅ Auto-loaded | 6 |
-| **Claude Projects** | Knowledge files | Manual upload | 26 |
-| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 21 |
+| Platform            | Format          | Auto-detection        | Files |
+| ------------------- | --------------- | --------------------- | ----- |
+| **AGENTS.md**       | Markdown        | ✅ Native in 7+ tools | 7     |
+| **Cursor**          | `.mdc` rules    | ✅ Glob + description | 28    |
+| **GitHub Copilot**  | Instructions    | ✅ Auto-loaded        | 7     |
+| **Claude Projects** | Knowledge files | Manual upload         | 28    |
+| **OpenCode**        | `SKILL.md`      | ✅ Auto-discovered    | 22    |
 
 ---
 
@@ -125,12 +125,12 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 
 Overrides, theming, SDK hooks, and data fetching for FastStore storefronts. Covers the override API, design token system, cart/session/search state management, and GraphQL API extensions.
 
-| Skill | Description |
-|---|---|
-| `faststore-overrides` | Section and component overrides using `getOverriddenSection()` |
-| `faststore-theming` | Design tokens, SCSS theming, and `[data-fs-*]` attribute targeting |
-| `faststore-state-management` | Cart, Session, Search, and Analytics SDK hooks |
-| `faststore-data-fetching` | GraphQL fragments, API extensions, and resolver patterns |
+| Skill                        | Description                                                        |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `faststore-overrides`        | Section and component overrides using `getOverriddenSection()`     |
+| `faststore-theming`          | Design tokens, SCSS theming, and `[data-fs-*]` attribute targeting |
+| `faststore-state-management` | Cart, Session, Search, and Analytics SDK hooks                     |
+| `faststore-data-fetching`    | GraphQL fragments, API extensions, and resolver patterns           |
 
 </details>
 
@@ -139,12 +139,12 @@ Overrides, theming, SDK hooks, and data fetching for FastStore storefronts. Cove
 
 All 9 Payment Provider Protocol endpoints, idempotency patterns, async payment flows, and PCI compliance via the Secure Proxy. Covers both mandatory payment flow and optional configuration flow.
 
-| Skill | Description |
-|---|---|
-| `payment-provider-protocol` | All 9 PPP endpoints: 6 payment flow + 3 configuration flow |
-| `payment-idempotency` | `paymentId` and `requestId` idempotency, duplicate prevention |
-| `payment-async-flow` | Async approval, callback URLs, and the 7-day retry window |
-| `payment-pci-security` | Secure Proxy, card tokenization, and PCI constraint enforcement |
+| Skill                       | Description                                                     |
+| --------------------------- | --------------------------------------------------------------- |
+| `payment-provider-protocol` | All 9 PPP endpoints: 6 payment flow + 3 configuration flow      |
+| `payment-idempotency`       | `paymentId` and `requestId` idempotency, duplicate prevention   |
+| `payment-async-flow`        | Async approval, callback URLs, and the 7-day retry window       |
+| `payment-pci-security`      | Secure Proxy, card tokenization, and PCI constraint enforcement |
 
 </details>
 
@@ -154,19 +154,20 @@ All 9 Payment Provider Protocol endpoints, idempotency patterns, async payment f
 App manifest, builders, policies, `@vtex/api` clients, React components, GraphQL schemas, and MasterData v2 integration. The most comprehensive track, covering both frontend and backend IO development.
 
 This track is being reorganized into smaller groups:
+
 - Foundations
 - API exposure
 - Frontend
 - Data and config
 - Security and operations
 
-| Skill | Description |
-|---|---|
-| `vtex-io-app-structure` | Manifest, builders, policies, and app architecture |
-| `vtex-io-service-apps` | Node service apps, `ctx.clients`, and `@vtex/api` client hierarchy |
-| `vtex-io-react-apps` | React components, `css-handles`, hooks, and Styleguide usage |
-| `vtex-io-graphql-api` | GraphQL schemas, resolvers, `@cacheControl`, and `@auth` directives |
-| `vtex-io-masterdata` | MasterData v2 CRUD, schema design, and the 60-schema limit |
+| Skill                   | Description                                                         |
+| ----------------------- | ------------------------------------------------------------------- |
+| `vtex-io-app-structure` | Manifest, builders, policies, and app architecture                  |
+| `vtex-io-service-apps`  | Node service apps, `ctx.clients`, and `@vtex/api` client hierarchy  |
+| `vtex-io-react-apps`    | React components, `css-handles`, hooks, and Styleguide usage        |
+| `vtex-io-graphql-api`   | GraphQL schemas, resolvers, `@cacheControl`, and `@auth` directives |
+| `vtex-io-masterdata`    | MasterData v2 CRUD, schema design, and the 60-schema limit          |
 
 See [tracks/vtex-io/index.md](tracks/vtex-io/index.md) for the planned grouped model and VTEX IO skill roadmap.
 
@@ -177,12 +178,12 @@ See [tracks/vtex-io/index.md](tracks/vtex-io/index.md) for the planned grouped m
 
 SKU catalog sync, order hooks, fulfillment simulation, and rate limiting for marketplace connectors. Covers the Change Notification flow, Feed v3 vs Hook tradeoffs, and invoice/tracking patterns.
 
-| Skill | Description |
-|---|---|
-| `marketplace-catalog-sync` | Change Notification entry point, SKU suggestion lifecycle |
-| `marketplace-order-hook` | Feed v3 (pull) vs Hook (push), filter types, commit patterns |
-| `marketplace-fulfillment` | Simulation endpoint, 2.5s timeout, invoice and tracking updates |
-| `marketplace-rate-limiting` | 429 handling, exponential backoff, circuit breaker patterns |
+| Skill                       | Description                                                     |
+| --------------------------- | --------------------------------------------------------------- |
+| `marketplace-catalog-sync`  | Change Notification entry point, SKU suggestion lifecycle       |
+| `marketplace-order-hook`    | Feed v3 (pull) vs Hook (push), filter types, commit patterns    |
+| `marketplace-fulfillment`   | Simulation endpoint, 2.5s timeout, invoice and tracking updates |
+| `marketplace-rate-limiting` | 429 handling, exponential backoff, circuit breaker patterns     |
 
 </details>
 
@@ -191,12 +192,25 @@ SKU catalog sync, order hooks, fulfillment simulation, and rate limiting for mar
 
 BFF architecture, Intelligent Search API, checkout proxy patterns, and caching strategy for headless VTEX storefronts. Covers why a BFF is mandatory and which APIs can never be called from the browser.
 
-| Skill | Description |
-|---|---|
-| `headless-bff-architecture` | BFF layer design, auth proxy, and API key protection |
-| `headless-intelligent-search` | Search, facets, autocomplete, and Search Events API |
-| `headless-checkout-proxy` | Checkout API proxying, session cookies, and the 5-minute order window |
-| `headless-caching-strategy` | TTL rules, stale-while-revalidate, and what must never be cached |
+| Skill                         | Description                                                           |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `headless-bff-architecture`   | BFF layer design, auth proxy, and API key protection                  |
+| `headless-intelligent-search` | Search, facets, autocomplete, and Search Events API                   |
+| `headless-checkout-proxy`     | Checkout API proxying, session cookies, and the 5-minute order window |
+| `headless-caching-strategy`   | TTL rules, stale-while-revalidate, and what must never be cached      |
+
+</details>
+
+<details>
+<summary><strong>Track 6: Well-Architected Commerce &amp; Solution Architecture</strong> — 1 cross-cutting skill</summary>
+
+Solution architecture and the **Well-Architected Commerce** pillars (Technical Foundation, Future-proof, Operational Excellence). Use for scoping and reviews across storefront, IO, headless, marketplace, and payments — then hand off to product tracks for implementation details.
+
+| Skill                       | Description                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `well-architected-commerce` | Pillar-based tradeoffs, platform-first vs custom, routing work to product skills |
+
+See [tracks/architecture/index.md](tracks/architecture/index.md) and the shipped skill [well-architected-commerce/skill.md](tracks/architecture/skills/well-architected-commerce/skill.md).
 
 </details>
 
@@ -207,8 +221,8 @@ BFF architecture, Intelligent Search API, checkout proxy patterns, and caching s
 This repository is an [Open Plugin](https://open-plugins.com) — a portable, platform-agnostic skill pack that any AI coding tool can discover and install.
 
 ```
-rules/*.mdc              # 26 Cursor rules (auto-discovered)
-skills/*/SKILL.md        # 21 agent skills (auto-discovered)
+rules/*.mdc              # 28 Cursor rules (auto-discovered)
+skills/*/SKILL.md        # 22 agent skills (auto-discovered)
 .cursor-plugin/plugin.json   # Cursor plugin manifest
 .plugin/plugin.json          # Vendor-neutral plugin manifest
 ```
@@ -229,6 +243,10 @@ vtex_skills/
   _templates/
     skill-template.md       # Canonical template for new skills
   tracks/                   # SOURCE — edit skill files here
+    architecture/
+      index.md
+      skills/
+        well-architected-commerce/skill.md
     faststore/
       index.md
       skills/
@@ -266,11 +284,11 @@ vtex_skills/
         vtex-io-graphql-api/skill.md
         vtex-io-masterdata/skill.md
   exports/                  # auto-generated — do not edit
-    agents-md/              # AGENTS.md format (6 files)
-    claude/                 # Claude Projects format (26 files)
-    copilot/                # GitHub Copilot format (6 files)
-    cursor/                 # Cursor .mdc format (26 files)
-    opencode/               # OpenCode SKILL.md format (21 files)
+    agents-md/              # AGENTS.md format (7 files: root + 6 tracks)
+    claude/                 # Claude Projects format (28 files)
+    copilot/                # GitHub Copilot format (7 files)
+    cursor/                 # Cursor .mdc format (28 files)
+    opencode/               # OpenCode SKILL.md format (22 files)
   skills/                   # auto-generated — do not edit (OpenCode export)
   rules/                    # auto-generated — do not edit (Cursor export)
   scripts/

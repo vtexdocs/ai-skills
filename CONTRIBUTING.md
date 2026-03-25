@@ -100,18 +100,18 @@ See [Skill Template Reference](#skill-template-reference) for what goes in each 
 
 Every opening code fence must have a language annotation. The validator will fail on bare fences.
 
-```typescript
+````typescript
 // Good
 ```typescript
 const x = 1
-```
+````
 
-```text
+````text
 // Also good for diagrams and directory trees
 ```text
 src/
   components/
-```
+````
 
 Closing fences are always bare (just ` ``` `). Only opening fences need the annotation.
 
@@ -188,11 +188,13 @@ Cross-skill links use a relative path from the current skill's directory:
 ```
 
 Add `Related skills` when:
+
 - the skill sits near a real decision boundary, such as `graphql` vs `http-routes`
 - the user or AI would plausibly pick the wrong adjacent skill without guidance
 - another skill is a natural companion needed right after this one
 
 Skip `Related skills` when:
+
 - the links would only restate the obvious track structure
 - there is no meaningful ambiguity about when to use the skill
 - the section would become a second reference list instead of a decision aid
@@ -214,7 +216,7 @@ Only link to `developers.vtex.com` or `help.vtex.com`. Don't link to third-party
 
 ### Step 1: Create the track directory
 
-Track directory names are kebab-case and short. Existing tracks: `faststore`, `payment`, `vtex-io`, `marketplace`, `headless`.
+Track directory names are kebab-case and short. Existing tracks: `architecture`, `faststore`, `payment`, `vtex-io`, `marketplace`, `headless`.
 
 ```bash
 mkdir -p tracks/my-new-track/skills
@@ -309,7 +311,7 @@ The name must be unique across the entire repository. It's used as the skill ID 
 
 ### Track directory names
 
-Short, lowercase, kebab-case. Match the `track` frontmatter field exactly. Current names: `faststore`, `payment`, `vtex-io`, `marketplace`, `headless`.
+Short, lowercase, kebab-case. Match the `track` frontmatter field exactly. Current names: `architecture`, `faststore`, `payment`, `vtex-io`, `marketplace`, `headless`.
 
 ### Skill file structure
 
@@ -347,13 +349,13 @@ This repository uses [Release Please](https://github.com/googleapis/release-plea
 
 ### Commit conventions → version bump
 
-| Commit prefix | Version bump | When to use |
-|---|---|---|
-| `feat(scope):` | **minor** | New skill, new export platform, new validator check |
-| `fix(scope):` | patch | Bug fix, broken reference URL, wrong constraint |
-| `refactor(scope):` | patch | Skill content improvement, template conversion |
-| `chore:`, `docs:` | none | No release opened |
-| `feat!:` or `BREAKING CHANGE:` in footer | **major** | Removed skill, renamed track, changed skill name |
+| Commit prefix                            | Version bump | When to use                                         |
+| ---------------------------------------- | ------------ | --------------------------------------------------- |
+| `feat(scope):`                           | **minor**    | New skill, new export platform, new validator check |
+| `fix(scope):`                            | patch        | Bug fix, broken reference URL, wrong constraint     |
+| `refactor(scope):`                       | patch        | Skill content improvement, template conversion      |
+| `chore:`, `docs:`                        | none         | No release opened                                   |
+| `feat!:` or `BREAKING CHANGE:` in footer | **major**    | Removed skill, renamed track, changed skill name    |
 
 Use `refactor(track-name):` for skill content work (e.g. `refactor(payment): improve idempotency examples`). This creates a patch bump and shows up in the changelog under "Skill Improvements".
 

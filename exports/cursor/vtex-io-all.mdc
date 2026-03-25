@@ -16,6 +16,7 @@ Use this skill when working with the foundational structure of a VTEX IO app —
 - Troubleshooting deployment failures related to manifest misconfiguration
 
 Do not use this skill for:
+
 - Backend service implementation details (use `vtex-io-service-apps` instead)
 - React component development (use `vtex-io-react-apps` instead)
 - GraphQL schema and resolver details (use `vtex-io-graphql-api` instead)
@@ -31,19 +32,20 @@ Do not use this skill for:
 
 Builders reference:
 
-| Builder | Directory | Purpose |
-|---------|-----------|---------|
-| `node` | `/node` | Backend services in TypeScript (middlewares, resolvers, event handlers) |
-| `react` | `/react` | Frontend React components in TypeScript/TSX |
-| `graphql` | `/graphql` | GraphQL schema definitions (`.graphql` files) |
-| `admin` | `/admin` | Admin panel pages and navigation entries |
-| `pixel` | `/pixel` | Pixel/tracking apps that inject scripts into the storefront |
-| `messages` | `/messages` | Internationalization — localized string files per locale |
-| `store` | `/store` | Store Framework theme blocks, interfaces, and routes |
-| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers |
-| `styles` | `/styles` | CSS/Tachyons configuration for Store Framework themes |
+| Builder      | Directory     | Purpose                                                                 |
+| ------------ | ------------- | ----------------------------------------------------------------------- |
+| `node`       | `/node`       | Backend services in TypeScript (middlewares, resolvers, event handlers) |
+| `react`      | `/react`      | Frontend React components in TypeScript/TSX                             |
+| `graphql`    | `/graphql`    | GraphQL schema definitions (`.graphql` files)                           |
+| `admin`      | `/admin`      | Admin panel pages and navigation entries                                |
+| `pixel`      | `/pixel`      | Pixel/tracking apps that inject scripts into the storefront             |
+| `messages`   | `/messages`   | Internationalization — localized string files per locale                |
+| `store`      | `/store`      | Store Framework theme blocks, interfaces, and routes                    |
+| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers                              |
+| `styles`     | `/styles`     | CSS/Tachyons configuration for Store Framework themes                   |
 
 Policy types:
+
 1. **Outbound-access policies**: Grant access to explicit URLs (external APIs or VTEX endpoints).
 2. **License Manager policies**: Grant access to VTEX Admin resources using resource keys.
 3. **App role-based policies**: Grant access to routes or GraphQL queries exposed by other IO apps, using the format `{vendor}.{app-name}:{policy-name}`.

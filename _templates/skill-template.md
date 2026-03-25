@@ -7,7 +7,7 @@ This file defines the canonical format for new skills in this repository.
 YAML FRONTMATTER FIELDS:
 - name (required): kebab-case identifier, unique across the entire repo. Used as skill ID.
 - description (required): activation-oriented summary for AI auto-detection. Must start with "Apply when ...".
-- metadata.track (required): one of: faststore, payment, vtex-io, marketplace, headless
+- metadata.track (required): one of: architecture, faststore, payment, vtex-io, marketplace, headless
 - metadata.tags (required): relevant technology/concept keywords for discovery
 - metadata.globs (optional): file patterns that should auto-trigger the skill
 - metadata.version (optional): semantic version for change tracking
@@ -48,28 +48,20 @@ STYLE:
 -->
 
 ---
+
 name: example-skill-name
 description: Apply when deciding, designing, or implementing [capability] in [platform/context]. Covers when [mechanism A] is the right choice, the core contracts and implementation pattern, and the most important constraints to avoid common failures.
 metadata:
-  track: faststore
-  tags:
-    - keyword1
-    - keyword2
-    - keyword3
-  globs:
-    - "src/path/**/*.ts"
-    - "src/path/**/*.tsx"
-  version: "1.0"
-  purpose: Decide when to use [pattern] and how to implement it safely
-  applies_to:
-    - task type 1
-    - task type 2
-  excludes:
-    - use case this skill should not cover
-  decision_scope:
-    - decision-a-vs-b
-    - implementation-strategy
-  vtex_docs_verified: "2026-03-17"
+track: faststore
+tags: - keyword1 - keyword2 - keyword3
+globs: - "src/path/**/\*.ts" - "src/path/**/\*.tsx"
+version: "1.0"
+purpose: Decide when to use [pattern] and how to implement it safely
+applies_to: - task type 1 - task type 2
+excludes: - use case this skill should not cover
+decision_scope: - decision-a-vs-b - implementation-strategy
+vtex_docs_verified: "2026-03-17"
+
 ---
 
 # Skill Title
@@ -77,11 +69,13 @@ metadata:
 ## When this skill applies
 
 Use this skill when [condition].
+
 - [specific trigger]
 - [specific trigger]
 - [specific trigger]
 
 Do not use this skill as the default choice for:
+
 - [case that belongs to another skill]
 - [case that belongs to another mechanism]
 
@@ -105,6 +99,7 @@ Do not use this skill as the default choice for:
 [Describe what the AI or reviewer should look for and when to stop.]
 
 **Correct**
+
 ```json
 {
   "example": true
@@ -133,16 +128,16 @@ Do not use this skill as the default choice for:
 
 ```typescript
 export const example = () => {
-  return 'correct'
-}
+  return "correct";
+};
 ```
 
 **Wrong**
 
 ```typescript
 export const broken = () => {
-  return 'wrong'
-}
+  return "wrong";
+};
 ```
 
 ### Constraint: [Security, auth, cache, or data rule]
@@ -196,7 +191,7 @@ Minimal implementation pattern:
 
 ```typescript
 export function example() {
-  return 'value'
+  return "value";
 }
 ```
 

@@ -8,12 +8,14 @@ on:
       - 'scripts/**/*.ts'
       - '_templates/**'
       - 'package.json'
+      - 'AGENTS.md'
   pull_request:
     paths:
       - 'tracks/**/*.md'
       - 'scripts/**/*.ts'
       - '_templates/**'
       - 'package.json'
+      - 'AGENTS.md'
 
 permissions:
   contents: read

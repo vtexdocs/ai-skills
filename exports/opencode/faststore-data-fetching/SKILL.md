@@ -8,6 +8,7 @@ description: "Apply when deciding, designing, or implementing data fetching with
 ## When this skill applies
 
 Use this skill when:
+
 - You need to fetch product data, extend existing queries with additional fields, or integrate third-party APIs.
 - You need data beyond what native FastStore components display by default.
 - You are creating API extensions in `src/graphql/vtex/` or `src/graphql/thirdParty/`.
@@ -15,6 +16,7 @@ Use this skill when:
 - You are writing server-side resolvers that call VTEX REST APIs or external services.
 
 Do not use this skill for:
+
 - Client-side state management (cart, session, search) — use the `faststore-state-management` skill.
 - Visual theming — use the `faststore-theming` skill.
 - Component replacement or props overriding — use the `faststore-overrides` skill.
@@ -42,27 +44,29 @@ The FastStore API handles authentication, caching, request batching, and data no
 If you see `fetch('https://{account}.vtexcommercestable.com.br/api/catalog')` or `fetch('https://{account}.myvtex.com/api/catalog')` in client-side code (components, hooks, useEffect) → warn that this bypasses the GraphQL layer. If it's in a file under `src/graphql/` resolvers → this is acceptable (that's the API extension pattern). If you see `axios` or `fetch` with VTEX API paths in any file under `src/components/` or `src/pages/` → STOP and refactor to use the GraphQL API.
 
 **Correct**
+
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
 // Server-side resolver — REST calls to VTEX APIs are correct here
-import type { Resolver } from '@faststore/api'
+import type { Resolver } from "@faststore/api";
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     customAttribute: async (root, _args, context) => {
       // Server-side: safe to call VTEX REST APIs in resolvers
       const response = await context.clients.commerce.catalog.getProduct(
-        root.productID
-      )
-      return response.customAttribute
+        root.productID,
+      );
+      return response.customAttribute;
     },
   },
-}
+};
 
-export default productResolver
+export default productResolver;
 ```
 
 **Wrong**
+
 ```typescript
 // src/components/ProductCustomData.tsx
 // WRONG: Direct REST call to VTEX Catalog API from a client component
@@ -100,10 +104,11 @@ API keys in client-side code are visible to anyone who inspects the page source 
 If you see `VTEX_APP_KEY`, `VTEX_APP_TOKEN`, `X-VTEX-API-AppKey`, or `X-VTEX-API-AppToken` in any file under `src/components/`, `src/pages/`, or any file that runs in the browser → STOP immediately. This is a critical security issue. If you see `NEXT_PUBLIC_VTEX_APP_KEY` or `NEXT_PUBLIC_VTEX_APP_TOKEN` in `.env` files → STOP immediately. The `NEXT_PUBLIC_` prefix makes these values available in the browser bundle.
 
 **Correct**
+
 ```typescript
 // src/graphql/vtex/resolvers/installments.ts
 // API keys are used ONLY in server-side resolvers, accessed via context
-import type { Resolver } from '@faststore/api'
+import type { Resolver } from "@faststore/api";
 
 const installmentResolver: Record<string, Resolver> = {
   StoreProduct: {
@@ -111,25 +116,27 @@ const installmentResolver: Record<string, Resolver> = {
       // context.clients handles authentication automatically
       // No API keys are hardcoded or exposed
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID
-      )
+        root.productID,
+      );
 
-      const installments = product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+      const installments =
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }))
+      }));
     },
   },
-}
+};
 
-export default installmentResolver
+export default installmentResolver;
 ```
 
 **Wrong**
+
 ```typescript
 // src/components/ProductInstallments.tsx
 // CRITICAL SECURITY ISSUE: API keys exposed in client-side code
@@ -168,6 +175,7 @@ FastStore's build system discovers and compiles API extensions from these specif
 If you see GraphQL type definitions (`.graphql` files) or resolver files outside of `src/graphql/vtex/` or `src/graphql/thirdParty/` → warn that they will not be discovered by the build system. If the `typeDefs/` or `resolvers/` subdirectory is missing → warn about incorrect structure.
 
 **Correct**
+
 ```graphql
 # src/graphql/vtex/typeDefs/product.graphql
 type StoreProduct {
@@ -184,42 +192,43 @@ type Installment {
 
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
-import type { Resolver } from '@faststore/api'
+import type { Resolver } from "@faststore/api";
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     availableInstallments: async (root, _args, context) => {
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID
-      )
+        root.productID,
+      );
       const installments =
-        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }))
+      }));
     },
   },
-}
+};
 
-export default productResolver
+export default productResolver;
 ```
 
 ```typescript
 // src/graphql/vtex/resolvers/index.ts
-import { default as StoreProductResolver } from './product'
+import { default as StoreProductResolver } from "./product";
 
 const resolvers = {
   ...StoreProductResolver,
-}
+};
 
-export default resolvers
+export default resolvers;
 ```
 
 **Wrong**
+
 ```typescript
 // WRONG: Resolver placed in src/api/ instead of src/graphql/vtex/resolvers/
 // src/api/resolvers/product.ts
@@ -230,12 +239,12 @@ export default resolvers
 const productResolver = {
   StoreProduct: {
     availableInstallments: async (root: any) => {
-      return []
+      return [];
     },
   },
-}
+};
 
-export default productResolver
+export default productResolver;
 ```
 
 ## Preferred pattern
@@ -280,35 +289,35 @@ type Installment {
 
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
-import type { Resolver } from '@faststore/api'
+import type { Resolver } from "@faststore/api";
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     availableInstallments: async (root, _args, context) => {
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID
-      )
+        root.productID,
+      );
       const installments =
-        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }))
+      }));
     },
   },
-}
+};
 
-export default productResolver
+export default productResolver;
 ```
 
 Include the new field in queries via fragments:
 
 ```typescript
 // src/fragments/ServerProduct.ts
-import { gql } from '@faststore/core/api'
+import { gql } from "@faststore/core/api";
 
 export const fragment = gql(`
   fragment ServerProduct on Query {
@@ -321,16 +330,16 @@ export const fragment = gql(`
       }
     }
   }
-`)
+`);
 ```
 
 Third-party API extension (e.g., product reviews):
 
 ```typescript
 // src/graphql/thirdParty/resolvers/reviews.ts
-import type { Resolver } from '@faststore/api'
+import type { Resolver } from "@faststore/api";
 
-const REVIEWS_API_KEY = process.env.REVIEWS_API_KEY // Server-only env var (no NEXT_PUBLIC_ prefix)
+const REVIEWS_API_KEY = process.env.REVIEWS_API_KEY; // Server-only env var (no NEXT_PUBLIC_ prefix)
 
 const reviewsResolver: Record<string, Resolver> = {
   StoreProduct: {
@@ -341,9 +350,9 @@ const reviewsResolver: Record<string, Resolver> = {
           headers: {
             Authorization: `Bearer ${REVIEWS_API_KEY}`,
           },
-        }
-      )
-      const data = await response.json()
+        },
+      );
+      const data = await response.json();
       return {
         averageRating: data.average_rating,
         totalReviews: data.total_count,
@@ -353,12 +362,12 @@ const reviewsResolver: Record<string, Resolver> = {
           text: r.review_text,
           date: r.created_at,
         })),
-      }
+      };
     },
   },
-}
+};
 
-export default reviewsResolver
+export default reviewsResolver;
 ```
 
 ## Common failure modes
