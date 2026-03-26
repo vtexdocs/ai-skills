@@ -7,7 +7,7 @@ Each track directory contains an AGENTS.md with detailed instructions.
 
 See [`architecture/AGENTS.md`](./architecture/AGENTS.md) for detailed instructions.
 
-  - **well-architected-commerce**: Apply when scoping, reviewing, or documenting cross-cutting VTEX commerce architecture across storefront, IO, headless, marketplace, payments or any other VTEX module. Grounds work in Well-Architected Commerce pillars—Technical Foundation (security, reliability, compliance), Future-proof (sustainable evolution and whole-solution simplicity with the platform), and Operational Excellence (clear ownership, metrics, and improvement). Supplemental VTEX guidance covers native and OOTB choices before custom extension, appropriate Master Data use, and handoff to product track skills. Use for solution design, architecture reviews, and RFP-level technical structure.
+  - **architecture-well-architected-commerce**: Apply when scoping, reviewing, or documenting cross-cutting VTEX commerce architecture across storefront, IO, headless, marketplace, payments or any other VTEX module. Grounds work in Well-Architected Commerce pillars—Technical Foundation (security, reliability, compliance), Future-proof (sustainable evolution and whole-solution simplicity with the platform), and Operational Excellence (clear ownership, metrics, and improvement). Supplemental VTEX guidance covers native and OOTB choices before custom extension, appropriate Master Data use, and handoff to product track skills. Use for solution design, architecture reviews, and RFP-level technical structure.
 
 ## FastStore Implementation & Customization
 

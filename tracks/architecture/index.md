@@ -15,15 +15,24 @@ Product tracks answer **how** to implement on a given VTEX surface. The architec
 
 ## Skills
 
-| Skill                         | Description                                                                                                                                  | Link                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Well-Architected Commerce** | Map decisions to Technical Foundation, Future-proof, and Operational Excellence; default to platform-first and product skills for execution. | [skills/well-architected-commerce/skill.md](skills/well-architected-commerce/skill.md) |
+| Skill                         | Description                                                                                                                                  | Link                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Well-Architected Commerce** | Map decisions to Technical Foundation, Future-proof, and Operational Excellence; default to platform-first and product skills for execution. | [skills/architecture-well-architected-commerce/skill.md](skills/architecture-well-architected-commerce/skill.md) |
 
-## Recommended flow
+## Recommended Learning Order
 
 1. **Frame** the initiative with the three pillars (risk, change velocity, operations).
 2. **Choose** storefront and integration model (FastStore vs Headless vs Store Framework, IO apps, marketplace role).
 3. **Execute** with the relevant product track skills; do not duplicate platform constraints here.
+
+## Key Constraints Summary
+
+- **Technical Foundation is non-negotiable** — No shortcut that exposes secrets, widens PCI scope, or calls private VTEX APIs from untrusted clients.
+- **Native and OOTB before VTEX IO** — Extend with IO only when no suitable native path exists; document **why not native** when IO is chosen anyway.
+- **Master Data is not a general-purpose or checkout-critical store** — Understand MD’s model and limits; keep MD off the **purchase critical path** unless rigorously justified.
+- **Justify every new service or datastore** — Owner, failure mode, and pillar mapping; avoid sprawl “for flexibility.”
+- **Differentiator vs operational gap** — Do not use custom code to patch broken process; fix ownership and operations when that is the root cause.
+- **Hand off to product skills** — This track sets direction; FastStore, Headless, IO, Marketplace, and Payment skills define implementation contracts.
 
 ## Related tracks
 

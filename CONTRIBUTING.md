@@ -9,12 +9,12 @@ This guide covers everything you need to add skills, tracks, and export platform
 
 The workflow is always: **edit `tracks/` → validate → export → commit both.**
 
-| Path | What it is | Editable? |
-|---|---|---|
-| `tracks/{track}/skills/{name}/skill.md` | Skill source of truth | ✅ Edit here |
-| `exports/` | All platform exports (cursor, copilot, agents-md, etc.) | ❌ Auto-generated |
-| `skills/` *(root-level)* | OpenCode exports | ❌ Auto-generated |
-| `rules/` | Cursor `.mdc` exports | ❌ Auto-generated |
+| Path                                    | What it is                                              | Editable?         |
+| --------------------------------------- | ------------------------------------------------------- | ----------------- |
+| `tracks/{track}/skills/{name}/skill.md` | Skill source of truth                                   | ✅ Edit here      |
+| `exports/`                              | All platform exports (cursor, copilot, agents-md, etc.) | ❌ Auto-generated |
+| `skills/` _(root-level)_                | OpenCode exports                                        | ❌ Auto-generated |
+| `rules/`                                | Cursor `.mdc` exports                                   | ❌ Auto-generated |
 
 > **Common trap**: There is a `skills/` directory at the repository root that looks like source
 > files. It is not — it is the auto-generated OpenCode export. Source files live under
@@ -121,7 +121,7 @@ Closing fences are always bare (just ` ``` `). Only opening fences need the anno
 bun run validate
 ```
 
-Fix any reported issues before proceeding. The validator checks 10 things; see the [README](README.md#validation) for the full list.
+Fix any reported issues before proceeding. The validator runs 11 checks; see the [README](README.md#validation) for the full list.
 
 ### Step 7: Run export
 

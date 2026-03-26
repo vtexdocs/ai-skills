@@ -206,11 +206,11 @@ BFF architecture, Intelligent Search API, checkout proxy patterns, and caching s
 
 Solution architecture and the **Well-Architected Commerce** pillars (Technical Foundation, Future-proof, Operational Excellence). Use for scoping and reviews across storefront, IO, headless, marketplace, and payments — then hand off to product tracks for implementation details.
 
-| Skill                       | Description                                                                      |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `well-architected-commerce` | Pillar-based tradeoffs, platform-first vs custom, routing work to product skills |
+| Skill                                    | Description                                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------------------- |
+| `architecture-well-architected-commerce` | Pillar-based tradeoffs, platform-first vs custom, routing work to product skills |
 
-See [tracks/architecture/index.md](tracks/architecture/index.md) and the shipped skill [well-architected-commerce/skill.md](tracks/architecture/skills/well-architected-commerce/skill.md).
+See [tracks/architecture/index.md](tracks/architecture/index.md) and the shipped skill [architecture-well-architected-commerce/skill.md](tracks/architecture/skills/architecture-well-architected-commerce/skill.md).
 
 </details>
 
@@ -246,7 +246,7 @@ vtex_skills/
     architecture/
       index.md
       skills/
-        well-architected-commerce/skill.md
+        architecture-well-architected-commerce/skill.md
     faststore/
       index.md
       skills/
