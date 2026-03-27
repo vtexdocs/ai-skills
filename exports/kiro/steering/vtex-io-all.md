@@ -1,96 +1,83 @@
 # Custom VTEX IO Apps
 
-# App Architecture & Manifest Configuration
+# App Contract & Builder Boundaries
 
 ## When this skill applies
 
-Use this skill when working with the foundational structure of a VTEX IO app — the `manifest.json` file, builder system, policy declarations, dependency management, `service.json` resource limits, and app lifecycle (link, publish, deploy).
+Use this skill when the main decision is about what a VTEX IO app is, what capabilities it declares, and which integration boundaries it publishes through `manifest.json`.
 
-- Creating a new VTEX IO app from scratch
-- Adding a builder to an existing app
-- Configuring policies for API access
-- Troubleshooting deployment failures related to manifest misconfiguration
+- Creating a new VTEX IO app and defining its initial contract
+- Adding or removing builders to match app capabilities
+- Choosing between `dependencies` and `peerDependencies`
+- Deciding whether a capability belongs in the current app or should move to another app
+- Troubleshooting link or publish failures caused by manifest-level contract issues
 
 Do not use this skill for:
-- Backend service implementation details (use `vtex-io-service-apps` instead)
-- React component development (use `vtex-io-react-apps` instead)
-- GraphQL schema and resolver details (use `vtex-io-graphql-api` instead)
+- service runtime behavior such as `service.json`, memory, workers, or route exposure
+- HTTP handler implementation, middleware composition, or event processing
+- GraphQL schema, resolver, or data-fetching implementation
+- storefront, admin, or render-runtime frontend behavior
+- policy modeling and security boundary enforcement
 
 ## Decision rules
 
-- Every VTEX IO app starts with `manifest.json` — it defines identity (`vendor`, `name`, `version`), builders, dependencies, and policies.
-- Use the builder that matches the directory: `node` for `/node`, `react` for `/react`, `graphql` for `/graphql`, `admin` for `/admin`, `pixel` for `/pixel`, `messages` for `/messages`, `store` for `/store`, `masterdata` for `/masterdata`, `styles` for `/styles`.
-- Declare policies for every external host your app calls and every VTEX Admin resource it accesses.
-- Use `service.json` in `/node` to configure memory (max 512MB), timeout, autoscaling, and route definitions.
-- Use semver ranges (`3.x`) for dependencies, not exact versions.
-- Use `peerDependencies` for apps that must be present but should not be auto-installed.
+- Treat `manifest.json` as the app contract. It declares identity, builders, dependencies, peer dependencies, and high-level capabilities that other apps or the platform rely on.
+- Add a builder only when the app truly owns that capability. Builders are not placeholders for future work.
+- Keep the contract narrow. If a manifest starts to represent unrelated concerns, split those concerns into separate apps instead of creating a catch-all app.
+- Use `dependencies` only for apps that can be safely auto-installed as part of the current app contract. Use `peerDependencies` for apps that must already exist in the environment, remain externally managed, or declare `billingOptions`.
+- Keep naming and versioning publishable: `vendor`, `name`, and `version` must form a stable identity that can be linked, published, and consumed safely.
+- Keep `billingOptions` aligned with the commercial contract of the app. If the app has billing implications, declare them explicitly in the manifest rather than leaving pricing behavior implicit.
+- Apps that declare `billingOptions` cannot be consumed through `dependencies`. If the current app requires a billable app, model that relationship with `peerDependencies` and require manual installation by the account or edition owner.
+- Edition apps are compositions of app contracts, not exceptions to them. Keep each underlying app contract explicit, narrow, and semver-safe so composition stays predictable across host environments.
+- `manifest.json` can also declare app-level permissions and configuration surfaces, but detailed policy modeling belongs in security-focused skills and detailed `settingsSchema` design belongs in app-settings skills.
 
-Builders reference:
+This is not an exhaustive list of builders; see the official Builders docs for the full catalog.
 
-| Builder | Directory | Purpose |
-|---------|-----------|---------|
-| `node` | `/node` | Backend services in TypeScript (middlewares, resolvers, event handlers) |
-| `react` | `/react` | Frontend React components in TypeScript/TSX |
-| `graphql` | `/graphql` | GraphQL schema definitions (`.graphql` files) |
-| `admin` | `/admin` | Admin panel pages and navigation entries |
-| `pixel` | `/pixel` | Pixel/tracking apps that inject scripts into the storefront |
-| `messages` | `/messages` | Internationalization — localized string files per locale |
-| `store` | `/store` | Store Framework theme blocks, interfaces, and routes |
-| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers |
-| `styles` | `/styles` | CSS/Tachyons configuration for Store Framework themes |
+Builder ownership reference:
 
-Policy types:
-1. **Outbound-access policies**: Grant access to explicit URLs (external APIs or VTEX endpoints).
-2. **License Manager policies**: Grant access to VTEX Admin resources using resource keys.
-3. **App role-based policies**: Grant access to routes or GraphQL queries exposed by other IO apps, using the format `{vendor}.{app-name}:{policy-name}`.
+| Builder | Own this builder when the app contract includes |
+|---------|--------------------------------------------------|
+| `node` | backend runtime capability owned by this app |
+| `graphql` | GraphQL schema exposure owned by this app |
+| `react` | React bundles owned by this app |
+| `admin` | Admin UI surfaces owned by this app |
+| `store` | Store Framework block registration owned by this app |
+| `messages` | localized message bundles owned by this app |
+| `pixel` | storefront pixel injection owned by this app |
+| `masterdata` | Master Data schema assets owned by this app |
 
-Architecture:
-
-```text
-manifest.json
-├── builders → determines which directories are processed
-│   ├── node/ → compiled by node builder → backend service
-│   ├── react/ → compiled by react builder → frontend bundles
-│   ├── graphql/ → compiled by graphql builder → schema/resolvers
-│   ├── store/ → compiled by store builder → theme blocks
-│   ├── admin/ → compiled by admin builder → admin pages
-│   ├── pixel/ → compiled by pixel builder → tracking scripts
-│   └── messages/ → compiled by messages builder → i18n strings
-├── policies → runtime permissions for API access
-├── dependencies → other VTEX IO apps this app requires
-└── peerDependencies → apps required but not auto-installed
-```
+Contract boundary heuristic:
+1. If the capability is shipped, versioned, and maintained with this app, declare its builder here.
+2. If the capability is only consumed from another app, declare a dependency instead of duplicating the builder.
+3. If the capability introduces a separate runtime, security model, or release cadence, consider splitting it into another app.
 
 ## Hard constraints
 
-### Constraint: Declare All Required Builders
+### Constraint: Every shipped capability must be declared in the manifest contract
 
-Every directory in your app that contains processable code MUST have a corresponding builder declared in `manifest.json`. If you have a `/node` directory, the `node` builder MUST be declared. If you have a `/react` directory, the `react` builder MUST be declared.
+If the app ships a processable VTEX IO capability, `manifest.json` MUST declare the corresponding builder. Do not rely on folder presence alone, and do not assume VTEX IO infers capabilities from the repository structure.
+Symmetrically, do not declare builders for capabilities that are not actually shipped by this app.
 
 **Why this matters**
 
-Without the builder declaration, the VTEX IO platform ignores the directory entirely. Your backend code will not compile, your React components will not render, and your GraphQL schemas will not be registered. The app will link successfully but the functionality will silently be absent.
+VTEX IO compiles and links apps based on declared builders, not on intent. If the builder is missing, the platform ignores that capability and the app contract becomes misleading. The app may link partially while the expected feature is absent.
 
 **Detection**
 
-If you see backend TypeScript code in a `/node` directory but the manifest does not declare `"node": "7.x"` in `builders`, STOP and add the builder. Same applies to `/react` without `"react": "3.x"`, `/graphql` without `"graphql": "1.x"`, etc.
+If you see a maintained `/node`, `/react`, `/graphql`, `/admin`, `/store`, `/messages`, `/pixel`, or `/masterdata` directory, STOP and verify that the matching builder exists in `manifest.json`. If the builder exists but the capability does not, STOP and remove the builder or move the capability back into scope.
 
 **Correct**
 
 ```json
 {
-  "name": "my-service-app",
-  "vendor": "myvendor",
-  "version": "1.0.0",
-  "title": "My Service App",
-  "description": "A backend service app with GraphQL",
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
   "builders": {
     "node": "7.x",
     "graphql": "1.x",
-    "docs": "0.x"
-  },
-  "dependencies": {},
-  "policies": []
+    "messages": "1.x"
+  }
 }
 ```
 
@@ -98,98 +85,36 @@ If you see backend TypeScript code in a `/node` directory but the manifest does 
 
 ```json
 {
-  "name": "my-service-app",
-  "vendor": "myvendor",
-  "version": "1.0.0",
-  "title": "My Service App",
-  "description": "A backend service app with GraphQL",
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
   "builders": {
-    "docs": "0.x"
-  },
-  "dependencies": {},
-  "policies": []
+    "messages": "1.x"
+  }
 }
 ```
 
-Missing "node" and "graphql" builders — the /node and /graphql directories will be completely ignored. Backend code won't compile, GraphQL schema won't be registered. The app links without errors but nothing works.
+The app ships backend and GraphQL capabilities but declares only `messages`, so the runtime contract is incomplete and the platform ignores the missing builders.
 
----
+### Constraint: App identity and versioning must stay publishable and semver-safe
 
-### Constraint: Declare Policies for All External Access
-
-Every external API call or VTEX resource access MUST have a corresponding policy in `manifest.json`. This includes outbound HTTP calls to external hosts, VTEX Admin resource access, and consumption of other apps' GraphQL APIs.
+The `vendor`, `name`, and `version` fields MUST identify a valid VTEX IO app contract. Use kebab-case for the app name, keep the vendor consistent with ownership, and use full semantic versioning.
 
 **Why this matters**
 
-VTEX IO sandboxes apps for security. Without the proper policy, any outbound HTTP request will be blocked at the infrastructure level, returning a `403 Forbidden` error. This is not a code issue — it is a platform-level restriction.
+Consumers, workspaces, and release flows rely on app identity stability. Invalid names or incomplete versions break linking and publishing, while identity drift creates unsafe upgrades and hard-to-debug dependency mismatches.
 
 **Detection**
 
-If you see code making API calls (via clients or HTTP) to a host, STOP and verify that an `outbound-access` policy exists for that host in the manifest. If you see `licenseManager.canAccessResource(...)`, verify a License Manager policy exists.
+If you see uppercase characters, underscores, non-semver versions, or vendor/name changes mixed into unrelated work, STOP and validate whether the change is intentional and release-safe.
 
 **Correct**
 
 ```json
 {
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "portal.vtexcommercestable.com.br",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ]
-}
-```
-
-**Wrong**
-
-```json
-{
-  "policies": []
-}
-```
-
-Empty policies array while the app makes calls to api.vtex.com and uses Master Data. All outbound requests will fail at runtime with 403 Forbidden errors that are difficult to debug.
-
----
-
-### Constraint: Follow App Naming Conventions
-
-App names MUST be in kebab-case (lowercase letters separated by hyphens). The vendor MUST match the VTEX account name. Version MUST follow Semantic Versioning 2.0.0.
-
-**Why this matters**
-
-Apps with invalid names cannot be published to the VTEX App Store. Names with special characters or uppercase letters will be rejected by the builder-hub. Vendor mismatch prevents the account from managing the app.
-
-**Detection**
-
-If you see an app name with uppercase letters, underscores, special characters, or numbers at the beginning, STOP and fix the name.
-
-**Correct**
-
-```json
-{
+  "vendor": "acme",
   "name": "order-status-dashboard",
-  "vendor": "mycompany",
-  "version": "2.1.3"
+  "version": "2.1.0"
 }
 ```
 
@@ -197,198 +122,439 @@ If you see an app name with uppercase letters, underscores, special characters, 
 
 ```json
 {
+  "vendor": "AcmeTeam",
   "name": "Order_Status_Dashboard",
-  "vendor": "mycompany",
   "version": "2.1"
 }
 ```
 
-Uppercase letters and underscores in the name will be rejected. Version "2.1" is not valid semver — must be "2.1.0".
+This identity is not safely publishable because the name is not kebab-case and the version is not valid semver.
 
-## Preferred pattern
+### Constraint: Dependencies and peerDependencies must express installation intent correctly
 
-Initialize with the VTEX IO CLI:
+Use `dependencies` only for apps that this app should install as part of its contract and that can be auto-installed safely. Use `peerDependencies` for apps that must already be present in the environment, should remain externally managed, or declare `billingOptions`.
 
-```bash
-vtex init
-```
+**Why this matters**
 
-Select the appropriate template: `service-example`, `graphql-example`, `react-app-template`, or `store-theme`.
+This is the core contract boundary between your app and the rest of the VTEX IO workspace. Misclassifying a relationship causes broken installations, hidden coupling, and environment-specific behavior that only appears after link or publish. In particular, builder-hub rejects dependencies on apps that declare `billingOptions`.
 
-Recommended manifest configuration:
+**Detection**
+
+If the app requires another app to function in every environment, STOP and confirm whether it belongs in `dependencies` or `peerDependencies`. If the target app declares `billingOptions`, STOP and move it to `peerDependencies`. If the app only integrates with a platform capability, host app, edition-managed app, or paid app that the account is expected to manage manually, STOP and keep it out of `dependencies`.
+
+**Correct**
 
 ```json
 {
-  "name": "product-review-service",
-  "vendor": "mycompany",
+  "dependencies": {
+    "vtex.search-graphql": "0.x"
+  },
+  "peerDependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "dependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  },
+  "peerDependencies": {}
+}
+```
+
+This contract hard-installs a host app that should usually be externally managed and also attempts to auto-install a billable app, which builder-hub rejects.
+
+## Preferred pattern
+
+Start by deciding the smallest useful contract for the app, then declare only the identity and builders required for that contract.
+
+Recommended manifest for a focused service-plus-GraphQL app:
+
+```json
+{
+  "vendor": "acme",
+  "name": "reviews-platform",
   "version": "0.1.0",
-  "title": "Product Review Service",
-  "description": "Backend service for managing product reviews with GraphQL API",
+  "title": "Reviews Platform",
+  "description": "VTEX IO app that owns review APIs and review GraphQL exposure",
   "builders": {
     "node": "7.x",
     "graphql": "1.x",
-    "docs": "0.x"
+    "messages": "1.x"
+  },
+  "billingOptions": {
+    "type": "free"
   },
   "dependencies": {
     "vtex.search-graphql": "0.x"
   },
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ]
-}
-```
-
-Recommended `service.json` for backend apps:
-
-```json
-{
-  "memory": 256,
-  "timeout": 30,
-  "minReplicas": 2,
-  "maxReplicas": 10,
-  "workers": 4,
-  "routes": {
-    "reviews": {
-      "path": "/_v/api/reviews",
-      "public": false
-    },
-    "review-by-id": {
-      "path": "/_v/api/reviews/:id",
-      "public": false
-    }
-  }
-}
-```
-
-Recommended directory structure:
-
-```text
-my-app/
-├── manifest.json
-├── package.json
-├── node/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── service.json
-│   ├── index.ts          # Service entry point
-│   ├── clients/
-│   │   └── index.ts      # Client registry
-│   ├── middlewares/
-│   │   └── validate.ts   # HTTP middleware
-│   └── resolvers/
-│       └── reviews.ts    # GraphQL resolvers
-├── graphql/
-│   ├── schema.graphql    # Query/Mutation definitions
-│   └── types/
-│       └── Review.graphql
-├── messages/
-│   ├── en.json
-│   ├── pt.json
-│   └── es.json
-└── docs/
-    └── README.md
-```
-
-Full `manifest.json` for a comprehensive app using multiple builders:
-
-```json
-{
-  "name": "product-review-suite",
-  "vendor": "mycompany",
-  "version": "1.0.0",
-  "title": "Product Review Suite",
-  "description": "Complete product review system with backend, frontend, and admin panel",
-  "mustUpdateAt": "2026-01-01",
-  "builders": {
-    "node": "7.x",
-    "react": "3.x",
-    "graphql": "1.x",
-    "admin": "0.x",
-    "messages": "1.x",
-    "store": "0.x",
-    "docs": "0.x"
-  },
-  "dependencies": {
-    "vtex.styleguide": "9.x",
-    "vtex.store-components": "3.x",
-    "vtex.css-handles": "0.x"
-  },
   "peerDependencies": {
     "vtex.store": "2.x"
-  },
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ],
-  "settingsSchema": {
-    "title": "Product Review Suite Settings",
-    "type": "object",
-    "properties": {
-      "enableModeration": {
-        "title": "Enable review moderation",
-        "type": "boolean"
-      },
-      "reviewsPerPage": {
-        "title": "Reviews per page",
-        "type": "number"
-      }
-    }
   }
 }
 ```
+
+Recommended contract split:
+
+```text
+reviews-platform/
+├── manifest.json        # identity, builders, dependencies, peerDependencies
+├── node/                # backend capability owned by this app
+├── graphql/             # GraphQL capability owned by this app
+└── messages/            # app-owned translations
+
+reviews-storefront/
+├── manifest.json        # separate release surface for storefront concerns
+├── react/
+└── store/
+```
+
+Use this split when the backend/API contract and the storefront contract have different ownership, release cadence, or integration boundaries.
 
 ## Common failure modes
 
-- **Declaring unused builders**: Adding builders "just in case" creates overhead during the build process. Unused builder directories can cause build warnings. Only declare builders your app actively uses.
-- **Wildcard outbound policies**: Using `"host": "*"` or `"path": "/*"` is a security risk, will be rejected during app review, and makes security audits difficult. Declare specific policies for each external service.
-- **Hardcoding version in dependencies**: Pinning exact versions like `"vtex.store-components": "3.165.0"` prevents receiving bug fixes. Use major version ranges with `x` wildcard: `"vtex.store-components": "3.x"`.
+- Declaring builders for aspirational capabilities that the app does not yet own, which makes the contract broader than the real implementation.
+- Using one large manifest to represent backend runtime, frontend rendering, settings, policies, and integration concerns that should be separated into multiple skills or apps.
+- Putting host-level apps in `dependencies` when they should remain `peerDependencies`.
+- Pinning exact dependency versions instead of major-version ranges such as `0.x`, `1.x`, or `3.x`.
+- Treating `manifest.json` as a dumping ground for runtime or security details that belong in more specific skills.
+- Modeling `settingsSchema` here instead of using this skill only to decide whether app-level configuration belongs in the contract at all.
 
 ## Review checklist
 
-- [ ] Does every code directory (`/node`, `/react`, `/graphql`, etc.) have a matching builder in `manifest.json`?
-- [ ] Are all external hosts and VTEX resources declared in `policies`?
-- [ ] Is the app name kebab-case, vendor matching account, version valid semver?
-- [ ] Does `service.json` exist for apps with the `node` builder?
-- [ ] Are dependencies using major version ranges (`3.x`) instead of exact versions?
-- [ ] Are placeholder values (vendor, app name, policies) replaced with real values?
+- [ ] Does the manifest describe only capabilities this app actually owns and ships?
+- [ ] Does every shipped capability have a matching builder declaration?
+- [ ] Is the app identity publishable: valid `vendor`, kebab-case `name`, and full semver `version`?
+- [ ] If the app has billing behavior, is `billingOptions` explicit and aligned with the app contract?
+- [ ] Are `dependencies` and `peerDependencies` separated by installation intent?
+- [ ] Would splitting the contract into two apps reduce unrelated concerns or release coupling?
+- [ ] Are runtime, route, GraphQL implementation, frontend, and security details kept out of this skill?
 
 ## Reference
 
-- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) — Complete reference for all manifest.json fields and their usage
-- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) — Full list of available builders with descriptions and usage examples
-- [Policies](https://developers.vtex.com/docs/guides/vtex-io-documentation-policies) — How to declare outbound-access, License Manager, and role-based policies
-- [Dependencies](https://developers.vtex.com/docs/guides/vtex-io-documentation-dependencies) — Managing app dependencies and peer dependencies
-- [Accessing External Resources](https://developers.vtex.com/docs/guides/accessing-external-resources-within-a-vtex-io-app) — Policy types and patterns for external API access
-- [Creating a New App](https://developers.vtex.com/docs/guides/vtex-io-documentation-3-creating-the-new-app) — Step-by-step guide for app initialization
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) - Complete reference for `manifest.json` fields
+- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) - Builder catalog and capability mapping
+- [Dependencies](https://developers.vtex.com/docs/guides/vtex-io-documentation-dependencies) - Dependency and peer dependency behavior in VTEX IO
+- [Billing Options](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest#billingoptions) - How app billing behavior is declared in the manifest
+- [Creating the New App](https://developers.vtex.com/docs/guides/vtex-io-documentation-3-creating-the-new-app) - App initialization flow and manifest basics
+
+---
+
+# Client Integration & Service Access
+
+## When this skill applies
+
+Use this skill when the main decision is how a VTEX IO backend app should call VTEX services or external APIs through the VTEX IO client system.
+
+- Creating custom clients under `node/clients/`
+- Choosing between native clients from `@vtex/api` or `@vtex/clients` and a custom client
+- Registering clients in `IOClients` and exposing them through `ctx.clients`
+- Configuring `InstanceOptions` such as retries, timeout, headers, or caching
+- Reviewing backend integrations that currently use raw HTTP libraries
+
+Do not use this skill for:
+- deciding the app contract in `manifest.json`
+- structuring `node/index.ts` or tuning `service.json`
+- designing GraphQL schema or resolver contracts
+- modeling route authorization or security permissions
+- building storefront or admin frontend integrations
+
+## Decision rules
+
+- Prefer native clients from `@vtex/api` or `@vtex/clients` when they already cover the target VTEX service. Common examples include clients for catalog, checkout, logistics, and OMS. Write a custom client only when no suitable native client or factory exists.
+- Use `ExternalClient` primarily for non-VTEX external APIs. Avoid using it for VTEX-hosted endpoints such as `*.myvtex.com` or `*.vtexcommercestable.com.br` when a native client in `@vtex/clients`, `JanusClient`, or another documented higher-level VTEX client is available or more appropriate.
+- Janus is VTEX's Core Commerce API gateway. Use `JanusClient` only when you need to call a VTEX Core Commerce API through Janus and no suitable native client from `@vtex/clients` already exists.
+- Use `InfraClient` only for advanced integrations with VTEX IO infrastructure services under explicit documented guidance. In partner apps, prefer higher-level clients and factories such as `masterData` or `vbase` instead of extending `InfraClient` directly.
+- Register every custom or native client in `node/clients/index.ts` through a `Clients` class that extends `IOClients`.
+- Consume integrations through `ctx.clients`, never by instantiating client classes inside middlewares, resolvers, or event handlers.
+- Keep clients focused on transport, request options, endpoint paths, and small response shaping. Keep business rules, authorization decisions, and orchestration outside the client.
+- When building custom clients, always rely on the `IOContext` passed by VTEX IO such as `account`, `workspace`, and available auth tokens instead of hardcoding account names, workspaces, or environment-specific VTEX URLs.
+- Configure shared `InstanceOptions` in the runtime client config, then use client-specific overrides only when an integration has clearly different needs.
+- Use the `metric` option on important client calls so integrations can be tracked and monitored at the client layer, not only at the handler layer.
+- Keep error normalization close to the client boundary, but avoid hiding relevant HTTP status codes or transport failures that are important for observability and debugging.
+- When integrating with external services, confirm that the required outbound policies are declared in the app contract, but keep the detailed policy modeling in auth or app-contract skills.
+- In rare migration or legacy scenarios, `ExternalClient` may temporarily be used against VTEX-hosted endpoints, but treat this as an exception. The long-term goal should be to move toward native clients or the proper documented VTEX client abstractions so routing, authentication, and observability stay consistent.
+
+Client selection guide:
+
+| Client type | Use when | Avoid when |
+|---|---|---|
+| `ExternalClient` | calling non-VTEX external APIs | VTEX-hosted APIs that already have a native client or Janus-based abstraction |
+| `JanusClient` | calling VTEX Core Commerce APIs not yet wrapped by `@vtex/clients` | any VTEX service that already has a native client such as Catalog, Checkout, Logistics, or OMS |
+| `InfraClient` | implementing advanced infra-style clients only under explicit documented guidance | general VTEX or external APIs in partner apps |
+
+InstanceOptions heuristics:
+
+- Start with small, explicit client defaults such as `retries: 2` and a request `timeout` between `1000` and `3000` milliseconds.
+- Use small finite retry values such as `1` to `3` for idempotent operations.
+- Avoid automatic retries on non-idempotent operations unless the upstream API explicitly documents safe idempotency behavior.
+- Do not use high retry counts to hide upstream instability. Surface repeated failures clearly and handle them intentionally in the business layer.
+- Prefer per-client headers and metrics instead of scattering header definitions through handlers.
+- Use memory or disk cache options only when repeated reads justify it and the response can be safely reused.
+- Keep auth setup inside the client constructor or factory configuration, not duplicated across handlers.
+
+## Hard constraints
+
+### Constraint: All service-to-service HTTP calls must go through VTEX IO clients
+
+HTTP communication from a VTEX IO backend app MUST go through `@vtex/api` or `@vtex/clients` clients. Do not use raw libraries such as `axios`, `fetch`, `got`, or `node-fetch` for service integrations.
+
+**Why this matters**
+
+VTEX IO clients provide transport behavior that raw libraries bypass, including authentication context, retries, metrics, caching options, and infrastructure-aware request execution. Raw HTTP calls make integrations harder to observe and easier to misconfigure.
+
+**Detection**
+
+If you see `axios`, `fetch`, `got`, `node-fetch`, or direct ad hoc HTTP code in a VTEX IO backend service, STOP and replace it with an appropriate VTEX IO client pattern.
+
+**Correct**
+
+```typescript
+import type { IOContext, InstanceOptions } from '@vtex/api'
+import { ExternalClient } from '@vtex/api'
+
+export class WeatherClient extends ExternalClient {
+  constructor(context: IOContext, options?: InstanceOptions) {
+    super('https://api.weather.com', context, {
+      ...options,
+      headers: {
+        'X-VTEX-Account': context.account,
+        'X-VTEX-Workspace': context.workspace,
+        'X-Api-Key': process.env.WEATHER_API_KEY,
+        ...options?.headers,
+      },
+    })
+  }
+
+  public getForecast(city: string) {
+    return this.http.get(`/v1/forecast/${city}`, {
+      metric: 'weather-forecast',
+    })
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+import axios from 'axios'
+
+export async function getForecast(city: string) {
+  const response = await axios.get(`https://api.weather.com/v1/forecast/${city}`, {
+    headers: {
+      'X-Api-Key': process.env.WEATHER_API_KEY,
+    },
+  })
+
+  return response.data
+}
+```
+
+### Constraint: Clients must be registered in IOClients and consumed through ctx.clients
+
+Clients MUST be registered in the `Clients` class that extends `IOClients`, and middlewares, resolvers, or event handlers MUST access them through `ctx.clients`.
+
+**Why this matters**
+
+The VTEX IO client registry ensures the current request context, options, caching behavior, and instrumentation are applied consistently. Direct instantiation inside handlers bypasses that shared lifecycle and creates fragile integration code.
+
+**Detection**
+
+If you see `new MyClient(...)` inside a middleware, resolver, or event handler, STOP. Move the client into `node/clients/`, register it in `IOClients`, and consume it through `ctx.clients`.
+
+**Correct**
+
+```typescript
+import { IOClients } from '@vtex/api'
+import { Catalog } from '@vtex/clients'
+
+export class Clients extends IOClients {
+  public get catalog() {
+    return this.getOrSet('catalog', Catalog)
+  }
+}
+```
+
+```typescript
+export async function getSku(ctx: Context) {
+  const sku = await ctx.clients.catalog.getSkuById(ctx.vtex.route.params.id)
+  ctx.body = sku
+}
+```
+
+**Wrong**
+
+```typescript
+import { Catalog } from '@vtex/clients'
+
+export async function getSku(ctx: Context) {
+  const catalog = new Catalog(ctx.vtex, {})
+  const sku = await catalog.getSkuById(ctx.vtex.route.params.id)
+  ctx.body = sku
+}
+```
+
+### Constraint: Choose the narrowest client type that matches the integration boundary
+
+Each integration MUST use the correct client abstraction for its boundary. Do not default every integration to `ExternalClient` or `JanusClient` when a more specific client type or native package already exists.
+
+**Why this matters**
+
+The client type communicates intent and shapes how authentication, URLs, and service boundaries are handled. Using the wrong abstraction makes the integration harder to understand and more likely to drift from VTEX IO conventions.
+
+**Detection**
+
+If the target is a VTEX Core Commerce API, STOP and check whether a native client from `@vtex/clients` or `JanusClient` is more appropriate than `ExternalClient`. If the target is VTEX-hosted, STOP and confirm that there is no more specific documented VTEX client abstraction before defaulting to `ExternalClient`.
+
+**Correct**
+
+```typescript
+import type { IOContext, InstanceOptions } from '@vtex/api'
+import { JanusClient } from '@vtex/api'
+
+export class RatesAndBenefitsClient extends JanusClient {
+  constructor(context: IOContext, options?: InstanceOptions) {
+    super(context, options)
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+import type { IOContext, InstanceOptions } from '@vtex/api'
+import { ExternalClient } from '@vtex/api'
+
+export class RatesAndBenefitsClient extends ExternalClient {
+  constructor(context: IOContext, options?: InstanceOptions) {
+    super(`https://${context.account}.vtexcommercestable.com.br`, context, options)
+  }
+}
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+node/
+├── clients/
+│   ├── index.ts
+│   ├── catalog.ts
+│   └── partnerApi.ts
+├── middlewares/
+│   └── getData.ts
+└── index.ts
+```
+
+Register native and custom clients in one place:
+
+```typescript
+import { IOClients } from '@vtex/api'
+import { Catalog } from '@vtex/clients'
+import { PartnerApiClient } from './partnerApi'
+
+export class Clients extends IOClients {
+  public get catalog() {
+    return this.getOrSet('catalog', Catalog)
+  }
+
+  public get partnerApi() {
+    return this.getOrSet('partnerApi', PartnerApiClient)
+  }
+}
+```
+
+Create custom clients with explicit routes and options:
+
+```typescript
+import type { IOContext, InstanceOptions } from '@vtex/api'
+import { ExternalClient } from '@vtex/api'
+
+export class PartnerApiClient extends ExternalClient {
+  private routes = {
+    order: (id: string) => `/orders/${id}`,
+  }
+
+  constructor(context: IOContext, options?: InstanceOptions) {
+    super('https://partner.example.com', context, {
+      ...options,
+      retries: 2,
+      timeout: 2000,
+      headers: {
+        'X-VTEX-Account': context.account,
+        'X-VTEX-Workspace': context.workspace,
+        ...options?.headers,
+      },
+    })
+  }
+
+  public getOrder(id: string) {
+    return this.http.get(this.routes.order(id), {
+      metric: 'partner-get-order',
+    })
+  }
+}
+```
+
+Wire shared client options in the runtime:
+
+```typescript
+import type { ClientsConfig } from '@vtex/api'
+import { Clients } from './clients'
+
+const clients: ClientsConfig<Clients> = {
+  implementation: Clients,
+  options: {
+    default: {
+      retries: 2,
+      timeout: 2000,
+    },
+  },
+}
+```
+
+Use clients from handlers through `ctx.clients`:
+
+```typescript
+export async function getOrder(ctx: Context) {
+  const order = await ctx.clients.partnerApi.getOrder(ctx.vtex.route.params.id)
+  ctx.body = order
+}
+```
+
+If a client file grows too large, split it by bounded integration domains and keep `node/clients/index.ts` as a small registry.
+
+## Common failure modes
+
+- Using `axios`, `fetch`, or other raw HTTP libraries in backend handlers instead of VTEX IO clients.
+- Instantiating clients directly inside handlers instead of registering them in `IOClients`.
+- Choosing `ExternalClient` when a native VTEX client or a more specific app client already exists.
+- Putting business rules, validation, or orchestration into clients instead of keeping them as transport wrappers.
+- Scattering headers, auth setup, and retry settings across handlers instead of centralizing them in the client or shared client config.
+- Forgetting the outbound-access policy required for an external integration declared in a custom client.
+
+## Review checklist
+
+- [ ] Does each integration use the correct VTEX IO client abstraction?
+- [ ] Are native clients from `@vtex/api` or `@vtex/clients` preferred when available?
+- [ ] Are clients registered in `IOClients` and consumed through `ctx.clients`?
+- [ ] Are raw HTTP libraries absent from the backend integration code?
+- [ ] Are retries, timeouts, headers, and metrics configured in the client layer rather than scattered across handlers?
+- [ ] Are business rules kept out of the client layer?
+
+## Reference
+
+- [Using Node Clients](https://developers.vtex.com/docs/guides/using-node-clients) - How to consume clients through `ctx.clients`
+- [Developing Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-how-to-create-and-use-clients) - How to build custom clients with `@vtex/api`
+- [Using VTEX IO clients](https://developers.vtex.com/docs/guides/calling-commerce-apis-3-using-vtex-io-clients) - How to use VTEX clients for Core Commerce APIs
+- [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) - VTEX IO client architecture and native client catalog
 
 ---
 
@@ -825,7 +991,7 @@ mutation CreateReview {
 ## Related skills
 
 - [`vtex-io-service-apps`](vtex-io-vtex-io-service-apps.md) — Service app fundamentals needed for all GraphQL resolvers
-- [`vtex-io-app-structure`](vtex-io-vtex-io-app-structure.md) — Manifest and builder configuration that GraphQL depends on
+- [`vtex-io-app-structure`](../vtex-io-app-structure/skill.md) — Manifest and builder configuration that GraphQL depends on
 - [`vtex-io-masterdata`](vtex-io-vtex-io-masterdata.md) — MasterData integration commonly used as a data source in resolvers
 
 ## Reference
@@ -2117,3 +2283,364 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [Using Node Clients](https://developers.vtex.com/docs/guides/using-node-clients) — How to use @vtex/api and @vtex/clients in middlewares and resolvers
 - [Calling Commerce APIs](https://developers.vtex.com/docs/guides/calling-commerce-apis-1-getting-the-service-app-boilerplate) — Tutorial for building a service app that calls VTEX Commerce APIs
 - [Best Practices for Avoiding Rate Limits](https://developers.vtex.com/docs/guides/best-practices-for-avoiding-rate-limit-errors) — Why clients with caching prevent rate-limit issues
+
+---
+
+# Service Runtime & Execution Model
+
+## When this skill applies
+
+Use this skill when the main decision is how a VTEX IO backend app runs inside the `node` builder: how the `Service` entrypoint is structured, how runtime configuration is declared, and how routes, events, or GraphQL handlers are registered into the service.
+
+- Creating a new backend app under `node/`
+- Structuring `node/index.ts` as the service entrypoint
+- Defining typed `Context`, `State`, and params contracts for handlers
+- Configuring `service.json` for timeout, memory, workers, and replicas
+- Troubleshooting runtime issues caused by service registration or execution model mismatches
+- Registering GraphQL handlers at the runtime level, while keeping schema and resolver design in a separate skill
+
+Do not use this skill for:
+- deciding the app contract in `manifest.json`
+- designing custom clients or integration transport layers
+- detailed HTTP route handler behavior
+- event-specific business workflows
+- GraphQL schema or resolver modeling beyond runtime registration
+
+## Decision rules
+
+- Treat `node/index.ts` as the runtime composition root of the backend app.
+- Use the `Service` definition to register runtime surfaces such as routes, events, and GraphQL handlers, not to hold business logic directly.
+- Keep runtime wiring explicit: context typing, client typing, route registration, and event registration should be visible at the service boundary.
+- Put execution knobs such as timeout, ttl, memory, workers, and replica limits in `service.json`, not inside handler code.
+- Use `service.json` to declare the runtime parameters the platform uses to execute the service, especially `memory`, `timeout`, `ttl`, `minReplicas`, `maxReplicas`, `workers`, `routes`, `events`, and `rateLimitPerReplica`.
+- Use `routes` in `service.json` to expose HTTP entrypoints. Routes are private by default, so set `public: true` explicitly for routes that must be externally reachable.
+- Use `smartcache: true` only on idempotent, cacheable routes where the same response can be safely reused across repeated requests. Avoid it on personalized, authenticated, or write-oriented endpoints.
+- Use `events` in `service.json` to declare which event sources and handlers are part of the service runtime. Keep event registration in the runtime layer and event-specific business rules in dedicated event modules.
+- Use `rateLimitPerReplica` to shape throughput per replica for requests and events. Set a global baseline only when the service needs it, then add small explicit overrides only for expensive routes or noisy event sources.
+- Do not use `rateLimitPerReplica` as a substitute for redesigning expensive routes, queueing work, or moving slow operations to async processing.
+- Keep handlers focused on request or event behavior; keep runtime structure focused on bootstrapping and registration.
+- Model `Context`, `State`, and params types deliberately so middlewares and handlers share a stable contract. Apply the same typed `Context` and `State` to middlewares so they can safely manipulate `ctx.state`, `ctx.vtex`, and params without falling back to `any`.
+- If a backend app starts mixing runtime wiring, client implementation, and business rules in the same file, split those concerns before expanding the service further.
+- Although some authorization fields such as `routes.access` or `routes.policies` may live in `service.json`, they are primarily authorization concerns and belong in auth or security-focused skills rather than this runtime skill.
+
+Runtime sizing heuristics:
+
+- These ranges are intended for partner and account-level apps. Native VTEX core services may legitimately use much higher values such as thousands of MB of memory or hundreds of replicas, but those values should not be used as defaults for custom apps.
+
+Suggested defaults:
+
+- Start synchronous HTTP services with `timeout` between 10 and 30 seconds. For UX-facing routes, prefer 5 to 15 seconds.
+- Start `memory` at 256 MB.
+- Start `workers` at 1.
+- Use `minReplicas: 2` as the default for installed apps, and reserve `minReplicas: 1` for linked-app development contexts where the platform allows it.
+- Use `maxReplicas: 5` as the lowest practical starting point, since the documented minimum is `5`.
+- Use `ttl` intentionally. In VTEX IO, `ttl` is measured in minutes, with platform defaults and limits that differ from `timeout`. For partner apps, start from the default `10` minutes and increase intentionally up to `60` only when reducing cold starts matters more than allowing idle instances to sleep sooner.
+
+Scaling ranges and exceptions:
+
+- Use 128 to 256 MB for simpler IO-bound services, and move to 512 MB only when there is evidence of OOM, large payload processing, or heavier libraries.
+- Increase `workers` to 2 to 4 only for high-throughput IO-bound workloads after measuring benefit. Avoid using more than 4 workers per instance as a default.
+- Increase `maxReplicas` from `5` toward `10` only when public traffic or predictable peaks justify it. Treat values above 10 as exceptions that require explicit justification and monitoring in partner apps.
+- Avoid `timeout` values above 60 seconds for HTTP routes; if more time is needed, redesign the flow as async work.
+- Remember that `ttl` has a documented minimum of `10` minutes and maximum of `60` minutes. Use higher values intentionally to reduce cold starts on low-traffic or bursty services, and avoid treating `ttl` like a per-request timeout.
+- For partner apps, `rateLimitPerReplica.perMinute` often starts in the `60` to `300` range for normal routes and in the `10` to `60` range for more expensive ones. `rateLimitPerReplica.concurrent` often starts between `1` and `5`.
+
+## Hard constraints
+
+### Constraint: The Service entrypoint must stay a runtime composition root
+
+`node/index.ts` MUST define and export the VTEX IO service runtime structure, not become a catch-all file for business logic, data transformation, or transport implementation.
+
+**Why this matters**
+
+When the entrypoint mixes registration with business logic, the execution model becomes harder to reason about, handlers become tightly coupled, and changes to routes, events, or GraphQL surfaces become risky.
+
+**Detection**
+
+If `node/index.ts` contains large handler bodies, external API calls, complex branching, or data-mapping logic, STOP and move that logic into dedicated modules. Keep the entrypoint focused on typing and registration.
+
+**Correct**
+
+```typescript
+import type { ClientsConfig, RecorderState, ServiceContext } from '@vtex/api'
+import { Service } from '@vtex/api'
+import { clients, Clients } from './clients'
+import { routes } from './routes'
+
+export interface State extends RecorderState {}
+
+export type Context = ServiceContext<Clients, State>
+
+const clientsConfig: ClientsConfig<Clients> = {
+  implementation: clients,
+  options: {},
+}
+
+export default new Service<Clients, State>({
+  clients: clientsConfig,
+  routes,
+})
+```
+
+**Wrong**
+
+```typescript
+import { Service } from '@vtex/api'
+import axios from 'axios'
+
+export default new Service({
+  routes: {
+    reviews: async (ctx: any) => {
+      const response = await axios.get('https://example.com/data')
+      const transformed = response.data.items.map((item: any) => ({
+        ...item,
+        extra: true,
+      }))
+
+      ctx.body = transformed.filter((item: any) => item.active)
+    },
+  },
+})
+```
+
+### Constraint: Runtime configuration must be expressed in `service.json`, not improvised in code
+
+Resource and execution settings such as timeout, ttl, memory, workers, and replica behavior MUST be configured in `service.json` when the app depends on them.
+`service.json` resides inside the `node/` folder and centralizes runtime parameters such as routes, events, memory, timeout, ttl, workers, replicas, and rate limits for this service.
+
+**Why this matters**
+
+These settings are part of the service runtime contract with the platform. Hiding them in assumptions or spreading them across code makes behavior harder to predict and can cause timeouts, cold-start churn, underprovisioning, or scaling mismatches. In VTEX IO, `ttl` is especially important because it is measured in minutes and influences how aggressively service infrastructure can go idle between requests.
+Using the minimum `ttl` on low-traffic services can increase cold starts, because the platform is allowed to scale the service down more aggressively between bursts.
+
+**Detection**
+
+If the app depends on long-running work, concurrency, warm capacity, or specific route exposure behavior, STOP and verify that the relevant `service.json` settings are present and intentional. If the behavior is only implied in code comments or handler logic, move it into runtime configuration.
+
+**Correct**
+
+```json
+{
+  "memory": 256,
+  "timeout": 30,
+  "ttl": 10,
+  "minReplicas": 2,
+  "maxReplicas": 10,
+  "workers": 4,
+  "rateLimitPerReplica": {
+    "perMinute": 300,
+    "concurrent": 10
+  },
+  "routes": {
+    "reviews": {
+      "path": "/_v/api/reviews",
+      "public": false
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "routes": {
+    "reviews": {
+      "path": "/_v/api/reviews"
+    }
+  }
+}
+```
+
+This runtime configuration is incomplete for a service that depends on explicit timeout, concurrency, rate limiting, or replica behavior, and it leaves execution characteristics undefined.
+
+### Constraint: Route exposure must be explicit in the runtime contract
+
+Every HTTP route exposed by the service MUST be declared in `service.json` with an intentional visibility choice. Do not rely on implicit defaults when the route should be private or public.
+Routes are private by default, so always set `public: true` explicitly when the route must be externally reachable.
+
+**Why this matters**
+
+Route visibility is part of the runtime contract of the service. If exposure is ambiguous, a route can be published with the wrong accessibility, which creates security risk for private handlers and integration failures for routes expected to be public.
+
+**Detection**
+
+If a route exists in the service runtime, STOP and verify that it is declared in `service.json` and that `public` matches the intended exposure. If the route is consumed only by trusted backoffice or app-to-app flows, default to checking that it is private before expanding access.
+
+**Correct**
+
+```json
+{
+  "routes": {
+    "status": {
+      "path": "/_v/status/health",
+      "public": true,
+      "smartcache": true
+    },
+    "reviews": {
+      "path": "/_v/api/reviews",
+      "public": false
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "routes": {
+    "reviews": {
+      "path": "/_v/api/reviews"
+    }
+  }
+}
+```
+
+This route leaves visibility implicit, so the runtime contract does not clearly communicate whether the endpoint is meant to be public or protected.
+
+### Constraint: Typed context and state must match the handlers registered in the runtime
+
+The service MUST define `Context`, `State`, and handler contracts that match the routes, events, or GraphQL handlers it registers.
+
+**Why this matters**
+
+Untyped or inconsistent runtime contracts make middleware composition fragile and allow handlers to rely on state or params that are never guaranteed to exist.
+
+**Detection**
+
+If middlewares or handlers use `ctx.state`, `ctx.clients`, `ctx.vtex`, or params fields without a shared typed contract, STOP and introduce or fix the runtime types before adding more handlers.
+
+**Correct**
+
+```typescript
+import type { ParamsContext, RecorderState, ServiceContext } from '@vtex/api'
+
+interface State extends RecorderState {
+  reviewId?: string
+}
+
+type CustomContext = ServiceContext<Clients, State, ParamsContext>
+
+export async function getReview(ctx: CustomContext) {
+  ctx.state.reviewId = ctx.vtex.route.params.id
+  ctx.body = { id: ctx.state.reviewId }
+}
+```
+
+**Wrong**
+
+```typescript
+export async function getReview(ctx: any) {
+  ctx.state.reviewId = ctx.params.review
+  ctx.body = { id: ctx.state.missingField.value }
+}
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+node/
+├── index.ts
+├── clients/
+│   └── index.ts
+├── routes/
+│   └── index.ts
+├── events/
+│   └── index.ts
+├── graphql/
+│   └── index.ts
+└── middlewares/
+    └── validate.ts
+```
+
+Minimal service runtime pattern:
+
+```typescript
+import type { ClientsConfig, RecorderState, ServiceContext } from '@vtex/api'
+import { Service } from '@vtex/api'
+import { clients, Clients } from './clients'
+import { routes } from './routes'
+
+export interface State extends RecorderState {}
+
+export type Context = ServiceContext<Clients, State>
+
+const clientsConfig: ClientsConfig<Clients> = {
+  implementation: clients,
+  options: {},
+}
+
+export default new Service<Clients, State>({
+  clients: clientsConfig,
+  routes,
+})
+```
+
+Minimal `service.json` pattern:
+
+```json
+{
+  "memory": 256,
+  "timeout": 30,
+  "ttl": 10,
+  "minReplicas": 2,
+  "maxReplicas": 5,
+  "workers": 1,
+  "rateLimitPerReplica": {
+    "perMinute": 120,
+    "concurrent": 4
+  },
+  "routes": {
+    "status": {
+      "path": "/_v/status/health",
+      "public": true,
+      "smartcache": true
+    },
+    "reviews": {
+      "path": "/_v/api/reviews",
+      "public": false
+    }
+  },
+  "events": {
+    "orderCreated": {
+      "sender": "vtex.orders-broadcast",
+      "topics": ["order-created"],
+      "rateLimitPerReplica": {
+        "perMinute": 60,
+        "concurrent": 2
+      }
+    }
+  }
+}
+```
+
+Use the service entrypoint to compose runtime surfaces, then push business behavior into handlers, clients, and other focused modules.
+If `routes/index.ts` or `events/index.ts` grows too large, split it by domain such as `routes/orders.ts` or `events/catalog.ts` and keep the index file as a small registry.
+
+## Common failure modes
+
+- Putting business logic directly into `node/index.ts`.
+- Treating `service.json` as optional when runtime behavior depends on explicit resource settings.
+- Setting `ttl` too low and causing the service to sleep too aggressively between bursts of traffic.
+- Enabling `smartcache` on personalized or write-oriented routes and risking incorrect cache reuse across requests.
+- Registering routes, events, or GraphQL handlers without a clear typed `Context` and `State`.
+- Mixing runtime composition with client implementation details.
+- Letting one service entrypoint accumulate unrelated responsibilities across HTTP, events, and GraphQL without clear module boundaries.
+
+## Review checklist
+
+- [ ] Is `node/index.ts` acting as a runtime composition root rather than a business-logic file?
+- [ ] Are routes, events, and GraphQL handlers registered explicitly and cleanly?
+- [ ] Does `service.json` express the runtime behavior the app actually depends on?
+- [ ] Are `Context`, `State`, and params types shared consistently across handlers?
+- [ ] Are runtime concerns separated from client implementation and business logic?
+
+## Reference
+
+- [Service](https://developers.vtex.com/docs/guides/vtex-io-documentation-service) - VTEX IO service runtime structure and registration
+- [Service JSON](https://developers.vtex.com/docs/guides/vtex-io-documentation-service-json) - Runtime configuration for VTEX IO services
+- [Node Builder](https://developers.vtex.com/docs/guides/vtex-io-documentation-node-builder) - Backend app structure under the `node` builder
+- [Developing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-4-developing-an-app) - General backend app development flow
