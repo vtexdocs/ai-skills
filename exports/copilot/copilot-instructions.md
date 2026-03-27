@@ -7933,97 +7933,84 @@ export default configRouter;
 
 # Custom VTEX IO Apps
 
-# App Architecture & Manifest Configuration
+# App Contract & Builder Boundaries
 
 ## When this skill applies
 
-Use this skill when working with the foundational structure of a VTEX IO app — the `manifest.json` file, builder system, policy declarations, dependency management, `service.json` resource limits, and app lifecycle (link, publish, deploy).
+Use this skill when the main decision is about what a VTEX IO app is, what capabilities it declares, and which integration boundaries it publishes through `manifest.json`.
 
-- Creating a new VTEX IO app from scratch
-- Adding a builder to an existing app
-- Configuring policies for API access
-- Troubleshooting deployment failures related to manifest misconfiguration
+- Creating a new VTEX IO app and defining its initial contract
+- Adding or removing builders to match app capabilities
+- Choosing between `dependencies` and `peerDependencies`
+- Deciding whether a capability belongs in the current app or should move to another app
+- Troubleshooting link or publish failures caused by manifest-level contract issues
 
 Do not use this skill for:
-- Backend service implementation details (use `vtex-io-service-apps` instead)
-- React component development (use `vtex-io-react-apps` instead)
-- GraphQL schema and resolver details (use `vtex-io-graphql-api` instead)
+- service runtime behavior such as `service.json`, memory, workers, or route exposure
+- HTTP handler implementation, middleware composition, or event processing
+- GraphQL schema, resolver, or data-fetching implementation
+- storefront, admin, or render-runtime frontend behavior
+- policy modeling and security boundary enforcement
 
 ## Decision rules
 
-- Every VTEX IO app starts with `manifest.json` — it defines identity (`vendor`, `name`, `version`), builders, dependencies, and policies.
-- Use the builder that matches the directory: `node` for `/node`, `react` for `/react`, `graphql` for `/graphql`, `admin` for `/admin`, `pixel` for `/pixel`, `messages` for `/messages`, `store` for `/store`, `masterdata` for `/masterdata`, `styles` for `/styles`.
-- Declare policies for every external host your app calls and every VTEX Admin resource it accesses.
-- Use `service.json` in `/node` to configure memory (max 512MB), timeout, autoscaling, and route definitions.
-- Use semver ranges (`3.x`) for dependencies, not exact versions.
-- Use `peerDependencies` for apps that must be present but should not be auto-installed.
+- Treat `manifest.json` as the app contract. It declares identity, builders, dependencies, peer dependencies, and high-level capabilities that other apps or the platform rely on.
+- Add a builder only when the app truly owns that capability. Builders are not placeholders for future work.
+- Keep the contract narrow. If a manifest starts to represent unrelated concerns, split those concerns into separate apps instead of creating a catch-all app.
+- Use `dependencies` only for apps that can be safely auto-installed as part of the current app contract. Use `peerDependencies` for apps that must already exist in the environment, remain externally managed, or declare `billingOptions`.
+- Keep naming and versioning publishable: `vendor`, `name`, and `version` must form a stable identity that can be linked, published, and consumed safely.
+- Keep `billingOptions` aligned with the commercial contract of the app. If the app has billing implications, declare them explicitly in the manifest rather than leaving pricing behavior implicit.
+- Apps that declare `billingOptions` cannot be consumed through `dependencies`. If the current app requires a billable app, model that relationship with `peerDependencies` and require manual installation by the account or edition owner.
+- Edition apps are compositions of app contracts, not exceptions to them. Keep each underlying app contract explicit, narrow, and semver-safe so composition stays predictable across host environments.
+- `manifest.json` can also declare app-level permissions and configuration surfaces, but detailed policy modeling belongs in security-focused skills and detailed `settingsSchema` design belongs in app-settings skills.
 
-Builders reference:
+This is not an exhaustive list of builders; see the official Builders docs for the full catalog.
 
-| Builder | Directory | Purpose |
-|---------|-----------|---------|
-| `node` | `/node` | Backend services in TypeScript (middlewares, resolvers, event handlers) |
-| `react` | `/react` | Frontend React components in TypeScript/TSX |
-| `graphql` | `/graphql` | GraphQL schema definitions (`.graphql` files) |
-| `admin` | `/admin` | Admin panel pages and navigation entries |
-| `pixel` | `/pixel` | Pixel/tracking apps that inject scripts into the storefront |
-| `messages` | `/messages` | Internationalization — localized string files per locale |
-| `store` | `/store` | Store Framework theme blocks, interfaces, and routes |
-| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers |
-| `styles` | `/styles` | CSS/Tachyons configuration for Store Framework themes |
+Builder ownership reference:
 
-Policy types:
-1. **Outbound-access policies**: Grant access to explicit URLs (external APIs or VTEX endpoints).
-2. **License Manager policies**: Grant access to VTEX Admin resources using resource keys.
-3. **App role-based policies**: Grant access to routes or GraphQL queries exposed by other IO apps, using the format `{vendor}.{app-name}:{policy-name}`.
+| Builder | Own this builder when the app contract includes |
+|---------|--------------------------------------------------|
+| `node` | backend runtime capability owned by this app |
+| `graphql` | GraphQL schema exposure owned by this app |
+| `react` | React bundles owned by this app |
+| `admin` | Admin UI surfaces owned by this app |
+| `store` | Store Framework block registration owned by this app |
+| `messages` | localized message bundles owned by this app |
+| `pixel` | storefront pixel injection owned by this app |
+| `masterdata` | Master Data schema assets owned by this app |
 
-Architecture:
-
-```text
-manifest.json
-├── builders → determines which directories are processed
-│   ├── node/ → compiled by node builder → backend service
-│   ├── react/ → compiled by react builder → frontend bundles
-│   ├── graphql/ → compiled by graphql builder → schema/resolvers
-│   ├── store/ → compiled by store builder → theme blocks
-│   ├── admin/ → compiled by admin builder → admin pages
-│   ├── pixel/ → compiled by pixel builder → tracking scripts
-│   └── messages/ → compiled by messages builder → i18n strings
-├── policies → runtime permissions for API access
-├── dependencies → other VTEX IO apps this app requires
-└── peerDependencies → apps required but not auto-installed
-```
+Contract boundary heuristic:
+1. If the capability is shipped, versioned, and maintained with this app, declare its builder here.
+2. If the capability is only consumed from another app, declare a dependency instead of duplicating the builder.
+3. If the capability introduces a separate runtime, security model, or release cadence, consider splitting it into another app.
 
 ## Hard constraints
 
-### Constraint: Declare All Required Builders
+### Constraint: Every shipped capability must be declared in the manifest contract
 
-Every directory in your app that contains processable code MUST have a corresponding builder declared in `manifest.json`. If you have a `/node` directory, the `node` builder MUST be declared. If you have a `/react` directory, the `react` builder MUST be declared.
+If the app ships a processable VTEX IO capability, `manifest.json` MUST declare the corresponding builder. Do not rely on folder presence alone, and do not assume VTEX IO infers capabilities from the repository structure.
+Symmetrically, do not declare builders for capabilities that are not actually shipped by this app.
 
 **Why this matters**
 
-Without the builder declaration, the VTEX IO platform ignores the directory entirely. Your backend code will not compile, your React components will not render, and your GraphQL schemas will not be registered. The app will link successfully but the functionality will silently be absent.
+VTEX IO compiles and links apps based on declared builders, not on intent. If the builder is missing, the platform ignores that capability and the app contract becomes misleading. The app may link partially while the expected feature is absent.
 
 **Detection**
 
-If you see backend TypeScript code in a `/node` directory but the manifest does not declare `"node": "7.x"` in `builders`, STOP and add the builder. Same applies to `/react` without `"react": "3.x"`, `/graphql` without `"graphql": "1.x"`, etc.
+If you see a maintained `/node`, `/react`, `/graphql`, `/admin`, `/store`, `/messages`, `/pixel`, or `/masterdata` directory, STOP and verify that the matching builder exists in `manifest.json`. If the builder exists but the capability does not, STOP and remove the builder or move the capability back into scope.
 
 **Correct**
 
 ```json
 {
-  "name": "my-service-app",
-  "vendor": "myvendor",
-  "version": "1.0.0",
-  "title": "My Service App",
-  "description": "A backend service app with GraphQL",
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
   "builders": {
     "node": "7.x",
     "graphql": "1.x",
-    "docs": "0.x"
-  },
-  "dependencies": {},
-  "policies": []
+    "messages": "1.x"
+  }
 }
 ```
 
@@ -8031,98 +8018,36 @@ If you see backend TypeScript code in a `/node` directory but the manifest does 
 
 ```json
 {
-  "name": "my-service-app",
-  "vendor": "myvendor",
-  "version": "1.0.0",
-  "title": "My Service App",
-  "description": "A backend service app with GraphQL",
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
   "builders": {
-    "docs": "0.x"
-  },
-  "dependencies": {},
-  "policies": []
+    "messages": "1.x"
+  }
 }
 ```
 
-Missing "node" and "graphql" builders — the /node and /graphql directories will be completely ignored. Backend code won't compile, GraphQL schema won't be registered. The app links without errors but nothing works.
+The app ships backend and GraphQL capabilities but declares only `messages`, so the runtime contract is incomplete and the platform ignores the missing builders.
 
----
+### Constraint: App identity and versioning must stay publishable and semver-safe
 
-### Constraint: Declare Policies for All External Access
-
-Every external API call or VTEX resource access MUST have a corresponding policy in `manifest.json`. This includes outbound HTTP calls to external hosts, VTEX Admin resource access, and consumption of other apps' GraphQL APIs.
+The `vendor`, `name`, and `version` fields MUST identify a valid VTEX IO app contract. Use kebab-case for the app name, keep the vendor consistent with ownership, and use full semantic versioning.
 
 **Why this matters**
 
-VTEX IO sandboxes apps for security. Without the proper policy, any outbound HTTP request will be blocked at the infrastructure level, returning a `403 Forbidden` error. This is not a code issue — it is a platform-level restriction.
+Consumers, workspaces, and release flows rely on app identity stability. Invalid names or incomplete versions break linking and publishing, while identity drift creates unsafe upgrades and hard-to-debug dependency mismatches.
 
 **Detection**
 
-If you see code making API calls (via clients or HTTP) to a host, STOP and verify that an `outbound-access` policy exists for that host in the manifest. If you see `licenseManager.canAccessResource(...)`, verify a License Manager policy exists.
+If you see uppercase characters, underscores, non-semver versions, or vendor/name changes mixed into unrelated work, STOP and validate whether the change is intentional and release-safe.
 
 **Correct**
 
 ```json
 {
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "portal.vtexcommercestable.com.br",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ]
-}
-```
-
-**Wrong**
-
-```json
-{
-  "policies": []
-}
-```
-
-Empty policies array while the app makes calls to api.vtex.com and uses Master Data. All outbound requests will fail at runtime with 403 Forbidden errors that are difficult to debug.
-
----
-
-### Constraint: Follow App Naming Conventions
-
-App names MUST be in kebab-case (lowercase letters separated by hyphens). The vendor MUST match the VTEX account name. Version MUST follow Semantic Versioning 2.0.0.
-
-**Why this matters**
-
-Apps with invalid names cannot be published to the VTEX App Store. Names with special characters or uppercase letters will be rejected by the builder-hub. Vendor mismatch prevents the account from managing the app.
-
-**Detection**
-
-If you see an app name with uppercase letters, underscores, special characters, or numbers at the beginning, STOP and fix the name.
-
-**Correct**
-
-```json
-{
+  "vendor": "acme",
   "name": "order-status-dashboard",
-  "vendor": "mycompany",
-  "version": "2.1.3"
+  "version": "2.1.0"
 }
 ```
 
@@ -8130,198 +8055,127 @@ If you see an app name with uppercase letters, underscores, special characters, 
 
 ```json
 {
+  "vendor": "AcmeTeam",
   "name": "Order_Status_Dashboard",
-  "vendor": "mycompany",
   "version": "2.1"
 }
 ```
 
-Uppercase letters and underscores in the name will be rejected. Version "2.1" is not valid semver — must be "2.1.0".
+This identity is not safely publishable because the name is not kebab-case and the version is not valid semver.
 
-## Preferred pattern
+### Constraint: Dependencies and peerDependencies must express installation intent correctly
 
-Initialize with the VTEX IO CLI:
+Use `dependencies` only for apps that this app should install as part of its contract and that can be auto-installed safely. Use `peerDependencies` for apps that must already be present in the environment, should remain externally managed, or declare `billingOptions`.
 
-```bash
-vtex init
-```
+**Why this matters**
 
-Select the appropriate template: `service-example`, `graphql-example`, `react-app-template`, or `store-theme`.
+This is the core contract boundary between your app and the rest of the VTEX IO workspace. Misclassifying a relationship causes broken installations, hidden coupling, and environment-specific behavior that only appears after link or publish. In particular, builder-hub rejects dependencies on apps that declare `billingOptions`.
 
-Recommended manifest configuration:
+**Detection**
+
+If the app requires another app to function in every environment, STOP and confirm whether it belongs in `dependencies` or `peerDependencies`. If the target app declares `billingOptions`, STOP and move it to `peerDependencies`. If the app only integrates with a platform capability, host app, edition-managed app, or paid app that the account is expected to manage manually, STOP and keep it out of `dependencies`.
+
+**Correct**
 
 ```json
 {
-  "name": "product-review-service",
-  "vendor": "mycompany",
+  "dependencies": {
+    "vtex.search-graphql": "0.x"
+  },
+  "peerDependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "dependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  },
+  "peerDependencies": {}
+}
+```
+
+This contract hard-installs a host app that should usually be externally managed and also attempts to auto-install a billable app, which builder-hub rejects.
+
+## Preferred pattern
+
+Start by deciding the smallest useful contract for the app, then declare only the identity and builders required for that contract.
+
+Recommended manifest for a focused service-plus-GraphQL app:
+
+```json
+{
+  "vendor": "acme",
+  "name": "reviews-platform",
   "version": "0.1.0",
-  "title": "Product Review Service",
-  "description": "Backend service for managing product reviews with GraphQL API",
+  "title": "Reviews Platform",
+  "description": "VTEX IO app that owns review APIs and review GraphQL exposure",
   "builders": {
     "node": "7.x",
     "graphql": "1.x",
-    "docs": "0.x"
+    "messages": "1.x"
+  },
+  "billingOptions": {
+    "type": "free"
   },
   "dependencies": {
     "vtex.search-graphql": "0.x"
   },
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ]
-}
-```
-
-Recommended `service.json` for backend apps:
-
-```json
-{
-  "memory": 256,
-  "timeout": 30,
-  "minReplicas": 2,
-  "maxReplicas": 10,
-  "workers": 4,
-  "routes": {
-    "reviews": {
-      "path": "/_v/api/reviews",
-      "public": false
-    },
-    "review-by-id": {
-      "path": "/_v/api/reviews/:id",
-      "public": false
-    }
-  }
-}
-```
-
-Recommended directory structure:
-
-```text
-my-app/
-├── manifest.json
-├── package.json
-├── node/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── service.json
-│   ├── index.ts          # Service entry point
-│   ├── clients/
-│   │   └── index.ts      # Client registry
-│   ├── middlewares/
-│   │   └── validate.ts   # HTTP middleware
-│   └── resolvers/
-│       └── reviews.ts    # GraphQL resolvers
-├── graphql/
-│   ├── schema.graphql    # Query/Mutation definitions
-│   └── types/
-│       └── Review.graphql
-├── messages/
-│   ├── en.json
-│   ├── pt.json
-│   └── es.json
-└── docs/
-    └── README.md
-```
-
-Full `manifest.json` for a comprehensive app using multiple builders:
-
-```json
-{
-  "name": "product-review-suite",
-  "vendor": "mycompany",
-  "version": "1.0.0",
-  "title": "Product Review Suite",
-  "description": "Complete product review system with backend, frontend, and admin panel",
-  "mustUpdateAt": "2026-01-01",
-  "builders": {
-    "node": "7.x",
-    "react": "3.x",
-    "graphql": "1.x",
-    "admin": "0.x",
-    "messages": "1.x",
-    "store": "0.x",
-    "docs": "0.x"
-  },
-  "dependencies": {
-    "vtex.styleguide": "9.x",
-    "vtex.store-components": "3.x",
-    "vtex.css-handles": "0.x"
-  },
   "peerDependencies": {
     "vtex.store": "2.x"
-  },
-  "policies": [
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "api.vtex.com",
-        "path": "/api/*"
-      }
-    },
-    {
-      "name": "ADMIN_DS"
-    },
-    {
-      "name": "colossus-fire-event"
-    },
-    {
-      "name": "colossus-write-logs"
-    }
-  ],
-  "settingsSchema": {
-    "title": "Product Review Suite Settings",
-    "type": "object",
-    "properties": {
-      "enableModeration": {
-        "title": "Enable review moderation",
-        "type": "boolean"
-      },
-      "reviewsPerPage": {
-        "title": "Reviews per page",
-        "type": "number"
-      }
-    }
   }
 }
 ```
+
+Recommended contract split:
+
+```text
+reviews-platform/
+├── manifest.json        # identity, builders, dependencies, peerDependencies
+├── node/                # backend capability owned by this app
+├── graphql/             # GraphQL capability owned by this app
+└── messages/            # app-owned translations
+
+reviews-storefront/
+├── manifest.json        # separate release surface for storefront concerns
+├── react/
+└── store/
+```
+
+Use this split when the backend/API contract and the storefront contract have different ownership, release cadence, or integration boundaries.
 
 ## Common failure modes
 
-- **Declaring unused builders**: Adding builders "just in case" creates overhead during the build process. Unused builder directories can cause build warnings. Only declare builders your app actively uses.
-- **Wildcard outbound policies**: Using `"host": "*"` or `"path": "/*"` is a security risk, will be rejected during app review, and makes security audits difficult. Declare specific policies for each external service.
-- **Hardcoding version in dependencies**: Pinning exact versions like `"vtex.store-components": "3.165.0"` prevents receiving bug fixes. Use major version ranges with `x` wildcard: `"vtex.store-components": "3.x"`.
+- Declaring builders for aspirational capabilities that the app does not yet own, which makes the contract broader than the real implementation.
+- Using one large manifest to represent backend runtime, frontend rendering, settings, policies, and integration concerns that should be separated into multiple skills or apps.
+- Putting host-level apps in `dependencies` when they should remain `peerDependencies`.
+- Pinning exact dependency versions instead of major-version ranges such as `0.x`, `1.x`, or `3.x`.
+- Treating `manifest.json` as a dumping ground for runtime or security details that belong in more specific skills.
+- Modeling `settingsSchema` here instead of using this skill only to decide whether app-level configuration belongs in the contract at all.
 
 ## Review checklist
 
-- [ ] Does every code directory (`/node`, `/react`, `/graphql`, etc.) have a matching builder in `manifest.json`?
-- [ ] Are all external hosts and VTEX resources declared in `policies`?
-- [ ] Is the app name kebab-case, vendor matching account, version valid semver?
-- [ ] Does `service.json` exist for apps with the `node` builder?
-- [ ] Are dependencies using major version ranges (`3.x`) instead of exact versions?
-- [ ] Are placeholder values (vendor, app name, policies) replaced with real values?
+- [ ] Does the manifest describe only capabilities this app actually owns and ships?
+- [ ] Does every shipped capability have a matching builder declaration?
+- [ ] Is the app identity publishable: valid `vendor`, kebab-case `name`, and full semver `version`?
+- [ ] If the app has billing behavior, is `billingOptions` explicit and aligned with the app contract?
+- [ ] Are `dependencies` and `peerDependencies` separated by installation intent?
+- [ ] Would splitting the contract into two apps reduce unrelated concerns or release coupling?
+- [ ] Are runtime, route, GraphQL implementation, frontend, and security details kept out of this skill?
 
 ## Reference
 
-- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) — Complete reference for all manifest.json fields and their usage
-- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) — Full list of available builders with descriptions and usage examples
-- [Policies](https://developers.vtex.com/docs/guides/vtex-io-documentation-policies) — How to declare outbound-access, License Manager, and role-based policies
-- [Dependencies](https://developers.vtex.com/docs/guides/vtex-io-documentation-dependencies) — Managing app dependencies and peer dependencies
-- [Accessing External Resources](https://developers.vtex.com/docs/guides/accessing-external-resources-within-a-vtex-io-app) — Policy types and patterns for external API access
-- [Creating a New App](https://developers.vtex.com/docs/guides/vtex-io-documentation-3-creating-the-new-app) — Step-by-step guide for app initialization
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) - Complete reference for `manifest.json` fields
+- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) - Builder catalog and capability mapping
+- [Dependencies](https://developers.vtex.com/docs/guides/vtex-io-documentation-dependencies) - Dependency and peer dependency behavior in VTEX IO
+- [Billing Options](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest#billingoptions) - How app billing behavior is declared in the manifest
+- [Creating the New App](https://developers.vtex.com/docs/guides/vtex-io-documentation-3-creating-the-new-app) - App initialization flow and manifest basics
 
 ---
 
