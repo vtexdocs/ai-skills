@@ -16,7 +16,6 @@ Use this skill when building or modifying any headless VTEX storefront that comm
 - Reviewing a headless architecture for security compliance
 
 Do not use this skill for:
-
 - Checkout-specific proxy logic and OrderForm management (use [`headless-checkout-proxy`](../headless-checkout-proxy/skill.md))
 - Search API integration details (use [`headless-intelligent-search`](../headless-intelligent-search/skill.md))
 - Caching and TTL strategy (use [`headless-caching-strategy`](../headless-caching-strategy/skill.md))
@@ -73,7 +72,7 @@ async function getOrderDetails(orderId: string): Promise<Order> {
         "X-VTEX-API-AppKey": "vtexappkey-mystore-ABCDEF", // EXPOSED!
         "X-VTEX-API-AppToken": "eyJhbGciOi...", // EXPOSED!
       },
-    },
+    }
   );
   return response.json();
 }
@@ -134,7 +133,7 @@ router.get("/api/bff/profile", async (req: Request, res: Response) => {
       headers: {
         Cookie: `VtexIdclientAutCookie=${vtexToken}`,
       },
-    },
+    }
   );
 
   const profile = await response.json();
@@ -157,12 +156,9 @@ function handleLoginCallback() {
 // Later, reads from localStorage and sends in header
 async function getProfile() {
   const token = localStorage.getItem("VtexIdclientAutCookie"); // EXPOSED!
-  return fetch(
-    "https://mystore.vtexcommercestable.com.br/api/checkout/pub/profiles",
-    {
-      headers: { Cookie: `VtexIdclientAutCookie=${token}` },
-    },
-  );
+  return fetch("https://mystore.vtexcommercestable.com.br/api/checkout/pub/profiles", {
+    headers: { Cookie: `VtexIdclientAutCookie=${token}` },
+  });
 }
 ```
 
@@ -204,7 +200,7 @@ router.get("/api/bff/orders/:orderId", async (req: Request, res: Response) => {
         "X-VTEX-API-AppToken": VTEX_APP_TOKEN,
         Accept: "application/json",
       },
-    },
+    }
   );
 
   if (!response.ok) {
@@ -234,7 +230,7 @@ async function fetchOrders() {
         "X-VTEX-API-AppKey": process.env.NEXT_PUBLIC_VTEX_APP_KEY!, // EXPOSED IN BUNDLE!
         "X-VTEX-API-AppToken": process.env.NEXT_PUBLIC_VTEX_APP_TOKEN!, // EXPOSED IN BUNDLE!
       },
-    },
+    }
   );
   return response.json();
 }
@@ -282,7 +278,7 @@ app.use(
   cors({
     origin: process.env.FRONTEND_URL,
     credentials: true,
-  }),
+  })
 );
 app.use(
   session({
@@ -295,7 +291,7 @@ app.use(
       sameSite: "strict",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours (matches VtexIdclientAutCookie TTL)
     },
-  }),
+  })
 );
 
 // Mount BFF routes
@@ -351,7 +347,7 @@ export async function vtexRequest<T>(options: VtexRequestOptions): Promise<T> {
 
   if (!response.ok) {
     throw new Error(
-      `VTEX API error: ${response.status} ${response.statusText} for ${method} ${path}`,
+      `VTEX API error: ${response.status} ${response.statusText} for ${method} ${path}`
     );
   }
 
@@ -458,11 +454,7 @@ authRoutes.get("/status", (req: Request, res: Response) => {
 
   ```typescript
   // Frontend code — call Intelligent Search directly (this is correct!)
-  async function searchProducts(
-    query: string,
-    from: number = 0,
-    to: number = 19,
-  ): Promise<SearchResult> {
+  async function searchProducts(query: string, from: number = 0, to: number = 19): Promise<SearchResult> {
     const baseUrl = `https://${STORE_ACCOUNT}.vtexcommercestable.com.br`;
     const response = await fetch(
       `${baseUrl}/api/io/_v/api/intelligent-search/product_search/?query=${encodeURIComponent(query)}&from=${from}&to=${to}&locale=en-US`,
@@ -504,17 +496,13 @@ authRoutes.get("/status", (req: Request, res: Response) => {
     "authorization",
   ];
 
-  export function requestLogger(
-    req: Request,
-    _res: Response,
-    next: NextFunction,
-  ) {
+  export function requestLogger(req: Request, _res: Response, next: NextFunction) {
     const sanitizedHeaders = Object.fromEntries(
       Object.entries(req.headers).map(([key, value]) =>
         SENSITIVE_HEADERS.includes(key.toLowerCase())
           ? [key, "[REDACTED]"]
-          : [key, value],
-      ),
+          : [key, value]
+      )
     );
 
     console.log({
@@ -546,7 +534,7 @@ authRoutes.get("/status", (req: Request, res: Response) => {
 - [API authentication using API keys](https://developers.vtex.com/docs/guides/api-authentication-using-api-keys) — How to use appKey/appToken pairs for machine authentication
 - [API authentication using user tokens](https://developers.vtex.com/docs/guides/api-authentication-using-user-tokens) — How VtexIdclientAutCookie works and its scopes
 - [Refresh token flow for headless implementations](https://developers.vtex.com/docs/guides/refresh-token-flow-for-headless-implementations) — How to refresh expired VtexIdclientAutCookie tokens
-- [Best practices for using application keys](https://help.vtex.com/en/docs/tutorials/best-practices-api-keys) — VTEX security guidelines for API key management
+- [Best practices for using application keys](https://help.vtex.com/en/tutorial/best-practices-api-keys--7b6nD1VMHa49aI5brlOvJm) — VTEX security guidelines for API key management
 
 ---
 

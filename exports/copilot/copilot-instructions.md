@@ -183,7 +183,6 @@ Before MD for new data:
 ## When this skill applies
 
 Use this skill when:
-
 - You need to fetch product data, extend existing queries with additional fields, or integrate third-party APIs.
 - You need data beyond what native FastStore components display by default.
 - You are creating API extensions in `src/graphql/vtex/` or `src/graphql/thirdParty/`.
@@ -191,7 +190,6 @@ Use this skill when:
 - You are writing server-side resolvers that call VTEX REST APIs or external services.
 
 Do not use this skill for:
-
 - Client-side state management (cart, session, search) — use the `faststore-state-management` skill.
 - Visual theming — use the `faststore-theming` skill.
 - Component replacement or props overriding — use the `faststore-overrides` skill.
@@ -219,29 +217,27 @@ The FastStore API handles authentication, caching, request batching, and data no
 If you see `fetch('https://{account}.vtexcommercestable.com.br/api/catalog')` or `fetch('https://{account}.myvtex.com/api/catalog')` in client-side code (components, hooks, useEffect) → warn that this bypasses the GraphQL layer. If it's in a file under `src/graphql/` resolvers → this is acceptable (that's the API extension pattern). If you see `axios` or `fetch` with VTEX API paths in any file under `src/components/` or `src/pages/` → STOP and refactor to use the GraphQL API.
 
 **Correct**
-
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
 // Server-side resolver — REST calls to VTEX APIs are correct here
-import type { Resolver } from "@faststore/api";
+import type { Resolver } from '@faststore/api'
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     customAttribute: async (root, _args, context) => {
       // Server-side: safe to call VTEX REST APIs in resolvers
       const response = await context.clients.commerce.catalog.getProduct(
-        root.productID,
-      );
-      return response.customAttribute;
+        root.productID
+      )
+      return response.customAttribute
     },
   },
-};
+}
 
-export default productResolver;
+export default productResolver
 ```
 
 **Wrong**
-
 ```typescript
 // src/components/ProductCustomData.tsx
 // WRONG: Direct REST call to VTEX Catalog API from a client component
@@ -279,11 +275,10 @@ API keys in client-side code are visible to anyone who inspects the page source 
 If you see `VTEX_APP_KEY`, `VTEX_APP_TOKEN`, `X-VTEX-API-AppKey`, or `X-VTEX-API-AppToken` in any file under `src/components/`, `src/pages/`, or any file that runs in the browser → STOP immediately. This is a critical security issue. If you see `NEXT_PUBLIC_VTEX_APP_KEY` or `NEXT_PUBLIC_VTEX_APP_TOKEN` in `.env` files → STOP immediately. The `NEXT_PUBLIC_` prefix makes these values available in the browser bundle.
 
 **Correct**
-
 ```typescript
 // src/graphql/vtex/resolvers/installments.ts
 // API keys are used ONLY in server-side resolvers, accessed via context
-import type { Resolver } from "@faststore/api";
+import type { Resolver } from '@faststore/api'
 
 const installmentResolver: Record<string, Resolver> = {
   StoreProduct: {
@@ -291,27 +286,25 @@ const installmentResolver: Record<string, Resolver> = {
       // context.clients handles authentication automatically
       // No API keys are hardcoded or exposed
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID,
-      );
+        root.productID
+      )
 
-      const installments =
-        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
+      const installments = product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }));
+      }))
     },
   },
-};
+}
 
-export default installmentResolver;
+export default installmentResolver
 ```
 
 **Wrong**
-
 ```typescript
 // src/components/ProductInstallments.tsx
 // CRITICAL SECURITY ISSUE: API keys exposed in client-side code
@@ -350,7 +343,6 @@ FastStore's build system discovers and compiles API extensions from these specif
 If you see GraphQL type definitions (`.graphql` files) or resolver files outside of `src/graphql/vtex/` or `src/graphql/thirdParty/` → warn that they will not be discovered by the build system. If the `typeDefs/` or `resolvers/` subdirectory is missing → warn about incorrect structure.
 
 **Correct**
-
 ```graphql
 # src/graphql/vtex/typeDefs/product.graphql
 type StoreProduct {
@@ -367,43 +359,42 @@ type Installment {
 
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
-import type { Resolver } from "@faststore/api";
+import type { Resolver } from '@faststore/api'
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     availableInstallments: async (root, _args, context) => {
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID,
-      );
+        root.productID
+      )
       const installments =
-        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }));
+      }))
     },
   },
-};
+}
 
-export default productResolver;
+export default productResolver
 ```
 
 ```typescript
 // src/graphql/vtex/resolvers/index.ts
-import { default as StoreProductResolver } from "./product";
+import { default as StoreProductResolver } from './product'
 
 const resolvers = {
   ...StoreProductResolver,
-};
+}
 
-export default resolvers;
+export default resolvers
 ```
 
 **Wrong**
-
 ```typescript
 // WRONG: Resolver placed in src/api/ instead of src/graphql/vtex/resolvers/
 // src/api/resolvers/product.ts
@@ -414,12 +405,12 @@ export default resolvers;
 const productResolver = {
   StoreProduct: {
     availableInstallments: async (root: any) => {
-      return [];
+      return []
     },
   },
-};
+}
 
-export default productResolver;
+export default productResolver
 ```
 
 ## Preferred pattern
@@ -464,35 +455,35 @@ type Installment {
 
 ```typescript
 // src/graphql/vtex/resolvers/product.ts
-import type { Resolver } from "@faststore/api";
+import type { Resolver } from '@faststore/api'
 
 const productResolver: Record<string, Resolver> = {
   StoreProduct: {
     availableInstallments: async (root, _args, context) => {
       const product = await context.clients.commerce.catalog.getProduct(
-        root.productID,
-      );
+        root.productID
+      )
       const installments =
-        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || [];
+        product.items?.[0]?.sellers?.[0]?.commertialOffer?.Installments || []
 
       return installments.map((inst: any) => ({
         count: inst.NumberOfInstallments,
         value: inst.Value,
         totalValue: inst.TotalValuePlusInterestRate,
         interestRate: inst.InterestRate,
-      }));
+      }))
     },
   },
-};
+}
 
-export default productResolver;
+export default productResolver
 ```
 
 Include the new field in queries via fragments:
 
 ```typescript
 // src/fragments/ServerProduct.ts
-import { gql } from "@faststore/core/api";
+import { gql } from '@faststore/core/api'
 
 export const fragment = gql(`
   fragment ServerProduct on Query {
@@ -505,16 +496,16 @@ export const fragment = gql(`
       }
     }
   }
-`);
+`)
 ```
 
 Third-party API extension (e.g., product reviews):
 
 ```typescript
 // src/graphql/thirdParty/resolvers/reviews.ts
-import type { Resolver } from "@faststore/api";
+import type { Resolver } from '@faststore/api'
 
-const REVIEWS_API_KEY = process.env.REVIEWS_API_KEY; // Server-only env var (no NEXT_PUBLIC_ prefix)
+const REVIEWS_API_KEY = process.env.REVIEWS_API_KEY // Server-only env var (no NEXT_PUBLIC_ prefix)
 
 const reviewsResolver: Record<string, Resolver> = {
   StoreProduct: {
@@ -525,9 +516,9 @@ const reviewsResolver: Record<string, Resolver> = {
           headers: {
             Authorization: `Bearer ${REVIEWS_API_KEY}`,
           },
-        },
-      );
-      const data = await response.json();
+        }
+      )
+      const data = await response.json()
       return {
         averageRating: data.average_rating,
         totalReviews: data.total_count,
@@ -537,12 +528,12 @@ const reviewsResolver: Record<string, Resolver> = {
           text: r.review_text,
           date: r.created_at,
         })),
-      };
+      }
     },
   },
-};
+}
 
-export default reviewsResolver;
+export default reviewsResolver
 ```
 
 ## Common failure modes
@@ -1562,7 +1553,6 @@ Use this skill when building or modifying any headless VTEX storefront that comm
 - Reviewing a headless architecture for security compliance
 
 Do not use this skill for:
-
 - Checkout-specific proxy logic and OrderForm management (use [`headless-checkout-proxy`](../headless-checkout-proxy/skill.md))
 - Search API integration details (use [`headless-intelligent-search`](../headless-intelligent-search/skill.md))
 - Caching and TTL strategy (use [`headless-caching-strategy`](../headless-caching-strategy/skill.md))
@@ -1619,7 +1609,7 @@ async function getOrderDetails(orderId: string): Promise<Order> {
         "X-VTEX-API-AppKey": "vtexappkey-mystore-ABCDEF", // EXPOSED!
         "X-VTEX-API-AppToken": "eyJhbGciOi...", // EXPOSED!
       },
-    },
+    }
   );
   return response.json();
 }
@@ -1680,7 +1670,7 @@ router.get("/api/bff/profile", async (req: Request, res: Response) => {
       headers: {
         Cookie: `VtexIdclientAutCookie=${vtexToken}`,
       },
-    },
+    }
   );
 
   const profile = await response.json();
@@ -1703,12 +1693,9 @@ function handleLoginCallback() {
 // Later, reads from localStorage and sends in header
 async function getProfile() {
   const token = localStorage.getItem("VtexIdclientAutCookie"); // EXPOSED!
-  return fetch(
-    "https://mystore.vtexcommercestable.com.br/api/checkout/pub/profiles",
-    {
-      headers: { Cookie: `VtexIdclientAutCookie=${token}` },
-    },
-  );
+  return fetch("https://mystore.vtexcommercestable.com.br/api/checkout/pub/profiles", {
+    headers: { Cookie: `VtexIdclientAutCookie=${token}` },
+  });
 }
 ```
 
@@ -1750,7 +1737,7 @@ router.get("/api/bff/orders/:orderId", async (req: Request, res: Response) => {
         "X-VTEX-API-AppToken": VTEX_APP_TOKEN,
         Accept: "application/json",
       },
-    },
+    }
   );
 
   if (!response.ok) {
@@ -1780,7 +1767,7 @@ async function fetchOrders() {
         "X-VTEX-API-AppKey": process.env.NEXT_PUBLIC_VTEX_APP_KEY!, // EXPOSED IN BUNDLE!
         "X-VTEX-API-AppToken": process.env.NEXT_PUBLIC_VTEX_APP_TOKEN!, // EXPOSED IN BUNDLE!
       },
-    },
+    }
   );
   return response.json();
 }
@@ -1828,7 +1815,7 @@ app.use(
   cors({
     origin: process.env.FRONTEND_URL,
     credentials: true,
-  }),
+  })
 );
 app.use(
   session({
@@ -1841,7 +1828,7 @@ app.use(
       sameSite: "strict",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours (matches VtexIdclientAutCookie TTL)
     },
-  }),
+  })
 );
 
 // Mount BFF routes
@@ -1897,7 +1884,7 @@ export async function vtexRequest<T>(options: VtexRequestOptions): Promise<T> {
 
   if (!response.ok) {
     throw new Error(
-      `VTEX API error: ${response.status} ${response.statusText} for ${method} ${path}`,
+      `VTEX API error: ${response.status} ${response.statusText} for ${method} ${path}`
     );
   }
 
@@ -2004,11 +1991,7 @@ authRoutes.get("/status", (req: Request, res: Response) => {
 
   ```typescript
   // Frontend code — call Intelligent Search directly (this is correct!)
-  async function searchProducts(
-    query: string,
-    from: number = 0,
-    to: number = 19,
-  ): Promise<SearchResult> {
+  async function searchProducts(query: string, from: number = 0, to: number = 19): Promise<SearchResult> {
     const baseUrl = `https://${STORE_ACCOUNT}.vtexcommercestable.com.br`;
     const response = await fetch(
       `${baseUrl}/api/io/_v/api/intelligent-search/product_search/?query=${encodeURIComponent(query)}&from=${from}&to=${to}&locale=en-US`,
@@ -2050,17 +2033,13 @@ authRoutes.get("/status", (req: Request, res: Response) => {
     "authorization",
   ];
 
-  export function requestLogger(
-    req: Request,
-    _res: Response,
-    next: NextFunction,
-  ) {
+  export function requestLogger(req: Request, _res: Response, next: NextFunction) {
     const sanitizedHeaders = Object.fromEntries(
       Object.entries(req.headers).map(([key, value]) =>
         SENSITIVE_HEADERS.includes(key.toLowerCase())
           ? [key, "[REDACTED]"]
-          : [key, value],
-      ),
+          : [key, value]
+      )
     );
 
     console.log({
@@ -2092,7 +2071,7 @@ authRoutes.get("/status", (req: Request, res: Response) => {
 - [API authentication using API keys](https://developers.vtex.com/docs/guides/api-authentication-using-api-keys) — How to use appKey/appToken pairs for machine authentication
 - [API authentication using user tokens](https://developers.vtex.com/docs/guides/api-authentication-using-user-tokens) — How VtexIdclientAutCookie works and its scopes
 - [Refresh token flow for headless implementations](https://developers.vtex.com/docs/guides/refresh-token-flow-for-headless-implementations) — How to refresh expired VtexIdclientAutCookie tokens
-- [Best practices for using application keys](https://help.vtex.com/en/docs/tutorials/best-practices-api-keys) — VTEX security guidelines for API key management
+- [Best practices for using application keys](https://help.vtex.com/en/tutorial/best-practices-api-keys--7b6nD1VMHa49aI5brlOvJm) — VTEX security guidelines for API key management
 
 ---
 
@@ -4518,7 +4497,6 @@ Use this skill when building a seller integration that needs to send invoice dat
 - Implementing partial invoicing for split shipments
 
 Do not use this skill for:
-
 - Catalog or SKU synchronization (see `marketplace-catalog-sync`)
 - Order event consumption via Feed/Hook (see `marketplace-order-hook`)
 - General API rate limiting (see `marketplace-rate-limiting`)
@@ -4592,7 +4570,7 @@ interface InvoicePayload {
 async function sendInvoiceNotification(
   client: AxiosInstance,
   orderId: string,
-  invoice: InvoicePayload,
+  invoice: InvoicePayload
 ): Promise<void> {
   // Validate required fields before sending
   if (!invoice.invoiceNumber) {
@@ -4612,7 +4590,7 @@ async function sendInvoiceNotification(
   if (invoice.invoiceValue < 100 && invoice.items.length > 0) {
     console.warn(
       `Warning: invoiceValue ${invoice.invoiceValue} seems very low. ` +
-        `Ensure it's in cents (e.g., 9990 for $99.90).`,
+        `Ensure it's in cents (e.g., 9990 for $99.90).`
     );
   }
 
@@ -4620,10 +4598,7 @@ async function sendInvoiceNotification(
 }
 
 // Example usage:
-async function invoiceOrder(
-  client: AxiosInstance,
-  orderId: string,
-): Promise<void> {
+async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<void> {
   await sendInvoiceNotification(client, orderId, {
     type: "Output",
     invoiceNumber: "NFE-2026-001234",
@@ -4645,7 +4620,7 @@ async function invoiceOrder(
 // WRONG: Missing required fields, value in dollars instead of cents
 async function sendBrokenInvoice(
   client: AxiosInstance,
-  orderId: string,
+  orderId: string
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     // Missing 'type' field — API may reject or default incorrectly
@@ -4685,11 +4660,11 @@ async function updateOrderTracking(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  tracking: TrackingUpdate,
+  tracking: TrackingUpdate
 ): Promise<void> {
   await client.patch(
     `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
-    tracking,
+    tracking
   );
 }
 
@@ -4698,23 +4673,21 @@ async function onCarrierPickup(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  carrierData: { name: string; trackingId: string; trackingUrl: string },
+  carrierData: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: carrierData.name,
     trackingNumber: carrierData.trackingId,
     trackingUrl: carrierData.trackingUrl,
   });
-  console.log(
-    `Tracking updated for order ${orderId}: ${carrierData.trackingId}`,
-  );
+  console.log(`Tracking updated for order ${orderId}: ${carrierData.trackingId}`);
 }
 
 // Update delivery status when confirmed
 async function onDeliveryConfirmed(
   client: AxiosInstance,
   orderId: string,
-  invoiceNumber: string,
+  invoiceNumber: string
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: "",
@@ -4731,7 +4704,7 @@ async function onDeliveryConfirmed(
 // WRONG: Sending empty/fake tracking data with the invoice
 async function invoiceWithFakeTracking(
   client: AxiosInstance,
-  orderId: string,
+  orderId: string
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     type: "Output",
@@ -4780,13 +4753,13 @@ interface Shipment {
 async function sendPartialInvoices(
   client: AxiosInstance,
   orderId: string,
-  shipments: Shipment[],
+  shipments: Shipment[]
 ): Promise<void> {
   for (const shipment of shipments) {
     // Calculate value for only the items in this shipment
     const shipmentValue = shipment.items.reduce(
       (total, item) => total + item.price * item.quantity,
-      0,
+      0
     );
 
     await sendInvoiceNotification(client, orderId, {
@@ -4803,7 +4776,7 @@ async function sendPartialInvoices(
 
     console.log(
       `Partial invoice ${shipment.invoiceNumber} sent for order ${orderId}: ` +
-        `${shipment.items.length} items, value=${shipmentValue}`,
+        `${shipment.items.length} items, value=${shipmentValue}`
     );
   }
 }
@@ -4812,7 +4785,9 @@ async function sendPartialInvoices(
 await sendPartialInvoices(client, "ORD-123", [
   {
     invoiceNumber: "NFE-001-A",
-    items: [{ id: "sku-1", name: "Laptop", quantity: 1, price: 250000 }],
+    items: [
+      { id: "sku-1", name: "Laptop", quantity: 1, price: 250000 },
+    ],
   },
   {
     invoiceNumber: "NFE-001-B",
@@ -4832,7 +4807,7 @@ async function wrongPartialInvoice(
   client: AxiosInstance,
   orderId: string,
   totalOrderValue: number,
-  shippedItems: OrderItem[],
+  shippedItems: OrderItem[]
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     type: "Output",
@@ -4877,7 +4852,7 @@ const authorizeFulfillmentHandler: RequestHandler = async (req, res) => {
   const { marketplaceOrderId }: FulfillOrderRequest = req.body;
 
   console.log(
-    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`,
+    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`
   );
 
   // Store the marketplace order ID mapping
@@ -4918,7 +4893,7 @@ Once the order is packed and the invoice is generated, send the invoice notifica
 ```typescript
 async function fulfillAndInvoice(
   client: AxiosInstance,
-  order: OrderMapping,
+  order: OrderMapping
 ): Promise<void> {
   // Generate invoice from your invoicing system
   const invoice = await generateInvoice(order);
@@ -4939,7 +4914,7 @@ async function fulfillAndInvoice(
   });
 
   console.log(
-    `Invoice ${invoice.number} sent for order ${order.marketplaceOrderId}`,
+    `Invoice ${invoice.number} sent for order ${order.marketplaceOrderId}`
   );
 }
 
@@ -4952,7 +4927,7 @@ async function generateInvoice(order: OrderMapping): Promise<{
 }> {
   const totalCents = order.items.reduce(
     (sum, item) => sum + item.price * item.quantity,
-    0,
+    0
   );
   return {
     number: `NFE-${Date.now()}`,
@@ -4971,7 +4946,7 @@ async function handleCarrierPickup(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  carrier: { name: string; trackingId: string; trackingUrl: string },
+  carrier: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: carrier.name,
@@ -4979,7 +4954,9 @@ async function handleCarrierPickup(
     trackingUrl: carrier.trackingUrl,
   });
 
-  console.log(`Tracking ${carrier.trackingId} sent for order ${orderId}`);
+  console.log(
+    `Tracking ${carrier.trackingId} sent for order ${orderId}`
+  );
 }
 ```
 
@@ -4989,7 +4966,7 @@ async function handleCarrierPickup(
 async function handleDeliveryConfirmation(
   client: AxiosInstance,
   orderId: string,
-  invoiceNumber: string,
+  invoiceNumber: string
 ): Promise<void> {
   await client.patch(
     `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
@@ -4997,7 +4974,7 @@ async function handleDeliveryConfirmation(
       isDelivered: true,
       courier: "",
       trackingNumber: "",
-    },
+    }
   );
 
   console.log(`Order ${orderId} marked as delivered`);
@@ -5012,7 +4989,7 @@ import axios, { AxiosInstance } from "axios";
 function createMarketplaceClient(
   accountName: string,
   appKey: string,
-  appToken: string,
+  appToken: string
 ): AxiosInstance {
   return axios.create({
     baseURL: `https://${accountName}.vtexcommercestable.com.br`,
@@ -5027,7 +5004,7 @@ function createMarketplaceClient(
 
 async function completeFulfillmentFlow(
   client: AxiosInstance,
-  order: OrderMapping,
+  order: OrderMapping
 ): Promise<void> {
   // 1. Fulfill and invoice
   await fulfillAndInvoice(client, order);
@@ -5040,7 +5017,7 @@ async function completeFulfillmentFlow(
     client,
     order.marketplaceOrderId,
     invoice.number,
-    carrierData,
+    carrierData
   );
 
   // 3. When delivered, confirm
@@ -5048,12 +5025,12 @@ async function completeFulfillmentFlow(
   await handleDeliveryConfirmation(
     client,
     order.marketplaceOrderId,
-    invoice.number,
+    invoice.number
   );
 }
 
 async function waitForCarrierPickup(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<{ name: string; trackingId: string; trackingUrl: string }> {
   // Replace with actual carrier integration
   return {
@@ -5064,14 +5041,14 @@ async function waitForCarrierPickup(
 }
 
 async function getLatestInvoice(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<{ number: string }> {
   // Replace with actual invoice lookup
   return { number: `NFE-${sellerOrderId}` };
 }
 
 async function waitForDeliveryConfirmation(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<void> {
   // Replace with actual delivery confirmation logic
   console.log(`Waiting for delivery confirmation: ${sellerOrderId}`);
@@ -5090,7 +5067,7 @@ async function cancelInvoicedOrder(
   client: AxiosInstance,
   orderId: string,
   originalItems: InvoiceItem[],
-  originalInvoiceValue: number,
+  originalInvoiceValue: number
 ): Promise<void> {
   // Step 1: Send return invoice (type: "Input")
   await sendInvoiceNotification(client, orderId, {
@@ -5102,9 +5079,10 @@ async function cancelInvoicedOrder(
   });
 
   // Step 2: Now cancel the order
-  await client.post(`/api/marketplace/pvt/orders/${orderId}/cancel`, {
-    reason: "Customer requested return",
-  });
+  await client.post(
+    `/api/marketplace/pvt/orders/${orderId}/cancel`,
+    { reason: "Customer requested return" }
+  );
 }
 ```
 
@@ -5143,7 +5121,6 @@ Use this skill when building an integration that needs to react to order status 
 - Handling the complete order status lifecycle
 
 Do not use this skill for:
-
 - Catalog or SKU synchronization (see `marketplace-catalog-sync`)
 - Invoice and tracking submission (see `marketplace-fulfillment`)
 - General API rate limiting (see `marketplace-rate-limiting`)
@@ -5158,12 +5135,12 @@ Do not use this skill for:
 - The two filter types are **mutually exclusive**. Using both in the same configuration request returns `409 Conflict`.
 - Each appKey can configure only one feed and one hook. Different users sharing the same appKey access the same feed/hook.
 
-|             | Feed                         | Hook                        |
-| ----------- | ---------------------------- | --------------------------- |
-| Model       | Pull (active)                | Push (reactive)             |
-| Scalability | You control volume           | Must handle any volume      |
-| Reliability | Events persist in queue      | Must be always available    |
-| Best for    | ERPs with limited throughput | High-performance middleware |
+| | Feed | Hook |
+|---|---|---|
+| Model | Pull (active) | Push (reactive) |
+| Scalability | You control volume | Must handle any volume |
+| Reliability | Events persist in queue | Must be always available |
+| Best for | ERPs with limited throughput | High-performance middleware |
 
 **Hook Notification Payload**:
 
@@ -5257,10 +5234,7 @@ function createHookHandler(config: HookConfig): RequestHandler {
     }
 
     // Validate custom header (configured during hook setup)
-    if (
-      req.headers[config.customHeaderKey.toLowerCase()] !==
-      config.customHeaderValue
-    ) {
+    if (req.headers[config.customHeaderKey.toLowerCase()] !== config.customHeaderValue) {
       console.error("Invalid custom header");
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -5349,10 +5323,7 @@ async function idempotentProcessEvent(payload: HookPayload): Promise<boolean> {
   }
 }
 
-async function handleOrderStateChange(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleOrderStateChange(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
       await startOrderFulfillment(orderId);
@@ -5375,10 +5346,7 @@ async function startOrderFulfillment(orderId: string): Promise<void> {
   console.log(`Starting fulfillment for ${orderId}`);
 }
 
-async function updateOrderInERP(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateOrderInERP(orderId: string, status: string): Promise<void> {
   console.log(`Updating ERP: ${orderId} → ${status}`);
 }
 
@@ -5459,10 +5427,7 @@ type OrderStatus =
   | "cancel"
   | "canceled";
 
-async function handleAllStatuses(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleAllStatuses(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
     case "start-handling":
@@ -5493,9 +5458,7 @@ async function handleAllStatuses(
 
     default:
       // CRITICAL: Log unknown statuses instead of crashing
-      console.warn(
-        `Unknown or unhandled order status: "${state}" for order ${orderId}`,
-      );
+      console.warn(`Unknown or unhandled order status: "${state}" for order ${orderId}`);
       await logUnhandledStatus(orderId, state);
       break;
   }
@@ -5504,19 +5467,13 @@ async function handleAllStatuses(
 async function notifyWarehouse(orderId: string, action: string): Promise<void> {
   console.log(`Warehouse notification: ${orderId} → ${action}`);
 }
-async function updateFulfillmentStatus(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateFulfillmentStatus(orderId: string, status: string): Promise<void> {
   console.log(`Fulfillment status: ${orderId} → ${status}`);
 }
 async function markAsShipped(orderId: string): Promise<void> {
   console.log(`Shipped: ${orderId}`);
 }
-async function handleCancellation(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleCancellation(orderId: string, state: string): Promise<void> {
   console.log(`Cancellation: ${orderId} (${state})`);
 }
 async function confirmPaymentReceived(orderId: string): Promise<void> {
@@ -5525,10 +5482,7 @@ async function confirmPaymentReceived(orderId: string): Promise<void> {
 async function handlePaymentFailure(orderId: string): Promise<void> {
   console.log(`Payment failed: ${orderId}`);
 }
-async function logUnhandledStatus(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function logUnhandledStatus(orderId: string, state: string): Promise<void> {
   console.log(`UNHANDLED: ${orderId} → ${state}`);
 }
 ```
@@ -5537,10 +5491,7 @@ async function logUnhandledStatus(
 
 ```typescript
 // WRONG: Only handles 2 statuses, no fallback for unknown statuses
-async function incompleteHandler(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function incompleteHandler(orderId: string, state: string): Promise<void> {
   if (state === "ready-for-handling") {
     await startOrderFulfillment(orderId);
   } else if (state === "invoiced") {
@@ -5685,10 +5636,10 @@ interface VtexOrder {
 async function fetchAndProcessOrder(
   client: AxiosInstance,
   orderId: string,
-  state: string,
+  state: string
 ): Promise<void> {
   const response = await client.get<VtexOrder>(
-    `/api/oms/pvt/orders/${orderId}`,
+    `/api/oms/pvt/orders/${orderId}`
   );
   const order = response.data;
 
@@ -5702,8 +5653,7 @@ async function fetchAndProcessOrder(
           quantity: item.quantity,
         })),
         shippingAddress: order.shippingData.address,
-        estimatedDelivery:
-          order.shippingData.logisticsInfo[0]?.shippingEstimate,
+        estimatedDelivery: order.shippingData.logisticsInfo[0]?.shippingEstimate,
       });
       break;
 
@@ -5716,9 +5666,7 @@ async function fetchAndProcessOrder(
   }
 }
 
-async function createFulfillmentTask(
-  task: Record<string, unknown>,
-): Promise<void> {
+async function createFulfillmentTask(task: Record<string, unknown>): Promise<void> {
   console.log("Creating fulfillment task:", task);
 }
 
@@ -5733,16 +5681,14 @@ Use Feed v3 as a backup to catch any events the hook might miss during downtime.
 
 ```typescript
 async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
-  const feedResponse = await client.get<
-    Array<{
-      eventId: string;
-      handle: string;
-      domain: string;
-      state: string;
-      orderId: string;
-      lastChange: string;
-    }>
-  >("/api/orders/feed");
+  const feedResponse = await client.get<Array<{
+    eventId: string;
+    handle: string;
+    domain: string;
+    state: string;
+    orderId: string;
+    lastChange: string;
+  }>>("/api/orders/feed");
 
   const events = feedResponse.data;
 
@@ -5757,10 +5703,7 @@ async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
       await fetchAndProcessOrder(client, event.orderId, event.state);
       handlesToCommit.push(event.handle);
     } catch (error) {
-      console.error(
-        `Failed to process feed event for ${event.orderId}:`,
-        error,
-      );
+      console.error(`Failed to process feed event for ${event.orderId}:`, error);
       // Don't commit failed events — they'll return to the queue after visibility timeout
     }
   }
@@ -5809,7 +5752,12 @@ async function setupIntegration(): Promise<void> {
     hookUrl: `${process.env.BASE_URL}/vtex/order-hook`,
     hookHeaderKey: "X-Integration-Secret",
     hookHeaderValue: process.env.HOOK_SECRET!,
-    filterStatuses: ["ready-for-handling", "handling", "invoiced", "cancel"],
+    filterStatuses: [
+      "ready-for-handling",
+      "handling",
+      "invoiced",
+      "cancel",
+    ],
   });
 }
 
@@ -5873,7 +5821,7 @@ const asyncHookHandler: RequestHandler = async (req, res) => {
 
 function validateAuth(
   payload: HookPayload,
-  headers: Record<string, unknown>,
+  headers: Record<string, unknown>
 ): boolean {
   return (
     payload.Origin?.Account === process.env.VTEX_ACCOUNT_NAME &&
@@ -7730,13 +7678,11 @@ function safePaymentLog(label: string, body: Record<string, unknown>): void {
 ## When this skill applies
 
 Use this skill when:
-
 - Building a new payment connector middleware that integrates a PSP with the VTEX Payment Gateway
 - Implementing, debugging, or extending any of the 9 PPP endpoints
 - Preparing a connector for VTEX Payment Provider Test Suite homologation
 
 Do not use this skill for:
-
 - Idempotency and duplicate prevention logic — use [`payment-idempotency`](../payment-idempotency/skill.md)
 - Async payment flows and callback URLs — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy card handling — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -7763,7 +7709,6 @@ The VTEX Payment Provider Test Suite validates every endpoint during homologatio
 If the connector router/handler file does not define handlers for all 6 payment-flow paths, STOP and add the missing endpoints before proceeding.
 
 **Correct**
-
 ```typescript
 import { Router } from "express";
 
@@ -7775,16 +7720,12 @@ router.post("/payments", createPaymentHandler);
 router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
 router.post("/payments/:paymentId/settlements", capturePaymentHandler);
 router.post("/payments/:paymentId/refunds", refundPaymentHandler);
-router.post(
-  "/payments/:paymentId/inbound-request/:action",
-  inboundRequestHandler,
-);
+router.post("/payments/:paymentId/inbound-request/:action", inboundRequestHandler);
 
 export default router;
 ```
 
 **Wrong**
-
 ```typescript
 import { Router } from "express";
 
@@ -7810,7 +7751,6 @@ The Gateway parses these fields programmatically. Missing fields cause deseriali
 If a response object is missing any of the required fields for its endpoint, STOP and add the missing fields.
 
 **Correct**
-
 ```typescript
 interface CreatePaymentResponse {
   paymentId: string;
@@ -7827,12 +7767,8 @@ interface CreatePaymentResponse {
   paymentUrl?: string;
 }
 
-async function createPaymentHandler(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const { paymentId, value, currency, paymentMethod, card, callbackUrl } =
-    req.body;
+async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+  const { paymentId, value, currency, paymentMethod, card, callbackUrl } = req.body;
 
   const result = await processPaymentWithAcquirer(req.body);
 
@@ -7845,9 +7781,9 @@ async function createPaymentHandler(
     acquirer: "MyAcquirer",
     code: result.code ?? null,
     message: result.message ?? null,
-    delayToAutoSettle: 21600, // 6 hours in seconds
+    delayToAutoSettle: 21600,    // 6 hours in seconds
     delayToAutoSettleAfterAntifraud: 1800, // 30 minutes in seconds
-    delayToCancel: 21600, // 6 hours in seconds
+    delayToCancel: 21600,         // 6 hours in seconds
   };
 
   res.status(200).json(response);
@@ -7855,13 +7791,9 @@ async function createPaymentHandler(
 ```
 
 **Wrong**
-
 ```typescript
 // Missing required fields — Gateway will reject this response
-async function createPaymentHandler(
-  req: Request,
-  res: Response,
-): Promise<void> {
+async function createPaymentHandler(req: Request, res: Response): Promise<void> {
   const result = await processPaymentWithAcquirer(req.body);
 
   // Missing: authorizationId, nsu, tid, acquirer, code, message,
@@ -7884,7 +7816,6 @@ The Gateway reads the manifest to determine which payment methods are available.
 If the manifest handler returns an empty `paymentMethods` array or hardcodes methods the provider does not actually support, STOP and fix the manifest.
 
 **Correct**
-
 ```typescript
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
   const manifest = {
@@ -7902,7 +7833,6 @@ async function manifestHandler(_req: Request, res: Response): Promise<void> {
 ```
 
 **Wrong**
-
 ```typescript
 // Empty manifest — no payment methods will appear in the Admin
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
@@ -8045,74 +7975,62 @@ router.post("/payments", async (req: Request, res: Response) => {
   res.status(200).json(response);
 });
 
-router.post(
-  "/payments/:paymentId/cancellations",
-  async (req: Request, res: Response) => {
-    const { paymentId } = req.params;
-    const { requestId } = req.body;
-    const result = await cancelWithAcquirer(paymentId);
+router.post("/payments/:paymentId/cancellations", async (req: Request, res: Response) => {
+  const { paymentId } = req.params;
+  const { requestId } = req.body;
+  const result = await cancelWithAcquirer(paymentId);
 
-    res.status(200).json({
-      paymentId,
-      cancellationId: result.cancellationId ?? null,
-      code: result.code ?? null,
-      message: result.message ?? "Successfully cancelled",
-      requestId,
-    });
-  },
-);
+  res.status(200).json({
+    paymentId,
+    cancellationId: result.cancellationId ?? null,
+    code: result.code ?? null,
+    message: result.message ?? "Successfully cancelled",
+    requestId,
+  });
+});
 
-router.post(
-  "/payments/:paymentId/settlements",
-  async (req: Request, res: Response) => {
-    const body = req.body;
-    const result = await captureWithAcquirer(body.paymentId, body.value);
+router.post("/payments/:paymentId/settlements", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await captureWithAcquirer(body.paymentId, body.value);
 
-    res.status(200).json({
-      paymentId: body.paymentId,
-      settleId: result.settleId ?? null,
-      value: result.capturedValue ?? body.value,
-      code: result.code ?? null,
-      message: result.message ?? null,
-      requestId: body.requestId,
-    });
-  },
-);
+  res.status(200).json({
+    paymentId: body.paymentId,
+    settleId: result.settleId ?? null,
+    value: result.capturedValue ?? body.value,
+    code: result.code ?? null,
+    message: result.message ?? null,
+    requestId: body.requestId,
+  });
+});
 
-router.post(
-  "/payments/:paymentId/refunds",
-  async (req: Request, res: Response) => {
-    const body = req.body;
-    const result = await refundWithAcquirer(body.paymentId, body.value);
+router.post("/payments/:paymentId/refunds", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await refundWithAcquirer(body.paymentId, body.value);
 
-    res.status(200).json({
-      paymentId: body.paymentId,
-      refundId: result.refundId ?? null,
-      value: result.refundedValue ?? body.value,
-      code: result.code ?? null,
-      message: result.message ?? null,
-      requestId: body.requestId,
-    });
-  },
-);
+  res.status(200).json({
+    paymentId: body.paymentId,
+    refundId: result.refundId ?? null,
+    value: result.refundedValue ?? body.value,
+    code: result.code ?? null,
+    message: result.message ?? null,
+    requestId: body.requestId,
+  });
+});
 
-router.post(
-  "/payments/:paymentId/inbound-request/:action",
-  async (req: Request, res: Response) => {
-    const body = req.body;
-    const result = await handleInbound(body);
+router.post("/payments/:paymentId/inbound-request/:action", async (req: Request, res: Response) => {
+  const body = req.body;
+  const result = await handleInbound(body);
 
-    res.status(200).json({
-      requestId: body.requestId,
-      paymentId: body.paymentId,
-      responseData: {
-        statusCode: 200,
-        contentType: "application/json",
-        content: JSON.stringify(result),
-      },
-    });
-  },
-);
+  res.status(200).json({
+    requestId: body.requestId,
+    paymentId: body.paymentId,
+    responseData: {
+      statusCode: 200,
+      contentType: "application/json",
+      content: JSON.stringify(result),
+    },
+  });
+});
 
 export default router;
 ```
@@ -8125,40 +8043,29 @@ import { Router, Request, Response } from "express";
 const configRouter = Router();
 
 // 1. POST /authorization/token
-configRouter.post(
-  "/authorization/token",
-  async (req: Request, res: Response) => {
-    const { applicationId, returnUrl } = req.body;
-    const token = await generateAuthorizationToken(applicationId, returnUrl);
-    res.status(200).json({ applicationId, token });
-  },
-);
+configRouter.post("/authorization/token", async (req: Request, res: Response) => {
+  const { applicationId, returnUrl } = req.body;
+  const token = await generateAuthorizationToken(applicationId, returnUrl);
+  res.status(200).json({ applicationId, token });
+});
 
 // 2. GET /authorization/redirect
-configRouter.get(
-  "/authorization/redirect",
-  async (req: Request, res: Response) => {
-    const { token } = req.query;
-    const providerLoginUrl = buildProviderLoginUrl(token as string);
-    res.redirect(302, providerLoginUrl);
-  },
-);
+configRouter.get("/authorization/redirect", async (req: Request, res: Response) => {
+  const { token } = req.query;
+  const providerLoginUrl = buildProviderLoginUrl(token as string);
+  res.redirect(302, providerLoginUrl);
+});
 
 // 3. GET /authorization/credentials
-configRouter.get(
-  "/authorization/credentials",
-  async (req: Request, res: Response) => {
-    const { authorizationCode } = req.query;
-    const credentials = await exchangeCodeForCredentials(
-      authorizationCode as string,
-    );
-    res.status(200).json({
-      applicationId: "vtex",
-      appKey: credentials.appKey,
-      appToken: credentials.appToken,
-    });
-  },
-);
+configRouter.get("/authorization/credentials", async (req: Request, res: Response) => {
+  const { authorizationCode } = req.query;
+  const credentials = await exchangeCodeForCredentials(authorizationCode as string);
+  res.status(200).json({
+    applicationId: "vtex",
+    appKey: credentials.appKey,
+    appToken: credentials.appToken,
+  });
+});
 
 export default configRouter;
 ```
@@ -8212,7 +8119,6 @@ Use this skill when working with the foundational structure of a VTEX IO app —
 - Troubleshooting deployment failures related to manifest misconfiguration
 
 Do not use this skill for:
-
 - Backend service implementation details (use `vtex-io-service-apps` instead)
 - React component development (use `vtex-io-react-apps` instead)
 - GraphQL schema and resolver details (use `vtex-io-graphql-api` instead)
@@ -8228,20 +8134,19 @@ Do not use this skill for:
 
 Builders reference:
 
-| Builder      | Directory     | Purpose                                                                 |
-| ------------ | ------------- | ----------------------------------------------------------------------- |
-| `node`       | `/node`       | Backend services in TypeScript (middlewares, resolvers, event handlers) |
-| `react`      | `/react`      | Frontend React components in TypeScript/TSX                             |
-| `graphql`    | `/graphql`    | GraphQL schema definitions (`.graphql` files)                           |
-| `admin`      | `/admin`      | Admin panel pages and navigation entries                                |
-| `pixel`      | `/pixel`      | Pixel/tracking apps that inject scripts into the storefront             |
-| `messages`   | `/messages`   | Internationalization — localized string files per locale                |
-| `store`      | `/store`      | Store Framework theme blocks, interfaces, and routes                    |
-| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers                              |
-| `styles`     | `/styles`     | CSS/Tachyons configuration for Store Framework themes                   |
+| Builder | Directory | Purpose |
+|---------|-----------|---------|
+| `node` | `/node` | Backend services in TypeScript (middlewares, resolvers, event handlers) |
+| `react` | `/react` | Frontend React components in TypeScript/TSX |
+| `graphql` | `/graphql` | GraphQL schema definitions (`.graphql` files) |
+| `admin` | `/admin` | Admin panel pages and navigation entries |
+| `pixel` | `/pixel` | Pixel/tracking apps that inject scripts into the storefront |
+| `messages` | `/messages` | Internationalization — localized string files per locale |
+| `store` | `/store` | Store Framework theme blocks, interfaces, and routes |
+| `masterdata` | `/masterdata` | Master Data v2 entity schemas and triggers |
+| `styles` | `/styles` | CSS/Tachyons configuration for Store Framework themes |
 
 Policy types:
-
 1. **Outbound-access policies**: Grant access to explicit URLs (external APIs or VTEX endpoints).
 2. **License Manager policies**: Grant access to VTEX Admin resources using resource keys.
 3. **App role-based policies**: Grant access to routes or GraphQL queries exposed by other IO apps, using the format `{vendor}.{app-name}:{policy-name}`.

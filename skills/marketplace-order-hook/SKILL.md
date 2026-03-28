@@ -15,7 +15,6 @@ Use this skill when building an integration that needs to react to order status 
 - Handling the complete order status lifecycle
 
 Do not use this skill for:
-
 - Catalog or SKU synchronization (see `marketplace-catalog-sync`)
 - Invoice and tracking submission (see `marketplace-fulfillment`)
 - General API rate limiting (see `marketplace-rate-limiting`)
@@ -30,12 +29,12 @@ Do not use this skill for:
 - The two filter types are **mutually exclusive**. Using both in the same configuration request returns `409 Conflict`.
 - Each appKey can configure only one feed and one hook. Different users sharing the same appKey access the same feed/hook.
 
-|             | Feed                         | Hook                        |
-| ----------- | ---------------------------- | --------------------------- |
-| Model       | Pull (active)                | Push (reactive)             |
-| Scalability | You control volume           | Must handle any volume      |
-| Reliability | Events persist in queue      | Must be always available    |
-| Best for    | ERPs with limited throughput | High-performance middleware |
+| | Feed | Hook |
+|---|---|---|
+| Model | Pull (active) | Push (reactive) |
+| Scalability | You control volume | Must handle any volume |
+| Reliability | Events persist in queue | Must be always available |
+| Best for | ERPs with limited throughput | High-performance middleware |
 
 **Hook Notification Payload**:
 
@@ -129,10 +128,7 @@ function createHookHandler(config: HookConfig): RequestHandler {
     }
 
     // Validate custom header (configured during hook setup)
-    if (
-      req.headers[config.customHeaderKey.toLowerCase()] !==
-      config.customHeaderValue
-    ) {
+    if (req.headers[config.customHeaderKey.toLowerCase()] !== config.customHeaderValue) {
       console.error("Invalid custom header");
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -221,10 +217,7 @@ async function idempotentProcessEvent(payload: HookPayload): Promise<boolean> {
   }
 }
 
-async function handleOrderStateChange(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleOrderStateChange(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
       await startOrderFulfillment(orderId);
@@ -247,10 +240,7 @@ async function startOrderFulfillment(orderId: string): Promise<void> {
   console.log(`Starting fulfillment for ${orderId}`);
 }
 
-async function updateOrderInERP(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateOrderInERP(orderId: string, status: string): Promise<void> {
   console.log(`Updating ERP: ${orderId} → ${status}`);
 }
 
@@ -331,10 +321,7 @@ type OrderStatus =
   | "cancel"
   | "canceled";
 
-async function handleAllStatuses(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleAllStatuses(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
     case "start-handling":
@@ -365,9 +352,7 @@ async function handleAllStatuses(
 
     default:
       // CRITICAL: Log unknown statuses instead of crashing
-      console.warn(
-        `Unknown or unhandled order status: "${state}" for order ${orderId}`,
-      );
+      console.warn(`Unknown or unhandled order status: "${state}" for order ${orderId}`);
       await logUnhandledStatus(orderId, state);
       break;
   }
@@ -376,19 +361,13 @@ async function handleAllStatuses(
 async function notifyWarehouse(orderId: string, action: string): Promise<void> {
   console.log(`Warehouse notification: ${orderId} → ${action}`);
 }
-async function updateFulfillmentStatus(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateFulfillmentStatus(orderId: string, status: string): Promise<void> {
   console.log(`Fulfillment status: ${orderId} → ${status}`);
 }
 async function markAsShipped(orderId: string): Promise<void> {
   console.log(`Shipped: ${orderId}`);
 }
-async function handleCancellation(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleCancellation(orderId: string, state: string): Promise<void> {
   console.log(`Cancellation: ${orderId} (${state})`);
 }
 async function confirmPaymentReceived(orderId: string): Promise<void> {
@@ -397,10 +376,7 @@ async function confirmPaymentReceived(orderId: string): Promise<void> {
 async function handlePaymentFailure(orderId: string): Promise<void> {
   console.log(`Payment failed: ${orderId}`);
 }
-async function logUnhandledStatus(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function logUnhandledStatus(orderId: string, state: string): Promise<void> {
   console.log(`UNHANDLED: ${orderId} → ${state}`);
 }
 ```
@@ -409,10 +385,7 @@ async function logUnhandledStatus(
 
 ```typescript
 // WRONG: Only handles 2 statuses, no fallback for unknown statuses
-async function incompleteHandler(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function incompleteHandler(orderId: string, state: string): Promise<void> {
   if (state === "ready-for-handling") {
     await startOrderFulfillment(orderId);
   } else if (state === "invoiced") {
@@ -557,10 +530,10 @@ interface VtexOrder {
 async function fetchAndProcessOrder(
   client: AxiosInstance,
   orderId: string,
-  state: string,
+  state: string
 ): Promise<void> {
   const response = await client.get<VtexOrder>(
-    `/api/oms/pvt/orders/${orderId}`,
+    `/api/oms/pvt/orders/${orderId}`
   );
   const order = response.data;
 
@@ -574,8 +547,7 @@ async function fetchAndProcessOrder(
           quantity: item.quantity,
         })),
         shippingAddress: order.shippingData.address,
-        estimatedDelivery:
-          order.shippingData.logisticsInfo[0]?.shippingEstimate,
+        estimatedDelivery: order.shippingData.logisticsInfo[0]?.shippingEstimate,
       });
       break;
 
@@ -588,9 +560,7 @@ async function fetchAndProcessOrder(
   }
 }
 
-async function createFulfillmentTask(
-  task: Record<string, unknown>,
-): Promise<void> {
+async function createFulfillmentTask(task: Record<string, unknown>): Promise<void> {
   console.log("Creating fulfillment task:", task);
 }
 
@@ -605,16 +575,14 @@ Use Feed v3 as a backup to catch any events the hook might miss during downtime.
 
 ```typescript
 async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
-  const feedResponse = await client.get<
-    Array<{
-      eventId: string;
-      handle: string;
-      domain: string;
-      state: string;
-      orderId: string;
-      lastChange: string;
-    }>
-  >("/api/orders/feed");
+  const feedResponse = await client.get<Array<{
+    eventId: string;
+    handle: string;
+    domain: string;
+    state: string;
+    orderId: string;
+    lastChange: string;
+  }>>("/api/orders/feed");
 
   const events = feedResponse.data;
 
@@ -629,10 +597,7 @@ async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
       await fetchAndProcessOrder(client, event.orderId, event.state);
       handlesToCommit.push(event.handle);
     } catch (error) {
-      console.error(
-        `Failed to process feed event for ${event.orderId}:`,
-        error,
-      );
+      console.error(`Failed to process feed event for ${event.orderId}:`, error);
       // Don't commit failed events — they'll return to the queue after visibility timeout
     }
   }
@@ -681,7 +646,12 @@ async function setupIntegration(): Promise<void> {
     hookUrl: `${process.env.BASE_URL}/vtex/order-hook`,
     hookHeaderKey: "X-Integration-Secret",
     hookHeaderValue: process.env.HOOK_SECRET!,
-    filterStatuses: ["ready-for-handling", "handling", "invoiced", "cancel"],
+    filterStatuses: [
+      "ready-for-handling",
+      "handling",
+      "invoiced",
+      "cancel",
+    ],
   });
 }
 
@@ -745,7 +715,7 @@ const asyncHookHandler: RequestHandler = async (req, res) => {
 
 function validateAuth(
   payload: HookPayload,
-  headers: Record<string, unknown>,
+  headers: Record<string, unknown>
 ): boolean {
   return (
     payload.Origin?.Account === process.env.VTEX_ACCOUNT_NAME &&

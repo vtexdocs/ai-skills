@@ -681,7 +681,6 @@ Use this skill when building a seller integration that needs to send invoice dat
 - Implementing partial invoicing for split shipments
 
 Do not use this skill for:
-
 - Catalog or SKU synchronization (see `marketplace-catalog-sync`)
 - Order event consumption via Feed/Hook (see `marketplace-order-hook`)
 - General API rate limiting (see `marketplace-rate-limiting`)
@@ -755,7 +754,7 @@ interface InvoicePayload {
 async function sendInvoiceNotification(
   client: AxiosInstance,
   orderId: string,
-  invoice: InvoicePayload,
+  invoice: InvoicePayload
 ): Promise<void> {
   // Validate required fields before sending
   if (!invoice.invoiceNumber) {
@@ -775,7 +774,7 @@ async function sendInvoiceNotification(
   if (invoice.invoiceValue < 100 && invoice.items.length > 0) {
     console.warn(
       `Warning: invoiceValue ${invoice.invoiceValue} seems very low. ` +
-        `Ensure it's in cents (e.g., 9990 for $99.90).`,
+        `Ensure it's in cents (e.g., 9990 for $99.90).`
     );
   }
 
@@ -783,10 +782,7 @@ async function sendInvoiceNotification(
 }
 
 // Example usage:
-async function invoiceOrder(
-  client: AxiosInstance,
-  orderId: string,
-): Promise<void> {
+async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<void> {
   await sendInvoiceNotification(client, orderId, {
     type: "Output",
     invoiceNumber: "NFE-2026-001234",
@@ -808,7 +804,7 @@ async function invoiceOrder(
 // WRONG: Missing required fields, value in dollars instead of cents
 async function sendBrokenInvoice(
   client: AxiosInstance,
-  orderId: string,
+  orderId: string
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     // Missing 'type' field — API may reject or default incorrectly
@@ -848,11 +844,11 @@ async function updateOrderTracking(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  tracking: TrackingUpdate,
+  tracking: TrackingUpdate
 ): Promise<void> {
   await client.patch(
     `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
-    tracking,
+    tracking
   );
 }
 
@@ -861,23 +857,21 @@ async function onCarrierPickup(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  carrierData: { name: string; trackingId: string; trackingUrl: string },
+  carrierData: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: carrierData.name,
     trackingNumber: carrierData.trackingId,
     trackingUrl: carrierData.trackingUrl,
   });
-  console.log(
-    `Tracking updated for order ${orderId}: ${carrierData.trackingId}`,
-  );
+  console.log(`Tracking updated for order ${orderId}: ${carrierData.trackingId}`);
 }
 
 // Update delivery status when confirmed
 async function onDeliveryConfirmed(
   client: AxiosInstance,
   orderId: string,
-  invoiceNumber: string,
+  invoiceNumber: string
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: "",
@@ -894,7 +888,7 @@ async function onDeliveryConfirmed(
 // WRONG: Sending empty/fake tracking data with the invoice
 async function invoiceWithFakeTracking(
   client: AxiosInstance,
-  orderId: string,
+  orderId: string
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     type: "Output",
@@ -943,13 +937,13 @@ interface Shipment {
 async function sendPartialInvoices(
   client: AxiosInstance,
   orderId: string,
-  shipments: Shipment[],
+  shipments: Shipment[]
 ): Promise<void> {
   for (const shipment of shipments) {
     // Calculate value for only the items in this shipment
     const shipmentValue = shipment.items.reduce(
       (total, item) => total + item.price * item.quantity,
-      0,
+      0
     );
 
     await sendInvoiceNotification(client, orderId, {
@@ -966,7 +960,7 @@ async function sendPartialInvoices(
 
     console.log(
       `Partial invoice ${shipment.invoiceNumber} sent for order ${orderId}: ` +
-        `${shipment.items.length} items, value=${shipmentValue}`,
+        `${shipment.items.length} items, value=${shipmentValue}`
     );
   }
 }
@@ -975,7 +969,9 @@ async function sendPartialInvoices(
 await sendPartialInvoices(client, "ORD-123", [
   {
     invoiceNumber: "NFE-001-A",
-    items: [{ id: "sku-1", name: "Laptop", quantity: 1, price: 250000 }],
+    items: [
+      { id: "sku-1", name: "Laptop", quantity: 1, price: 250000 },
+    ],
   },
   {
     invoiceNumber: "NFE-001-B",
@@ -995,7 +991,7 @@ async function wrongPartialInvoice(
   client: AxiosInstance,
   orderId: string,
   totalOrderValue: number,
-  shippedItems: OrderItem[],
+  shippedItems: OrderItem[]
 ): Promise<void> {
   await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
     type: "Output",
@@ -1040,7 +1036,7 @@ const authorizeFulfillmentHandler: RequestHandler = async (req, res) => {
   const { marketplaceOrderId }: FulfillOrderRequest = req.body;
 
   console.log(
-    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`,
+    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`
   );
 
   // Store the marketplace order ID mapping
@@ -1081,7 +1077,7 @@ Once the order is packed and the invoice is generated, send the invoice notifica
 ```typescript
 async function fulfillAndInvoice(
   client: AxiosInstance,
-  order: OrderMapping,
+  order: OrderMapping
 ): Promise<void> {
   // Generate invoice from your invoicing system
   const invoice = await generateInvoice(order);
@@ -1102,7 +1098,7 @@ async function fulfillAndInvoice(
   });
 
   console.log(
-    `Invoice ${invoice.number} sent for order ${order.marketplaceOrderId}`,
+    `Invoice ${invoice.number} sent for order ${order.marketplaceOrderId}`
   );
 }
 
@@ -1115,7 +1111,7 @@ async function generateInvoice(order: OrderMapping): Promise<{
 }> {
   const totalCents = order.items.reduce(
     (sum, item) => sum + item.price * item.quantity,
-    0,
+    0
   );
   return {
     number: `NFE-${Date.now()}`,
@@ -1134,7 +1130,7 @@ async function handleCarrierPickup(
   client: AxiosInstance,
   orderId: string,
   invoiceNumber: string,
-  carrier: { name: string; trackingId: string; trackingUrl: string },
+  carrier: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
   await updateOrderTracking(client, orderId, invoiceNumber, {
     courier: carrier.name,
@@ -1142,7 +1138,9 @@ async function handleCarrierPickup(
     trackingUrl: carrier.trackingUrl,
   });
 
-  console.log(`Tracking ${carrier.trackingId} sent for order ${orderId}`);
+  console.log(
+    `Tracking ${carrier.trackingId} sent for order ${orderId}`
+  );
 }
 ```
 
@@ -1152,7 +1150,7 @@ async function handleCarrierPickup(
 async function handleDeliveryConfirmation(
   client: AxiosInstance,
   orderId: string,
-  invoiceNumber: string,
+  invoiceNumber: string
 ): Promise<void> {
   await client.patch(
     `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
@@ -1160,7 +1158,7 @@ async function handleDeliveryConfirmation(
       isDelivered: true,
       courier: "",
       trackingNumber: "",
-    },
+    }
   );
 
   console.log(`Order ${orderId} marked as delivered`);
@@ -1175,7 +1173,7 @@ import axios, { AxiosInstance } from "axios";
 function createMarketplaceClient(
   accountName: string,
   appKey: string,
-  appToken: string,
+  appToken: string
 ): AxiosInstance {
   return axios.create({
     baseURL: `https://${accountName}.vtexcommercestable.com.br`,
@@ -1190,7 +1188,7 @@ function createMarketplaceClient(
 
 async function completeFulfillmentFlow(
   client: AxiosInstance,
-  order: OrderMapping,
+  order: OrderMapping
 ): Promise<void> {
   // 1. Fulfill and invoice
   await fulfillAndInvoice(client, order);
@@ -1203,7 +1201,7 @@ async function completeFulfillmentFlow(
     client,
     order.marketplaceOrderId,
     invoice.number,
-    carrierData,
+    carrierData
   );
 
   // 3. When delivered, confirm
@@ -1211,12 +1209,12 @@ async function completeFulfillmentFlow(
   await handleDeliveryConfirmation(
     client,
     order.marketplaceOrderId,
-    invoice.number,
+    invoice.number
   );
 }
 
 async function waitForCarrierPickup(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<{ name: string; trackingId: string; trackingUrl: string }> {
   // Replace with actual carrier integration
   return {
@@ -1227,14 +1225,14 @@ async function waitForCarrierPickup(
 }
 
 async function getLatestInvoice(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<{ number: string }> {
   // Replace with actual invoice lookup
   return { number: `NFE-${sellerOrderId}` };
 }
 
 async function waitForDeliveryConfirmation(
-  sellerOrderId: string,
+  sellerOrderId: string
 ): Promise<void> {
   // Replace with actual delivery confirmation logic
   console.log(`Waiting for delivery confirmation: ${sellerOrderId}`);
@@ -1253,7 +1251,7 @@ async function cancelInvoicedOrder(
   client: AxiosInstance,
   orderId: string,
   originalItems: InvoiceItem[],
-  originalInvoiceValue: number,
+  originalInvoiceValue: number
 ): Promise<void> {
   // Step 1: Send return invoice (type: "Input")
   await sendInvoiceNotification(client, orderId, {
@@ -1265,9 +1263,10 @@ async function cancelInvoicedOrder(
   });
 
   // Step 2: Now cancel the order
-  await client.post(`/api/marketplace/pvt/orders/${orderId}/cancel`, {
-    reason: "Customer requested return",
-  });
+  await client.post(
+    `/api/marketplace/pvt/orders/${orderId}/cancel`,
+    { reason: "Customer requested return" }
+  );
 }
 ```
 
@@ -1306,7 +1305,6 @@ Use this skill when building an integration that needs to react to order status 
 - Handling the complete order status lifecycle
 
 Do not use this skill for:
-
 - Catalog or SKU synchronization (see `marketplace-catalog-sync`)
 - Invoice and tracking submission (see `marketplace-fulfillment`)
 - General API rate limiting (see `marketplace-rate-limiting`)
@@ -1321,12 +1319,12 @@ Do not use this skill for:
 - The two filter types are **mutually exclusive**. Using both in the same configuration request returns `409 Conflict`.
 - Each appKey can configure only one feed and one hook. Different users sharing the same appKey access the same feed/hook.
 
-|             | Feed                         | Hook                        |
-| ----------- | ---------------------------- | --------------------------- |
-| Model       | Pull (active)                | Push (reactive)             |
-| Scalability | You control volume           | Must handle any volume      |
-| Reliability | Events persist in queue      | Must be always available    |
-| Best for    | ERPs with limited throughput | High-performance middleware |
+| | Feed | Hook |
+|---|---|---|
+| Model | Pull (active) | Push (reactive) |
+| Scalability | You control volume | Must handle any volume |
+| Reliability | Events persist in queue | Must be always available |
+| Best for | ERPs with limited throughput | High-performance middleware |
 
 **Hook Notification Payload**:
 
@@ -1420,10 +1418,7 @@ function createHookHandler(config: HookConfig): RequestHandler {
     }
 
     // Validate custom header (configured during hook setup)
-    if (
-      req.headers[config.customHeaderKey.toLowerCase()] !==
-      config.customHeaderValue
-    ) {
+    if (req.headers[config.customHeaderKey.toLowerCase()] !== config.customHeaderValue) {
       console.error("Invalid custom header");
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -1512,10 +1507,7 @@ async function idempotentProcessEvent(payload: HookPayload): Promise<boolean> {
   }
 }
 
-async function handleOrderStateChange(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleOrderStateChange(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
       await startOrderFulfillment(orderId);
@@ -1538,10 +1530,7 @@ async function startOrderFulfillment(orderId: string): Promise<void> {
   console.log(`Starting fulfillment for ${orderId}`);
 }
 
-async function updateOrderInERP(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateOrderInERP(orderId: string, status: string): Promise<void> {
   console.log(`Updating ERP: ${orderId} → ${status}`);
 }
 
@@ -1622,10 +1611,7 @@ type OrderStatus =
   | "cancel"
   | "canceled";
 
-async function handleAllStatuses(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleAllStatuses(orderId: string, state: string): Promise<void> {
   switch (state) {
     case "ready-for-handling":
     case "start-handling":
@@ -1656,9 +1642,7 @@ async function handleAllStatuses(
 
     default:
       // CRITICAL: Log unknown statuses instead of crashing
-      console.warn(
-        `Unknown or unhandled order status: "${state}" for order ${orderId}`,
-      );
+      console.warn(`Unknown or unhandled order status: "${state}" for order ${orderId}`);
       await logUnhandledStatus(orderId, state);
       break;
   }
@@ -1667,19 +1651,13 @@ async function handleAllStatuses(
 async function notifyWarehouse(orderId: string, action: string): Promise<void> {
   console.log(`Warehouse notification: ${orderId} → ${action}`);
 }
-async function updateFulfillmentStatus(
-  orderId: string,
-  status: string,
-): Promise<void> {
+async function updateFulfillmentStatus(orderId: string, status: string): Promise<void> {
   console.log(`Fulfillment status: ${orderId} → ${status}`);
 }
 async function markAsShipped(orderId: string): Promise<void> {
   console.log(`Shipped: ${orderId}`);
 }
-async function handleCancellation(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function handleCancellation(orderId: string, state: string): Promise<void> {
   console.log(`Cancellation: ${orderId} (${state})`);
 }
 async function confirmPaymentReceived(orderId: string): Promise<void> {
@@ -1688,10 +1666,7 @@ async function confirmPaymentReceived(orderId: string): Promise<void> {
 async function handlePaymentFailure(orderId: string): Promise<void> {
   console.log(`Payment failed: ${orderId}`);
 }
-async function logUnhandledStatus(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function logUnhandledStatus(orderId: string, state: string): Promise<void> {
   console.log(`UNHANDLED: ${orderId} → ${state}`);
 }
 ```
@@ -1700,10 +1675,7 @@ async function logUnhandledStatus(
 
 ```typescript
 // WRONG: Only handles 2 statuses, no fallback for unknown statuses
-async function incompleteHandler(
-  orderId: string,
-  state: string,
-): Promise<void> {
+async function incompleteHandler(orderId: string, state: string): Promise<void> {
   if (state === "ready-for-handling") {
     await startOrderFulfillment(orderId);
   } else if (state === "invoiced") {
@@ -1848,10 +1820,10 @@ interface VtexOrder {
 async function fetchAndProcessOrder(
   client: AxiosInstance,
   orderId: string,
-  state: string,
+  state: string
 ): Promise<void> {
   const response = await client.get<VtexOrder>(
-    `/api/oms/pvt/orders/${orderId}`,
+    `/api/oms/pvt/orders/${orderId}`
   );
   const order = response.data;
 
@@ -1865,8 +1837,7 @@ async function fetchAndProcessOrder(
           quantity: item.quantity,
         })),
         shippingAddress: order.shippingData.address,
-        estimatedDelivery:
-          order.shippingData.logisticsInfo[0]?.shippingEstimate,
+        estimatedDelivery: order.shippingData.logisticsInfo[0]?.shippingEstimate,
       });
       break;
 
@@ -1879,9 +1850,7 @@ async function fetchAndProcessOrder(
   }
 }
 
-async function createFulfillmentTask(
-  task: Record<string, unknown>,
-): Promise<void> {
+async function createFulfillmentTask(task: Record<string, unknown>): Promise<void> {
   console.log("Creating fulfillment task:", task);
 }
 
@@ -1896,16 +1865,14 @@ Use Feed v3 as a backup to catch any events the hook might miss during downtime.
 
 ```typescript
 async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
-  const feedResponse = await client.get<
-    Array<{
-      eventId: string;
-      handle: string;
-      domain: string;
-      state: string;
-      orderId: string;
-      lastChange: string;
-    }>
-  >("/api/orders/feed");
+  const feedResponse = await client.get<Array<{
+    eventId: string;
+    handle: string;
+    domain: string;
+    state: string;
+    orderId: string;
+    lastChange: string;
+  }>>("/api/orders/feed");
 
   const events = feedResponse.data;
 
@@ -1920,10 +1887,7 @@ async function pollFeedAsBackup(client: AxiosInstance): Promise<void> {
       await fetchAndProcessOrder(client, event.orderId, event.state);
       handlesToCommit.push(event.handle);
     } catch (error) {
-      console.error(
-        `Failed to process feed event for ${event.orderId}:`,
-        error,
-      );
+      console.error(`Failed to process feed event for ${event.orderId}:`, error);
       // Don't commit failed events — they'll return to the queue after visibility timeout
     }
   }
@@ -1972,7 +1936,12 @@ async function setupIntegration(): Promise<void> {
     hookUrl: `${process.env.BASE_URL}/vtex/order-hook`,
     hookHeaderKey: "X-Integration-Secret",
     hookHeaderValue: process.env.HOOK_SECRET!,
-    filterStatuses: ["ready-for-handling", "handling", "invoiced", "cancel"],
+    filterStatuses: [
+      "ready-for-handling",
+      "handling",
+      "invoiced",
+      "cancel",
+    ],
   });
 }
 
@@ -2036,7 +2005,7 @@ const asyncHookHandler: RequestHandler = async (req, res) => {
 
 function validateAuth(
   payload: HookPayload,
-  headers: Record<string, unknown>,
+  headers: Record<string, unknown>
 ): boolean {
   return (
     payload.Origin?.Account === process.env.VTEX_ACCOUNT_NAME &&

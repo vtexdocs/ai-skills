@@ -25,7 +25,7 @@ metadata:
     - master-data-appropriateness
     - business-differentiator-vs-operational-gap
     - security-and-operations-baseline
-  vtex_docs_verified: "2026-03-19"
+  vtex_docs_verified: "2026-03-28"
 ---
 
 # Well-Architected Commerce on VTEX
