@@ -46,7 +46,6 @@ interface ValidationResult {
   passed: boolean;
   message: string;
   line?: number;
-  level?: "error" | "warning" | "info";
 }
 
 interface ValidationCheck {
@@ -349,58 +348,19 @@ const pairedExamples: ValidationCheck = {
 const urlFormat: ValidationCheck = {
   name: "url-format",
   check(skill: Skill): ValidationResult[] {
-    const results: ValidationResult[] = [];
-    const primaryVtexDocs = /^(developers\.vtex\.com|help\.vtex\.com)$/;
-    const anyVtexDomain = /\.vtex\.com$/;
-    const vtexProductDomains = /(^|\.)myvtex\.com$/; // admin environment, account-specific
-    const urlPattern = /https?:\/\/[^\s)>\]]+/g;
+    const vtexUrlPattern =
+      /https?:\/\/(developers\.vtex\.com|help\.vtex\.com)/;
 
-    const proseLines = getProseLines(skill.content);
-    let hasPrimaryVtexUrl = false;
-
-    for (const { line, text } of proseLines) {
-      let match: RegExpExecArray | null;
-      while ((match = urlPattern.exec(text)) !== null) {
-        const url = match[0].replace(/[.,;:]+$/, "");
-        let hostname: string;
-        try {
-          hostname = new URL(url).hostname;
-        } catch {
-          continue;
-        }
-
-        if (primaryVtexDocs.test(hostname)) {
-          hasPrimaryVtexUrl = true;
-        } else if (vtexProductDomains.test(hostname)) {
-          // myvtex.com = admin UI, account-specific; not flagged
-        } else if (anyVtexDomain.test(hostname)) {
-          results.push({
-            passed: true,
-            message: `Additional VTEX resource: ${url}`,
-            line,
-            level: "info",
-          });
-        } else {
-          results.push({
-            passed: true,
-            message: `External URL: ${url}`,
-            line,
-            level: "warning",
-          });
-        }
-      }
+    if (!vtexUrlPattern.test(skill.content)) {
+      return [
+        {
+          passed: false,
+          message: `No VTEX documentation URL found (developers.vtex.com or help.vtex.com)`,
+        },
+      ];
     }
 
-    if (!hasPrimaryVtexUrl) {
-      results.unshift({
-        passed: false,
-        message: `No VTEX documentation URL found (developers.vtex.com or help.vtex.com)`,
-      });
-    } else if (results.length === 0) {
-      results.push({ passed: true, message: "VTEX documentation URL present" });
-    }
-
-    return results;
+    return [{ passed: true, message: "VTEX documentation URL present" }];
   },
 };
 
@@ -539,29 +499,12 @@ async function main(): Promise<void> {
 
   let totalPassed = 0;
   let totalFailed = 0;
-  let totalWarnings = 0;
-
-  const allNotices: Array<{
-    filePath: string;
-    notices: Array<{
-      checkName: string;
-      message: string;
-      line?: number;
-      level: "warning" | "info";
-    }>;
-  }> = [];
 
   for (const skill of skills) {
     const failures: Array<{
       checkName: string;
       message: string;
       line?: number;
-    }> = [];
-    const notices: Array<{
-      checkName: string;
-      message: string;
-      line?: number;
-      level: "warning" | "info";
     }> = [];
     const failedCheckNames = new Set<string>();
 
@@ -571,22 +514,14 @@ async function main(): Promise<void> {
 
       if (checkFailed) {
         failedCheckNames.add(check.name);
-      }
-
-      for (const result of results) {
-        if (!result.passed) {
-          failures.push({
-            checkName: check.name,
-            message: result.message,
-            line: result.line,
-          });
-        } else if (result.level === "warning" || result.level === "info") {
-          notices.push({
-            checkName: check.name,
-            message: result.message,
-            line: result.line,
-            level: result.level,
-          });
+        for (const result of results) {
+          if (!result.passed) {
+            failures.push({
+              checkName: check.name,
+              message: result.message,
+              line: result.line,
+            });
+          }
         }
       }
     }
@@ -594,7 +529,12 @@ async function main(): Promise<void> {
     const totalChecks = validationChecks.length;
     const passedChecks = totalChecks - failedCheckNames.size;
 
-    if (failures.length > 0) {
+    if (failures.length === 0) {
+      console.log(
+        `✅ ${skill.filePath} — ${totalChecks}/${totalChecks} checks passed`
+      );
+      totalPassed++;
+    } else {
       console.log(
         `❌ ${skill.filePath} — ${passedChecks}/${totalChecks} checks passed`
       );
@@ -603,46 +543,11 @@ async function main(): Promise<void> {
         console.log(`   FAIL: [${f.checkName}] — ${f.message}${lineInfo}`);
       }
       totalFailed++;
-    } else if (notices.length > 0) {
-      console.log(
-        `⚠️  ${skill.filePath} — ${totalChecks}/${totalChecks} checks passed`
-      );
-      for (const n of notices) {
-        const lineInfo = n.line !== undefined ? ` (line ${n.line})` : "";
-        const prefix = n.level === "warning" ? "WARN" : "INFO";
-        console.log(`   ${prefix}: [${n.checkName}] — ${n.message}${lineInfo}`);
-      }
-      totalPassed++;
-    } else {
-      console.log(
-        `✅ ${skill.filePath} — ${totalChecks}/${totalChecks} checks passed`
-      );
-      totalPassed++;
-    }
-
-    if (notices.length > 0) {
-      const warnCount = notices.filter((n) => n.level === "warning").length;
-      totalWarnings += warnCount;
-      allNotices.push({ filePath: skill.filePath, notices });
     }
   }
 
-  if (allNotices.length > 0) {
-    console.log("\n--- Warnings & Info ---\n");
-    for (const { filePath, notices } of allNotices) {
-      for (const n of notices) {
-        const lineInfo = n.line !== undefined ? ` (line ${n.line})` : "";
-        const icon = n.level === "warning" ? "⚠️ " : "ℹ️ ";
-        console.log(`${icon} ${filePath}`);
-        console.log(`   ${n.message}${lineInfo}`);
-      }
-      console.log("");
-    }
-  }
-
-  const warnSuffix = totalWarnings > 0 ? `, ${totalWarnings} warning(s)` : "";
   console.log(
-    `Summary: ${totalPassed}/${skills.length} passed, ${totalFailed} failed${warnSuffix}`
+    `\nSummary: ${totalPassed}/${skills.length} passed, ${totalFailed} failed`
   );
 
   if (totalFailed > 0) {
