@@ -3,6 +3,12 @@
 This repository contains AI agent skills for VTEX platform development.
 Each track directory contains an AGENTS.md with detailed instructions.
 
+## Well-Architected Commerce & Solution Architecture
+
+See [`architecture/AGENTS.md`](./architecture/AGENTS.md) for detailed instructions.
+
+  - **architecture-well-architected-commerce**: Apply when scoping, reviewing, or documenting cross-cutting VTEX commerce architecture across storefront, IO, headless, marketplace, payments, or any other VTEX module. Grounds work in the Well-Architected Commerce framework—Technical Foundation (reliability, trust, integrity; security, infrastructure, compliance), Future-proof (innovation, simplicity, efficiency; scalable and adaptable solutions), and Operational Excellence (accuracy, accountability, data-driven improvement; process and customer experience). Routes implementation detail to product tracks (IO caching and paths, Master Data strategy, marketplace integrations). Use for solution design, architecture reviews, and RFP-level technical structure.
+
 ## FastStore Implementation & Customization
 
 See [`faststore/AGENTS.md`](./faststore/AGENTS.md) for detailed instructions.

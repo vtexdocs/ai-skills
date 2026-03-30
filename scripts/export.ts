@@ -312,6 +312,7 @@ ${content}
 
 function formatTrackTitle(trackName: string): string {
   const titles: Record<string, string> = {
+    architecture: "Well-Architected Commerce & Solution Architecture",
     faststore: "FastStore Implementation & Customization",
     payment: "Payment Connector Development",
     "vtex-io": "Custom VTEX IO Apps",
