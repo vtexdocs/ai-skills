@@ -246,6 +246,282 @@ Use this split when the backend/API contract and the storefront contract have di
 
 ---
 
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when improving vtex io node or .net services for latency, throughput, and resilience: in-process lru, vbase, stale-while-revalidate, appsettings loading, request context, parallel client calls, and avoiding duplicate work. covers application-level performance patterns that complement edge/cdn caching. use when optimizing backends beyond route-level cache-control.
+
+# VTEX IO application performance
+
+## When this skill applies
+
+Use this skill when you optimize **VTEX IO** backends (typically **Node** with `@vtex/api` / Koa-style middleware, or **.NET** services) for **performance and resilience**: **caching**, **deduplicating** work, **parallel I/O**, and **efficient** configuration loading—not only “add a cache.”
+
+- Adding an **in-memory LRU** (per pod) for hot keys
+- Adding **VBase** persistence for **shared** cache across pods, optionally with **stale-while-revalidate** (return stale, refresh in background)
+- Loading **AppSettings** (or similar) **once** at startup or on a TTL refresh vs **every request**
+- **Parallelizing** independent client calls (`Promise.all`) instead of serial waterfalls
+- Passing **`ctx.clients`** (e.g. `vbase`) into **client helpers** or resolvers so caches are **testable** and **explicit**
+
+Do not use this skill for:
+
+- Choosing **`/_v/private`** vs public **paths** or **`Cache-Control`** at the edge → **vtex-io-service-paths-and-cdn**
+- GraphQL **`@cacheControl`** field semantics only → **vtex-io-graphql-api**
+
+## Decision rules
+
+- **Layer 1 — LRU (in-process)** — Fastest; **lost** on cold start and **not shared** across replicas. Use bounded size + TTL for **hot** keys (organization, cost center, small config slices).
+- **Layer 2 — VBase** — **Shared** across pods; platform data is **partitioned** by **account** / **workspace** like other IO resources. Pair with **hash** or `trySaveIfhashMatches` when the client supports concurrency-safe updates (see [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients)).
+- **Stale-while-revalidate** — On **VBase hit** with expired **freshness**, return **stale** immediately and **revalidate** asynchronously (fetch origin → write VBase + LRU). Reduces tail latency vs blocking on origin every time.
+- **TTL-only** — Simpler: cache until TTL expires, then **blocking** fetch. Prefer when **staleness** is unacceptable or origin is cheap.
+- **AppSettings** — If values are **account-wide** and **rarely change**, load **once** (or refresh on interval) and hold in **module memory**; if **workspace-dependent** or **must** reflect admin changes quickly, use **per-request** read or **short TTL** cache. Never cache **secrets** in logs or global state without guardrails.
+- **Context** — Use **`ctx.state`** for **per-request** deduplication (e.g. “already loaded org for this request”). Use **global** module cache only for **immutable** or **TTL-refreshed** app data; **account** and **workspace** live on **`ctx.vtex`**—always include them in **in-memory** cache keys when the same pod serves **multiple** tenants.
+- **Parallel requests** — When resolvers need **independent** upstream calls, run them **in parallel**; combine only when outputs depend on each other.
+- **Timeouts on every outbound call** — Every `ctx.clients` call and external HTTP request **must** have an explicit **timeout**. Use `@vtex/api` client options (`timeout`, `retries`, `exponentialTimeoutCoefficient`) to tune per-client behavior. Unbounded waits are the top cause of cascading failures in distributed systems.
+- **Graceful degradation** — When an upstream is slow or down, **fail open** where the business allows (return cached/default data, skip optional enrichment) rather than blocking the response. Consider **circuit breaker** patterns for chronically failing dependencies.
+- **Never cache real-time transactional state** — **Order forms**, **cart simulations**, **payment responses**, **full session state**, and **commitment pricing** must never be served from cache. They reflect live, mutable state that changes on every interaction. Caching these creates stale prices, phantom inventory, or duplicate charges.
+- **Resolver chain deduplication** — When a resolver chain calls the **same** client method **multiple times** (e.g. `getCostCenter` in the resolver and again inside a helper), **deduplicate**: call once, pass the result through, or stash in `ctx.state`. Serial waterfalls of 7+ calls that could be 3 parallel + 1 sequential are the top performance sink.
+- **Phased `Promise.all`** — Group independent calls into **parallel phases**. Phase 1: `Promise.all([getOrderForm(), getCostCenter(), getSession()])`. Phase 2 (depends on Phase 1): `getSkuMetadata()`. Phase 3 (depends on Phase 2): `generatePrice()`. Never `await` six calls sequentially when only two depend on each other.
+- **Batch mutations** — When setting multiple values (e.g. `setManualPrice` per cart item), use `Promise.all` instead of a sequential loop. Each `await` in a loop adds a full round-trip.
+
+### VBase deep patterns
+
+- **Per-entity keys, not blob keys** — Cache individual entities (e.g. `sku:{region}:{skuId}`) instead of composite blobs (e.g. `allSkus:{sortedCartSkuIds}`). Per-entity keys dramatically increase cache hit rates when items are added/removed.
+- **Minimal DTOs** — Store only the fields the consumer needs (e.g. `{ skuId, mappedId, isSpecialItem }` at ~50 bytes) instead of the full API response (~10-50 KB per product). Reduces VBase storage, serialization time, and transfer size.
+- **Sibling prewarming** — When a search API returns a product with 4 SKU variants, cache **all 4** individual SKUs even if only 1 was requested. The next request for a sibling is a VBase hit instead of an API call.
+- **Pass `vbase` as a parameter** — Clients don't have direct access to other clients. Pass `ctx.clients.vbase` as a parameter to client methods or utilities that need it. This keeps code testable and explicit about dependencies.
+- **VBase state machines** — For long-running operations (scans, imports, batch processing), use VBase as a state store with `current-operation.json` (lock + progress), heartbeat extensions, checkpoint/resume, and TTL-based lock expiry to prevent zombie locks.
+
+### `service.json` tuning
+
+- **`timeout`** — Maximum seconds before the platform kills a request. Set based on the longest expected operation; do not leave at the default if your resolver calls slow upstreams.
+- **`memory`** — MB per worker. Increase if LRU caches or large payloads cause OOM; monitor actual usage before over-provisioning.
+- **`workers`** — Concurrent request handlers per replica. More workers handle more concurrent requests but each shares the memory budget and in-process LRU.
+- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling. For payment-critical or high-throughput apps, set `minReplicas >= 2` so cold starts don't hit production traffic.
+
+### Tenancy and in-memory caches
+
+IO runs **per app version per shard**, with pods **shared across accounts**: every request is still resolved in **`{account, workspace}`** context. **VBase**, app buckets, and related platform stores **partition data** by account/workspace. **In-process** LRU/module `Map` **does not**—you must **key** explicitly with **`ctx.vtex.account`** and **`ctx.vtex.workspace`** (plus entity id) so **two** consecutive requests for **different** accounts on the **same pod** cannot read each other’s entries.
+
+## Hard constraints
+
+### Constraint: Do not store sensitive or tenant-specific data in module-level caches without tenant keys
+
+**Global** or **module-level** maps must **not** store **PII**, **tokens**, or **authorization-sensitive** blobs keyed only by **user id** or **email** without **`account` and `workspace`** (and any other dimension needed for isolation).
+
+**Why this matters** — Pods are **multi-tenant**: the same process may serve **many** accounts in sequence. **VBase** and similar APIs are **scoped** to the current account/workspace, but an **in-memory** `Map` is **your** responsibility. Missing **`account`/`workspace`** in the key risks **cross-tenant** reads from warm cache.
+
+**Detection** — A module-scope `Map` keyed only by `userId` or `email`; or cache keys that **omit** `ctx.vtex.account` / `ctx.vtex.workspace` when the value is **tenant-specific**.
+
+**Correct** — Build keys from **`ctx.vtex.account`**, **`ctx.vtex.workspace`**, and the entity id; **never** store **app tokens** in VBase/LRU as plain cache values; **prefer** `ctx.clients` and **platform** auth.
+
+```typescript
+// Pseudocode: in-memory key must mirror tenant scope (same pod, many accounts)
+function cacheKey(ctx: Context, subjectId: string) {
+  return `${ctx.vtex.account}:${ctx.vtex.workspace}:${subjectId}`;
+}
+```
+
+**Wrong** — `globalUserCache.set(email, profile)` keyed **only** by **email**, with **no** `account`/`workspace` segment—**unsafe** on shared pods even though a later **VBase** read would be **account-scoped**, because **this** map is not partitioned by the platform.
+
+### Constraint: Do not use fire-and-forget VBase writes in financial or idempotency-critical paths
+
+When VBase serves as an **idempotency store** (e.g. payment connectors storing transaction state) or a **data-integrity store**, writes **must** be **awaited**. Fire-and-forget writes risk silent failure: a successful upstream operation (e.g. a charge) whose VBase record is lost causes a **duplicate** on the next retry.
+
+**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization, the connector cannot find the previous result and sends **another** payment request—causing a **duplicate charge**.
+
+**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution.
+
+**Correct** — Await the write; accept the latency cost for correctness.
+
+```typescript
+// Critical path: await guarantees the idempotency record is persisted
+await ctx.clients.vbase.saveJSON<Transaction>('transactions', paymentId, transactionData)
+return Authorizations.approve(authorization, { ... })
+```
+
+**Wrong** — Fire-and-forget in a payment flow.
+
+```typescript
+// No await — if this fails silently, the next retry creates a duplicate charge
+ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
+return Authorizations.approve(authorization, { ... })
+```
+
+### Constraint: Do not cache real-time transactional data
+
+**Order forms**, **cart simulation responses**, **payment statuses**, **full session state**, and **commitment prices** must **never** be served from LRU, VBase, or any cache layer. They reflect live mutable state.
+
+**Why this matters** — Serving a cached order form shows phantom items, stale prices, or wrong quantities. Caching payment responses could return a previous transaction's status for a different payment. Caching cart simulations returns stale availability and pricing.
+
+**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching. Or a resolver that caches the result of `checkout.orderForm()`.
+
+**Correct** — Always call the live API for transactional data; cache **reference data** (org, cost center, config, seller lists) around it.
+
+```typescript
+// Reference data: cached (changes rarely)
+const costCenter = await getCostCenterCached(ctx, costCenterId)
+const sellerList = await getSellerListCached(ctx)
+
+// Transactional data: always live
+const orderForm = await ctx.clients.checkout.orderForm()
+const simulation = await ctx.clients.checkout.simulation(payload)
+```
+
+**Wrong** — Caching the order form or cart simulation.
+
+```typescript
+const cacheKey = `orderForm:${orderFormId}`
+const cached = orderFormCache.get(cacheKey)
+if (cached) return cached // Stale cart state served to user
+```
+
+### Constraint: Do not block the purchase path on slow or unbounded cache refresh
+
+**Stale-while-revalidate** or **origin** calls **must not** add **unbounded** latency to **checkout-critical** middleware if the platform SLA requires a fast response.
+
+**Why this matters** — Blocking checkout on **optional** enrichment breaks **conversion** and **reliability**.
+
+**Detection** — A **cart** or **payment** resolver **awaits** VBase refresh or **external** API before returning; **no** timeout or **fallback**.
+
+**Correct** — Return **stale** or **default**; **enqueue** refresh; **fail open** where business rules allow.
+
+**Wrong** — `await fetchHeavyPartner()` in the **hot path** with **no** timeout.
+
+## Preferred pattern
+
+1. **Classify** data: **reference data** (org, cost center, config, seller lists → cacheable) vs **transactional data** (order form, cart sim, payment → never cache) vs **user-private** (never in shared cache without encryption and keying).
+2. **Choose** LRU only, VBase only, or **LRU → VBase → origin** (two-layer) for **read-heavy** reference data.
+3. **Deduplicate** within a request: set **`ctx.state`** flags when a **resolver** chain might call the same loader twice.
+4. **Parallelize** independent **`ctx.clients`** calls in **phased** `Promise.all` groups.
+5. **Per-entity VBase keys** with minimal DTOs for high-cardinality data (SKUs, users, org records).
+6. **Document** TTLs and **invalidation** (who writes, when refresh runs).
+
+### Resolver chain optimization (before/after)
+
+```typescript
+// BEFORE: 7 sequential awaits, 2 duplicate calls
+const settings = await getAppSettings(ctx)          // 1
+const session = await getSessions(ctx)               // 2
+const costCenter = await getCostCenter(ctx, ccId)    // 3
+const orderForm = await getOrderForm(ctx)            // 4
+const skus = await getSkuById(ctx, skuIds)           // 5
+const price = await generatePrice(ctx, costCenter)   // 6 (calls getCostCenter AGAIN + getSession AGAIN)
+for (const item of items) {
+  await setManualPrice(ctx, item)                    // 7, 8, 9... (sequential loop)
+}
+
+// AFTER: 3 phases, no duplicates, parallel mutations
+const settings = await getAppSettings(ctx)
+const [session, costCenter, orderForm] = await Promise.all([
+  getSessions(ctx),
+  getCostCenter(ctx, ccId),
+  getOrderForm(ctx),
+])
+const skus = await getSkuMetadataBatch(ctx, skuIds)  // per-entity VBase cache
+const price = await generatePrice(ctx, costCenter, session)  // reuse, no re-fetch
+await Promise.all(items.map(item => setManualPrice(ctx, item)))
+```
+
+### Per-entity VBase caching
+
+```typescript
+interface SkuMetadata {
+  skuId: string
+  mappedSku: string | null
+  isSpecialItem: boolean
+}
+
+async function getSkuMetadataBatch(
+  ctx: Context,
+  skuIds: string[],
+): Promise<Map<string, SkuMetadata>> {
+  const { vbase, search } = ctx.clients
+  const results = new Map<string, SkuMetadata>()
+
+  // Phase 1: check VBase for each SKU in parallel
+  const lookups = await Promise.allSettled(
+    skuIds.map(id => vbase.getJSON<SkuMetadata>('sku-metadata', `sku:${id}`))
+  )
+
+  const missing: string[] = []
+  lookups.forEach((result, i) => {
+    if (result.status === 'fulfilled' && result.value) {
+      results.set(skuIds[i], result.value)
+    } else {
+      missing.push(skuIds[i])
+    }
+  })
+
+  if (missing.length === 0) return results
+
+  // Phase 2: fetch only missing SKUs from API
+  const products = await search.getSkuById(missing)
+
+  // Phase 3: cache ALL sibling SKUs (prewarm)
+  for (const product of products) {
+    for (const sku of product.items) {
+      const metadata: SkuMetadata = {
+        skuId: sku.itemId,
+        mappedSku: extractMapping(sku),
+        isSpecialItem: checkSpecial(sku),
+      }
+      results.set(sku.itemId, metadata)
+      // Fire-and-forget for prewarming (not idempotency-critical)
+      vbase.saveJSON('sku-metadata', `sku:${sku.itemId}`, metadata).catch(() => {})
+    }
+  }
+
+  return results
+}
+```
+
+## Common failure modes
+
+- **LRU unbounded** — Memory grows without **max** entries; pod **OOM**.
+- **VBase without LRU** — Every request hits **VBase** for **hot** keys; **latency** and **cost** rise.
+- **In-memory cache without tenant in key** — Same pod serves account A then B; **stale** or **wrong** row returned from module cache.
+- **Serial awaits** — Three **independent** Janus calls **awaited** one after another; total latency = sum of all instead of max.
+- **Duplicate calls in resolver chains** — `getCostCenter` called in the resolver and again inside a helper; `getSession` called twice in the same flow. Each duplicate adds a full round-trip.
+- **Blob VBase keys** — Keying VBase by `sortedCartSkuIds` means adding 1 item to a cart of 10 requires a full re-fetch instead of 1 lookup.
+- **Caching transactional data** — Order forms, cart simulations, payment responses served from cache; stale prices, phantom items, or duplicate charges.
+- **Fire-and-forget writes in critical paths** — Unawaited VBase writes for idempotency stores; silent failure causes duplicates on retry.
+- **No explicit timeouts** — Relying on default or infinite timeouts for upstream calls; one slow dependency stalls the whole request chain.
+- **Global mutable singletons** — Module-level mutable objects (e.g. token cache metadata) modified by concurrent requests cause race conditions and incorrect behavior.
+- **Treating AppSettings as real-time** — **Stale** admin change until **TTL** expires; **no** notification path.
+- **`console.log` in hot paths** — Logging full response objects with template literals produces `[object Object]`; use `ctx.vtex.logger` with `JSON.stringify` and redact sensitive data.
+
+## Review checklist
+
+- [ ] Are **in-memory** cache keys built with **`account` + `workspace`** (and entity id) when values are tenant-specific?
+- [ ] Is **LRU** bounded (max entries) and **TTL** defined?
+- [ ] For **VBase**, is **stale-while-revalidate** or **TTL-only** behavior **explicit**?
+- [ ] Are **independent** upstream calls **parallelized** (`Promise.all` phases) where safe?
+- [ ] Are there **no duplicate calls** to the same client method within a resolver chain?
+- [ ] Is **AppSettings** (or similar) **loaded** at the right **frequency** (once vs per request)?
+- [ ] Is **checkout** or **payment** path **free** of **blocking** optional refreshes?
+- [ ] Does every outbound call have an explicit **timeout** (via `@vtex/api` client options or equivalent)?
+- [ ] For unreliable upstreams, is there a **degradation** path (cached fallback, skip, circuit breaker)?
+- [ ] Are VBase writes **awaited** in financial or idempotency-critical paths?
+- [ ] Is **transactional data** (order form, cart sim, payment) always fetched live, never from cache?
+- [ ] Are VBase keys **per-entity** (not blob) for high-cardinality data like SKUs?
+- [ ] Are `service.json` resource limits (`timeout`, `memory`, `workers`, `replicas`) tuned for the workload?
+- [ ] Is logging done via `ctx.vtex.logger` (not `console.log`) with sensitive data redacted?
+
+## Related skills
+
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Edge paths, cookies, CDN
+- [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
+- [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
+- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
+
+## Reference
+
+- [VTEX IO Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — `vbase` client methods
+- [Implementing cache in GraphQL APIs for IO apps](https://developers.vtex.com/docs/guides/implementing-cache-in-graphql-apis-for-io-apps) — SEGMENT cache and cookies
+- [Engineering guidelines](https://developers.vtex.com/docs/guides/vtex-io-documentation-engineering-guidelines) — Scalability and IO development practices
+- [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
+
+---
+
 This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when designing or implementing how a vtex io backend app integrates with vtex services or external apis through @vtex/api and @vtex/clients. covers choosing the correct client type, registering clients in ioclients, configuring instanceoptions, and consuming integrations through ctx.clients. use for custom client design, vtex core commerce integrations, or reviewing backend code that should use vtex io client patterns instead of raw http libraries.
 
 # Client Integration & Service Access
@@ -1010,26 +1286,64 @@ mutation CreateReview {
 
 ---
 
-This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when working with masterdata v2 entities, schemas, or masterdataclient in vtex io apps. covers data entities, json schema definitions, crud operations, the masterdata builder, triggers, search and scroll operations, and schema lifecycle management. use for storing, querying, and managing custom data in vtex io apps while avoiding the 60-schema limit through proper schema versioning.
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when working with masterdata v2 entities, schemas, or masterdataclient in vtex io apps, or when anyone designing or implementing a solution must scrutinize whether master data is the correct storage. the skill prompts hard questions: native catalog or other vtex stores, oms, or an external database may be better; do not default to md because it is convenient. covers json schema, crud, triggers, search and scroll, schema lifecycle, purchase-path avoidance, single source of truth, and bff handoffs. use for justified custom persistence while avoiding the 60-schema limit.
 
 # MasterData v2 Integration
 
 ## When this skill applies
 
-Use this skill when your VTEX IO app needs to store custom data (reviews, wishlists, form submissions, configuration records), query or filter that data, or set up automated workflows triggered by data changes.
+Use this skill when your VTEX IO app needs to store custom data (reviews, wishlists, form submissions, configuration records), query or filter that data, or set up automated workflows triggered by data changes—and when you must **justify** Master Data versus other VTEX or external stores.
 
 - Defining data entities and JSON Schemas using the `masterdata` builder
 - Performing CRUD operations through MasterDataClient (`ctx.clients.masterdata`)
 - Configuring search, scroll, and indexing for efficient data retrieval
 - Setting up Master Data triggers for automated workflows
 - Managing schema lifecycle to avoid the 60-schema limit
+- **Deciding** whether data belongs in **Catalog** (fields, **specifications**, unstructured SKU/product specs), **Master Data**, **native OMS/checkout** surfaces, or an **external** SQL/NoSQL/database
+- Avoiding **synchronous** Master Data on the **purchase critical path** (cart, checkout, payment, placement) unless there is a **hard** performance and reliability case
+- Preferring **one source of truth**—avoid **duplicating** order headers or OMS lists in Master Data for convenience; prefer **OMS** or a **BFF** with **caching** (see **Related skills**)
 
 Do not use this skill for:
+
 - General backend service patterns (use `vtex-io-service-apps` instead)
 - GraphQL schema definitions (use `vtex-io-graphql-api` instead)
 - Manifest and builder configuration (use `vtex-io-app-structure` instead)
 
 ## Decision rules
+
+### Before you choose Master Data
+
+Architects, developers, and anyone **designing or implementing** a solution should **think deeply** and **treat this section as a checklist to critique the default**: double-check that Master Data is the **right** persistence layer—not an automatic pick. The skill is written to **question** convenience-driven choices.
+
+- **Purpose** — Master Data is a **document-oriented** store (similar in spirit to **document DBs** / DynamoDB-style access patterns). It is **one option** among many; choosing it because it is “there” or “cheap” without a **workload fit** review is a design smell.
+- **Product-bound data** — If the information is fundamentally **about products or SKUs**, evaluate **Catalog** first: **specifications**, **unstructured product/SKU specifications**, and native catalog fields before creating a **parallel** MD entity that mirrors catalog truth.
+- **Purchase path** — **Do not** place **synchronous** Master Data reads/writes in the **hot path** of **checkout** (cart mutation, payment, order placement) unless you have **evidence** (latency budget, failure modes). Prefer **native** commerce stores and **async** or **after-order** enrichment.
+- **Orders and lists** — **Duplicating** **OMS** or **order** data into Master Data to power **My Orders** or similar **usually** fights **single source of truth**. Prefer **OMS APIs** (or **marketplace** protocols) behind a **BFF** or **IO** layer with **application caching** and correct **HTTP/path** semantics—not a second **order database** in MD “because it is easier.”
+- **Exposing MD** — Master Data is **storage** only. Any **storefront** or **partner** access should go through a **service** that enforces **authentication**, **authorization**, and **rate limits**—typically **VTEX IO** or an external **BFF** following [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) patterns.
+- **When MD fits** — After **storage fit** review, if MD remains appropriate, implement CRUD and schema discipline as below; combine with [vtex-io-application-performance](../vtex-io-application-performance/skill.md) and [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) when exposing HTTP or GraphQL from IO.
+
+### Entity governance and hygiene
+
+Before creating a new entity or extending an existing one, understand the landscape:
+
+- **Native entities** — The platform manages entities like `CL` (clients), `AD` (addresses), `OD` (orders), `BK` (bookmarks), `AU` (auth), and others. **Never** create custom entities that duplicate native entity purposes. Know which entities exist before adding new ones.
+- **Entity usage audit** — In accounts with dozens of custom entities, classify each by purpose: **logs/monitoring**, **cache/temporary**, **order extension**, **customer extension**, **marketing**, **CMS/content**, **integration/sync**, **auth/identity**, **logistics/geo**, or **custom business logic**. Entities in the **logs** or **cache** categories often indicate misuse—IO app logs belong in the logger, not MD; caches belong in VBase, not MD.
+- **Critical path flag** — Identify whether an entity is used in **checkout**, **cart**, **payment**, or **login** flows. Entities on the critical path must meet strict latency and availability requirements. If an MD entity is on the critical path, question whether it should be there at all.
+- **Document count awareness** — Use `REST-Content-Range` headers from `GET /search?_fields=id` with `REST-Range: resources=0-0` to efficiently count documents without fetching them. Large entities (100k+ docs) need `scrollDocuments`, pagination strategy, and potentially a BFF caching layer.
+
+### Bulk operations and data migration
+
+When importing, exporting, or migrating large datasets:
+
+- **Validate before import** — Cross-reference import data against the authoritative source (e.g. catalog export for SKU validation, CL entity or user management API for email allowlists). Produce exception reports for invalid rows before touching MD.
+- **JSONL payloads** — Generate one JSON object per MD document in a `.jsonl` file for bulk imports. This enables resumable, line-by-line processing.
+- **Rate limiting** — MD APIs enforce rate limits. Use configurable delays between calls (e.g. 400ms) with exponential backoff on HTTP 429 responses.
+- **Checkpoints** — For large imports (10k+ documents), persist progress to a checkpoint file (last successful document ID or line index). On failure or timeout, resume from the checkpoint instead of restarting.
+- **Parallel with bounded concurrency** — Use a concurrency pool (e.g. `p-queue` with concurrency 5-10) for parallel `POST` or `PATCH` operations. Too much parallelism triggers rate limits; too little is slow.
+- **Bulk delete before re-import** — When replacing all documents in an entity, use scroll + delete before import, or implement a separate delete pass with the same checkpoint and backoff patterns.
+- **Schema alignment** — Ensure import payloads match the entity's JSON Schema exactly. Missing required fields or type mismatches cause silent validation failures.
+
+### Implementation rules
 
 - A **data entity** is a named collection of documents (analogous to a database table). A **JSON Schema** defines structure, validation, and indexing.
 - When using the `masterdata` builder, entities are defined by folder structure: `masterdata/{entityName}/schema.json`. The builder creates entities named `{vendor}_{appName}_{entityName}`.
@@ -1040,18 +1354,18 @@ Do not use this skill for:
 
 MasterDataClient methods:
 
-| Method | Description |
-|--------|-------------|
-| `getDocument` | Retrieve a single document by ID |
-| `createDocument` | Create a new document, returns generated ID |
-| `createOrUpdateEntireDocument` | Upsert a complete document |
-| `createOrUpdatePartialDocument` | Upsert partial fields (patch) |
-| `updateEntireDocument` | Replace all fields of an existing document |
-| `updatePartialDocument` | Update specific fields only |
-| `deleteDocument` | Delete a document by ID |
-| `searchDocuments` | Search with filters, pagination, and field selection |
-| `searchDocumentsWithPaginationInfo` | Search with total count metadata |
-| `scrollDocuments` | Iterate over large result sets |
+| Method                              | Description                                          |
+| ----------------------------------- | ---------------------------------------------------- |
+| `getDocument`                       | Retrieve a single document by ID                     |
+| `createDocument`                    | Create a new document, returns generated ID          |
+| `createOrUpdateEntireDocument`      | Upsert a complete document                           |
+| `createOrUpdatePartialDocument`     | Upsert partial fields (patch)                        |
+| `updateEntireDocument`              | Replace all fields of an existing document           |
+| `updatePartialDocument`             | Update specific fields only                          |
+| `deleteDocument`                    | Delete a document by ID                              |
+| `searchDocuments`                   | Search with filters, pagination, and field selection |
+| `searchDocumentsWithPaginationInfo` | Search with total count metadata                     |
+| `scrollDocuments`                   | Iterate over large result sets                       |
 
 Search `where` clause syntax:
 
@@ -1103,17 +1417,25 @@ If you see direct HTTP calls to URLs matching `/api/dataentities/`, `api.vtex.co
 ```typescript
 // Using MasterDataClient through ctx.clients
 export async function getReview(ctx: Context, next: () => Promise<void>) {
-  const { id } = ctx.query
+  const { id } = ctx.query;
 
   const review = await ctx.clients.masterdata.getDocument<Review>({
-    dataEntity: 'reviews',
+    dataEntity: "reviews",
     id: id as string,
-    fields: ['id', 'productId', 'author', 'rating', 'title', 'text', 'approved'],
-  })
+    fields: [
+      "id",
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "approved",
+    ],
+  });
 
-  ctx.status = 200
-  ctx.body = review
-  await next()
+  ctx.status = 200;
+  ctx.body = review;
+  await next();
 }
 ```
 
@@ -1121,25 +1443,25 @@ export async function getReview(ctx: Context, next: () => Promise<void>) {
 
 ```typescript
 // Direct REST call to Master Data — bypasses client infrastructure
-import axios from 'axios'
+import axios from "axios";
 
 export async function getReview(ctx: Context, next: () => Promise<void>) {
-  const { id } = ctx.query
+  const { id } = ctx.query;
 
   // No caching, no retry, no proper auth, no metrics
   const response = await axios.get(
     `https://api.vtex.com/api/dataentities/reviews/documents/${id}`,
     {
       headers: {
-        'X-VTEX-API-AppKey': process.env.VTEX_APP_KEY,
-        'X-VTEX-API-AppToken': process.env.VTEX_APP_TOKEN,
+        "X-VTEX-API-AppKey": process.env.VTEX_APP_KEY,
+        "X-VTEX-API-AppToken": process.env.VTEX_APP_TOKEN,
       },
-    }
-  )
+    },
+  );
 
-  ctx.status = 200
-  ctx.body = response.data
-  await next()
+  ctx.status = 200;
+  ctx.body = response.data;
+  await next();
 }
 ```
 
@@ -1193,7 +1515,14 @@ If the app creates or searches documents in a data entity but no JSON Schema exi
     }
   },
   "required": ["productId", "rating", "title", "text"],
-  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
   "v-indexed": ["productId", "author", "approved", "rating", "createdAt"]
 }
 ```
@@ -1203,21 +1532,21 @@ If the app creates or searches documents in a data entity but no JSON Schema exi
 ```typescript
 // Saving documents without any schema — no validation, no indexing
 await ctx.clients.masterdata.createDocument({
-  dataEntity: 'reviews',
+  dataEntity: "reviews",
   fields: {
-    productId: '12345',
-    rating: 'five', // String instead of number — no validation!
-    title: 123,     // Number instead of string — no validation!
+    productId: "12345",
+    rating: "five", // String instead of number — no validation!
+    title: 123, // Number instead of string — no validation!
   },
-})
+});
 
 // Searching on unindexed fields — full table scan, will time out on large datasets
 await ctx.clients.masterdata.searchDocuments({
-  dataEntity: 'reviews',
-  where: 'productId=12345',  // productId is not indexed — very slow
-  fields: ['id', 'rating'],
+  dataEntity: "reviews",
+  where: "productId=12345", // productId is not indexed — very slow
+  fields: ["id", "rating"],
   pagination: { page: 1, pageSize: 10 },
-})
+});
 ```
 
 ---
@@ -1256,6 +1585,61 @@ Never cleaning up schemas during development.
 After 60 link cycles, the builder fails:
 "Error: Maximum number of schemas reached for entity 'reviews'"
 The app cannot be linked or installed until old schemas are deleted.
+```
+
+### Constraint: Do not use Master Data as a log, cache, or temporary store
+
+Entities used for application **logging**, **caching** (IO app state, query results), or **temporary staging** data do not belong in Master Data. Use `ctx.vtex.logger` for logs, **VBase** for app-specific caches and temp state, and external log aggregation for audit trails.
+
+**Why this matters** — Log and cache entities accumulate millions of documents, hit rate limits, make the entity unusable for legitimate queries, and waste storage. MD is not designed for high-write, high-volume, disposable data.
+
+**Detection** — Entities with names like `LOG`, `cache`, `temp`, `staging`, `debug`, or entities whose document count grows unboundedly with traffic volume rather than business events.
+
+**Correct**
+
+```typescript
+// Logs: use structured logger
+ctx.vtex.logger.info({ action: 'priceUpdate', skuId, newPrice })
+
+// Cache: use VBase
+await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
+```
+
+**Wrong**
+
+```typescript
+// Using MD as a log store — creates millions of documents
+await ctx.clients.masterdata.createDocument({
+  dataEntity: 'appLogs',
+  fields: { level: 'info', message: `Price updated for ${skuId}`, timestamp: new Date() },
+})
+```
+
+### Constraint: Do not create a parallel source of truth in Master Data without justification
+
+Using Master Data to **mirror** data that already has a **system of record** in **OMS**, **Catalog**, or an **external ERP**—for example **order headers** for a custom list view, or **SKU attributes** that belong in **catalog specifications**—creates **drift**, **reconciliation** cost, and **incident** risk.
+
+**Why this matters**
+
+Two sources of truth disagree after partial failures, retries, or manual edits. Teams spend capacity syncing and debugging instead of **customer outcomes**.
+
+**Detection**
+
+New MD entities whose fields **duplicate** OMS order fields “for performance” without a **BFF cache** plan; **product** attributes stored in MD when **Catalog** specs would suffice; **scheduled jobs** to “fix” MD from OMS because they diverged.
+
+**Correct**
+
+```text
+1. Identify the authoritative system (OMS, Catalog, partner API).
+2. Read from that source via BFF or IO, with caching (application + HTTP semantics) as needed.
+3. Use MD only for data without a native home or after explicit architecture sign-off.
+```
+
+**Wrong**
+
+```text
+"We store order snapshots in MD so the storefront is faster" while OMS remains canonical
+and no reconciliation strategy exists — eventual inconsistency is guaranteed.
 ```
 
 ## Preferred pattern
@@ -1324,7 +1708,14 @@ Define data entity schemas:
     }
   },
   "required": ["productId", "rating", "title", "text"],
-  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
   "v-indexed": ["productId", "author", "approved", "rating", "createdAt"],
   "v-cache": false
 }
@@ -1334,24 +1725,24 @@ Set up the client with `masterDataFor`:
 
 ```typescript
 // node/clients/index.ts
-import { IOClients } from '@vtex/api'
-import { masterDataFor } from '@vtex/clients'
+import { IOClients } from "@vtex/api";
+import { masterDataFor } from "@vtex/clients";
 
 interface Review {
-  id: string
-  productId: string
-  author: string
-  email: string
-  rating: number
-  title: string
-  text: string
-  approved: boolean
-  createdAt: string
+  id: string;
+  productId: string;
+  author: string;
+  email: string;
+  rating: number;
+  title: string;
+  text: string;
+  approved: boolean;
+  createdAt: string;
 }
 
 export class Clients extends IOClients {
   public get reviews() {
-    return this.getOrSet('reviews', masterDataFor<Review>('reviews'))
+    return this.getOrSet("reviews", masterDataFor<Review>("reviews"));
   }
 }
 ```
@@ -1360,61 +1751,75 @@ Implement CRUD operations:
 
 ```typescript
 // node/resolvers/reviews.ts
-import type { ServiceContext } from '@vtex/api'
-import type { Clients } from '../clients'
+import type { ServiceContext } from "@vtex/api";
+import type { Clients } from "../clients";
 
-type Context = ServiceContext<Clients>
+type Context = ServiceContext<Clients>;
 
 export const queries = {
   reviews: async (
     _root: unknown,
     args: { productId: string; page?: number; pageSize?: number },
-    ctx: Context
+    ctx: Context,
   ) => {
-    const { productId, page = 1, pageSize = 10 } = args
+    const { productId, page = 1, pageSize = 10 } = args;
 
     const results = await ctx.clients.reviews.search(
       { page, pageSize },
-      ['id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved'],
-      '',  // sort
-      `productId=${productId} AND approved=true`
-    )
+      [
+        "id",
+        "productId",
+        "author",
+        "rating",
+        "title",
+        "text",
+        "createdAt",
+        "approved",
+      ],
+      "", // sort
+      `productId=${productId} AND approved=true`,
+    );
 
-    return results
+    return results;
   },
-}
+};
 
 export const mutations = {
   createReview: async (
     _root: unknown,
-    args: { input: { productId: string; rating: number; title: string; text: string } },
-    ctx: Context
+    args: {
+      input: { productId: string; rating: number; title: string; text: string };
+    },
+    ctx: Context,
   ) => {
-    const { input } = args
-    const email = ctx.vtex.storeUserEmail ?? 'anonymous@store.com'
+    const { input } = args;
+    const email = ctx.vtex.storeUserEmail ?? "anonymous@store.com";
 
     const response = await ctx.clients.reviews.save({
       ...input,
-      author: email.split('@')[0],
+      author: email.split("@")[0],
       email,
       approved: false,
       createdAt: new Date().toISOString(),
-    })
+    });
 
     return ctx.clients.reviews.get(response.DocumentId, [
-      'id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved',
-    ])
+      "id",
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "createdAt",
+      "approved",
+    ]);
   },
 
-  deleteReview: async (
-    _root: unknown,
-    args: { id: string },
-    ctx: Context
-  ) => {
-    await ctx.clients.reviews.delete(args.id)
-    return true
+  deleteReview: async (_root: unknown, args: { id: string }, ctx: Context) => {
+    await ctx.clients.reviews.delete(args.id);
+    return true;
   },
-}
+};
 ```
 
 Configure triggers (optional):
@@ -1442,11 +1847,11 @@ Wire into Service:
 
 ```typescript
 // node/index.ts
-import type { ParamsContext, RecorderState } from '@vtex/api'
-import { Service } from '@vtex/api'
+import type { ParamsContext, RecorderState } from "@vtex/api";
+import { Service } from "@vtex/api";
 
-import { Clients } from './clients'
-import { queries, mutations } from './resolvers/reviews'
+import { Clients } from "./clients";
+import { queries, mutations } from "./resolvers/reviews";
 
 export default new Service<Clients, RecorderState, ParamsContext>({
   clients: {
@@ -1464,7 +1869,7 @@ export default new Service<Clients, RecorderState, ParamsContext>({
       Mutation: mutations,
     },
   },
-})
+});
 ```
 
 ## Common failure modes
@@ -1473,6 +1878,10 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - **Searching without indexed fields**: Queries on non-indexed fields trigger full document scans. For large datasets, this causes timeouts and rate limit errors. Ensure all `where` clause fields are in the schema's `v-indexed` array.
 - **Not paginating search results**: Master Data v2 has a maximum page size of 100 documents. Requesting more silently returns only up to the limit. Use proper pagination or `scrollDocuments` for large result sets.
 - **Ignoring the 60-schema limit**: Each app version linked/installed creates a new schema. After 60 link cycles, the builder fails. Periodically clean up unused schemas via the Delete Schema API.
+- **Using MD for logs or caches**: Entities that grow with traffic volume instead of business events. Millions of log or cache documents degrade the account's MD performance.
+- **Bulk import without rate limiting**: Flooding MD with parallel writes triggers 429 errors and account-wide throttling. Always use bounded concurrency with backoff.
+- **Import without validation**: Importing data without cross-referencing the catalog or user store leads to orphaned documents, broken references, and data that fails schema validation silently.
+- **No checkpoint in bulk operations**: A 50k-document import that fails at document 30k must restart from zero without a checkpoint file.
 
 ## Review checklist
 
@@ -1483,6 +1892,21 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [ ] Is pagination properly handled (max 100 per page, scroll for large sets)?
 - [ ] Is there a plan for schema cleanup to avoid the 60-schema limit?
 - [ ] Are required policies (`outbound-access`, `ADMIN_DS`) declared in the manifest?
+- [ ] Was **Catalog** or native stores ruled in/out before MD for **product** or **order** data?
+- [ ] Is MD **off** the **purchase critical path** unless explicitly justified?
+- [ ] If exposing MD externally, is access through a **controlled** IO/BFF layer with **auth**?
+- [ ] Is the entity **not** being used for **logging**, **caching**, or **temporary** data?
+- [ ] For bulk operations, are **rate limiting**, **backoff**, and **checkpoints** implemented?
+- [ ] Is import data **validated** against the authoritative source before writing to MD?
+- [ ] Are **native entities** (CL, AD, OD, etc.) identified and not duplicated by custom entities?
+
+## Related skills
+
+- [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — IO performance patterns (cache layers, BFF-facing behavior)
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Public vs private routes for MD-backed APIs
+- [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms that may read from or complement MD-stored state
+- [architecture-well-architected-commerce](../../../architecture/skills/architecture-well-architected-commerce/skill.md) — Cross-cutting storage and pillar alignment
+- [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF boundaries when MD is not accessed from IO
 
 ## Reference
 
@@ -2296,6 +2720,95 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 
 ---
 
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when defining service.json routes, choosing public vs segment vs private url prefixes for vtex io services, or setting http cache headers that interact with the vtex edge and cdn. covers path patterns, cookie visibility, edge caching behavior, and aligning cache-control with data sensitivity. use for node or .net io backends where request path and response headers determine cdn safety.
+
+# VTEX IO service paths and CDN behavior
+
+## When this skill applies
+
+Use this skill when you define or change **`service.json` routes** for a VTEX IO backend and need the edge (CDN) to pass the **right cookies** and apply the **right caching** for that endpoint’s data.
+
+- Choosing between **public**, **segment** (`/_v/segment/...`), and **private** (`/_v/private/...`) path prefixes for a route
+- Setting **`Cache-Control`** (and related headers) on HTTP responses so **public** cache behavior matches **data scope** (anonymous vs segment vs authenticated shopper)
+- Explaining why a route **does not** receive `vtex_session` or `vtex_segment` cookies
+- Troubleshooting **CloudFront** or edge behavior when cookies are missing (see official troubleshooting)
+
+Do not use this skill for:
+
+- Application-level LRU caches, VBase, or stale-while-revalidate orchestration → use **vtex-io-application-performance**
+- GraphQL field-level `@cacheControl` only → use **vtex-io-graphql-api** alongside this skill
+
+## Decision rules
+
+- Paths are declared in **`service.json`** under `routes`. The **prefix** you choose (`/yourPath`, `/_v/segment/yourPath`, `/_v/private/yourPath`) controls **cookie forwarding** and **whether VTEX may cache the service response at the edge**—see the [Service path patterns](https://developers.vtex.com/docs/guides/service-path-patterns) table.
+- **Public** (`{yourPath}`): **No guarantee** the app receives request cookies. The edge **may cache** responses when possible. Use for **non-user-specific** data (e.g. static reference data that is safe to share across shoppers).
+- **Segment** (`/_v/segment/{yourPath}`): The app receives **`vtex_segment`**. The edge caches **per segment**. Use when the response depends on **segment** (currency, region, sales channel, etc.) but **not** on authenticated identity.
+- **Private** (`/_v/private/{yourPath}`): The app receives **`vtex_segment`** and **`vtex_session`**. The edge **does not cache** the service response. Use for **identity- or session-scoped** data (orders, addresses, profile).
+- **`Cache-Control` on responses** must align with **classification**: never signal **CDN/shared cache** for payloads that embed **secrets**, **per-user** data, or **authorization** decisions unless the contract is explicitly designed for that (e.g. immutable public assets). When in doubt, prefer **private paths** and **no-store / private** cache directives for shopper-specific JSON.
+- Read [Sessions System overview](https://developers.vtex.com/docs/guides/sessions-system-overview) for how cookies relate to paths and sessions.
+
+## Hard constraints
+
+### Constraint: Do not use a public or segment-cached path for private or auth-scoped payloads
+
+Routes that return **authenticated shopper data**, **PII**, or **authorization-sensitive** JSON **must not** rely on **public** paths or **edge-cached** responses that could serve one user’s data to another.
+
+**Why this matters** — The edge may cache or route without the session context you expect; misclassified data can leak across users or segments.
+
+**Detection** — A route under a **public** path returns **order history**, **addresses**, **tokens**, or **account-specific** fields; or **`Cache-Control`** suggests long-lived public caching for such payloads.
+
+**Correct** — Use `/_v/private/...` for the route (or a pattern that receives `vtex_session`), and set **appropriate** `Cache-Control` (e.g. `private, no-store` for JSON APIs that are not cacheable). Note: the **path prefix** (`/_v/private/`) controls **CDN and cookie** behavior; the `"public": true` field controls **whether VTEX auth tokens are required** to call the route—these are **orthogonal**.
+
+```json
+{
+  "routes": {
+    "myOrders": {
+      "path": "/_v/private/my-app/orders",
+      "public": true
+    }
+  }
+}
+```
+
+**Wrong** — Exposing `GET /my-app/orders` as a **public** path (no `/_v/private/` or `/_v/segment/` prefix) and returning **per-user** JSON while **assuming** the browser session is always visible to the service.
+
+## Preferred pattern
+
+1. **Classify the response** (anonymous, segment, authenticated) **before** picking the path prefix.
+2. **Map** to **public** / **segment** / **private** per [Service path patterns](https://developers.vtex.com/docs/guides/service-path-patterns).
+3. **Set** response headers **explicitly** where the platform allows: align **`Cache-Control`** with the same classification (public immutable vs private vs no-store).
+4. **Document** any path that must stay **private** for security or compliance so storefronts and BFFs do not link-cache it incorrectly.
+
+## Common failure modes
+
+- **Assuming cookies on public routes** — Services do not reliably receive `vtex_session` on public paths; identity logic fails intermittently.
+- **Caching personalized JSON at the edge** — Long `max-age` on user-specific responses without `private` path + correct cache policy.
+- **Mixing concerns** — One route returns both **public catalog** and **private account** data; split endpoints or use **private** + server-side auth checks.
+- **Ignoring segment** — Price or promo that varies by **currency** or **segment** is served on a **public** path and **cached** for the wrong segment.
+
+## Review checklist
+
+- [ ] Is each route’s **path prefix** (`public` / `/_v/segment` / `/_v/private`) justified by **cookie** and **Caching behavior** in the official table?
+- [ ] For **shopper-specific** or **auth** responses, is the route **private** (or otherwise protected) and **not** edge-cacheable inappropriately?
+- [ ] Do **`Cache-Control`** (and related) headers **match** data sensitivity?
+- [ ] Are **parallel** calls from the client using the **correct** path for each payload type?
+
+## Related skills
+
+- [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — Application performance (LRU, VBase, AppSettings, parallel fetches, tenant keys)
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — `service.json` and Service entry
+- [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL cache and `@cacheControl`
+- [headless-caching-strategy](../../../headless/skills/headless-caching-strategy/skill.md) — Storefront / BFF caching
+
+## Reference
+
+- [Service path patterns](https://developers.vtex.com/docs/guides/service-path-patterns) — Path formats, cookies, caching, use cases
+- [Sessions System overview](https://developers.vtex.com/docs/guides/sessions-system-overview) — `vtex_segment`, `vtex_session`, session behavior
+- [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
+- [VTEX IO Engineering guidelines](https://developers.vtex.com/docs/guides/vtex-io-documentation-engineering-guidelines) — Scalability and IO development practices
+
+---
+
 This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when designing or implementing the runtime structure of a vtex io backend app under node/. covers the service entrypoint, typed context and state, service.json runtime configuration, and how routes, events, and graphql handlers are registered and executed. use for structuring backend apps, defining runtime boundaries, or fixing execution-model issues in vtex io services.
 
 # Service Runtime & Execution Model
@@ -2656,3 +3169,293 @@ If `routes/index.ts` or `events/index.ts` grows too large, split it by domain su
 - [Service JSON](https://developers.vtex.com/docs/guides/vtex-io-documentation-service-json) - Runtime configuration for VTEX IO services
 - [Node Builder](https://developers.vtex.com/docs/guides/vtex-io-documentation-node-builder) - Backend app structure under the `node` builder
 - [Developing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-4-developing-an-app) - General backend app development flow
+
+---
+
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when building or debugging a vtex io session transform app (vtex.session integration). covers namespace ownership, input-vs-output fields, transform ordering (dag), public-as-input vs private-as-read model, cross-namespace propagation, configuration.json contracts, caching inside transforms, and frontend session consumption. use when designing session-derived state for b2b, pricing, regionalization, or custom storefront context.
+
+# VTEX IO session transform apps
+
+## When this skill applies
+
+Use this skill when your VTEX IO app integrates with the **VTEX session system** (`vtex.session`) to **derive**, **compute**, or **propagate** state that downstream transforms, the storefront, or checkout depend on.
+
+- Building a **session transform** that computes custom fields from upstream session state (e.g. pricing context from an external backend, regionalization from org data)
+- Declaring **input/output** fields in `vtex.session/configuration.json`
+- Deciding which **namespace** your app should own and which it should **read from**
+- Propagating values into **`public.*`** inputs so **native** transforms (profile, search, checkout) re-run
+- Debugging **stale** session fields, **race conditions**, or **namespace collisions** between apps
+- Designing **B2B** session flows where `storefront-permissions`, custom transforms, and checkout interact
+
+Do not use this skill for:
+
+- General IO backend patterns (use `vtex-io-service-apps`)
+- Performance patterns outside session transforms (use `vtex-io-application-performance`)
+- GraphQL schema or resolver design (use `vtex-io-graphql-api`)
+
+## Decision rules
+
+### Namespace ownership
+
+- **Every session app owns exactly one output namespace** (or a small set of fields within one). The namespace name typically matches the app concept (e.g. `rona`, `myapp`, `storefront-permissions`).
+- **Never write to another app's output namespace.** If `storefront-permissions` owns `storefront-permissions.organization`, your transform must **not** overwrite it—read it as an input instead.
+- **Never duplicate** VTEX-owned fields (org, cost center, postal, country) into your namespace when they already exist in `storefront-permissions`, `profile`, `checkout`, or `store`. Your namespace should contain **only** data that comes from **your** backend or computation.
+
+### `public` is input, private is read model
+
+- **`public.*`** fields are an **input surface**: values the shopper or a flow sets so session transforms can run (e.g. geolocation, flags, UTMs, user intent). Do **not** treat `public.*` as the canonical read model in storefront code.
+- **Private namespaces** (`profile`, `checkout`, `store`, `search`, `storefront-permissions`, your custom namespace) are the **read model**: computed outputs derived from inputs. Frontend components should read **private** namespace fields for business rules and display.
+- If your transform must influence native apps (e.g. set a postal code derived from a cost center address), **update `public.*` input fields** that native apps declare as inputs—so the platform re-runs those upstream transforms and private outputs stay consistent. This is **input propagation**, not duplicating truth.
+
+### Transform ordering (DAG)
+
+- VTEX session runs transforms in a **directed acyclic graph** (DAG) based on declared input/output dependencies in each app's `vtex.session/configuration.json`.
+- A transform runs when any of its **declared input fields** change. If you depend on `storefront-permissions.costcenter`, your transform runs **after** `storefront-permissions` outputs that field.
+- **Order your dependencies carefully**: if your transform needs both `storefront-permissions` outputs and `profile` outputs, declare both as inputs so the platform schedules you after both.
+
+### Caching inside transforms
+
+- Session transforms execute on **every session change** that touches a declared input. They must be **fast**.
+- Use **LRU** (in-process, per-worker) for hot lookups (org data, configuration, tokens) with short TTLs.
+- Use **VBase stale-while-revalidate** for data that can tolerate brief staleness (external backend responses, computed mappings). Return stale immediately; revalidate in the background.
+- Follow the same tenant-keying rules as any IO service: in-memory cache keys must include **`account`** and **`workspace`** (see `vtex-io-application-performance`).
+
+### Frontend session consumption
+
+- Storefront components should **request specific session items** via the `items=` query parameter (e.g. `items=rona.storeNumber,storefront-permissions.costcenter`).
+- **Read** from the relevant **private** namespaces (`rona.*`, `storefront-permissions.*`, `profile.*`, etc.) for canonical state.
+- **Write** to `public.*` only when setting **user intent** (e.g. selecting a location, switching a flag). Never write to `public.*` as a "cache" for values that private namespaces already provide.
+
+## Hard constraints
+
+### Constraint: Do not duplicate another app's output namespace fields into your namespace
+
+Your session transform must output **only** fields that come from **your** computation or backend. Copying identity, address, or org fields that `storefront-permissions`, `profile`, or `checkout` already own creates **two sources of truth** that diverge on partial failures.
+
+**Why this matters** — When two namespaces contain the same fact (e.g. `costCenterId` in both your namespace and `storefront-permissions`), consumers read inconsistent values after a session that partially updated. Debug time skyrockets and race conditions appear.
+
+**Detection** — Your transform's output includes fields like `organization`, `costcenter`, `postalCode`, `country` that mirror `storefront-permissions.*` or `profile.*` outputs. Or frontend reads the same logical field from two different namespaces.
+
+**Correct** — Read `storefront-permissions.costcenter` as an input; use it to compute your backend-specific fields (e.g. `myapp.priceTable`, `myapp.storeNumber`); output **only** those derived fields.
+
+```json
+{
+  "my-session-app": {
+    "input": {
+      "storefront-permissions": ["costcenter", "organization"]
+    },
+    "output": {
+      "myapp": ["priceTable", "storeNumber"]
+    }
+  }
+}
+```
+
+**Wrong** — Output duplicates of VTEX-owned fields.
+
+```json
+{
+  "my-session-app": {
+    "output": {
+      "myapp": ["costcenter", "organization", "postalCode", "priceTable", "storeNumber"]
+    }
+  }
+}
+```
+
+### Constraint: Use input propagation to influence native transforms, not direct overwrites
+
+When your transform derives a value (e.g. postal code from a cost center address) that native apps consume, set it as an **input** field those apps declare (typically `public.postalCode`, `public.country`)—**not** by writing directly to `checkout.postalCode` or `search.postalCode`.
+
+**Why this matters** — Native transforms expect their **input** fields to change so they can recompute their **output** fields. Writing directly to their output namespaces bypasses recomputation and leaves stale derived state (e.g. `regionId` not updated, checkout address inconsistent).
+
+**Detection** — Your transform declares output fields in namespaces owned by other apps (e.g. `output: { checkout: [...] }` or `output: { search: [...] }`). Or you PATCH session with values in a namespace you don't own.
+
+**Correct** — Declare output in `public` for fields that native apps consume as inputs, verified against each native app's `vtex.session/configuration.json`.
+
+```json
+{
+  "my-session-app": {
+    "output": {
+      "myapp": ["storeNumber", "priceTable"],
+      "public": ["postalCode", "country", "state"]
+    }
+  }
+}
+```
+
+**Wrong** — Writing to search or checkout output namespaces directly.
+
+```json
+{
+  "my-session-app": {
+    "output": {
+      "myapp": ["storeNumber", "priceTable"],
+      "checkout": ["postalCode", "country"],
+      "search": ["facets"]
+    }
+  }
+}
+```
+
+### Constraint: Frontend must read private namespaces, not `public`, for canonical business state
+
+Storefront components and middleware must read session data from the **authoritative private namespace** (e.g. `storefront-permissions.organization`, `profile.email`, `myapp.priceTable`), not from `public.*` fields.
+
+**Why this matters** — `public.*` fields are inputs that may be stale, user-set, or partial. Private namespace fields are the **computed** truth after all transforms have run. Reading `public.postalCode` instead of the profile- or checkout-derived value leads to displaying stale or inconsistent data.
+
+**Detection** — React components or middleware that read `public.storeNumber`, `public.organization`, or `public.costCenter` for display or business logic instead of the corresponding private field.
+
+**Correct**
+
+```typescript
+// Read from the authoritative namespace
+const { data } = useSessionItems([
+  'myapp.storeNumber',
+  'myapp.priceTable',
+  'storefront-permissions.costcenter',
+  'storefront-permissions.organization',
+])
+```
+
+**Wrong**
+
+```typescript
+// Reading from public as if it were the source of truth
+const { data } = useSessionItems([
+  'public.storeNumber',
+  'public.organization',
+  'public.costCenter',
+])
+```
+
+## Preferred pattern
+
+### `vtex.session/configuration.json`
+
+Declare your transform's input dependencies and output fields:
+
+```json
+{
+  "my-session-app": {
+    "input": {
+      "storefront-permissions": ["costcenter", "organization", "costCenterAddressId"]
+    },
+    "output": {
+      "myapp": ["storeNumber", "priceTable"]
+    }
+  }
+}
+```
+
+### Transform handler
+
+```typescript
+// node/handlers/transform.ts
+export async function transform(ctx: Context) {
+  const { costcenter, organization } = parseSfpInputs(ctx.request.body)
+
+  if (!costcenter) {
+    ctx.body = { myapp: {} }
+    return
+  }
+
+  const costCenterData = await getCostCenterCached(ctx, costcenter)
+  const pricing = await resolvePricing(ctx, costCenterData)
+
+  ctx.body = {
+    myapp: {
+      storeNumber: pricing.storeNumber,
+      priceTable: pricing.priceTable,
+    },
+  }
+}
+```
+
+### Caching inside the transform
+
+```typescript
+// Two-layer cache: LRU (sub-ms) -> VBase (persistent, SWR) -> API
+const costCenterLRU = new LRU<string, CostCenterData>({ max: 1000, ttl: 600_000 })
+
+async function getCostCenterCached(ctx: Context, costCenterId: string) {
+  const { account, workspace } = ctx.vtex
+  const key = `${account}:${workspace}:${costCenterId}`
+
+  const lruHit = costCenterLRU.get(key)
+  if (lruHit) return lruHit
+
+  const result = await staleFromVBaseWhileRevalidate(
+    ctx.clients.vbase,
+    'cost-centers',
+    costCenterId,
+    () => fetchCostCenterFromAPI(ctx, costCenterId),
+    { ttlMs: 1_800_000 }
+  )
+
+  costCenterLRU.set(key, result)
+  return result
+}
+```
+
+### `service.json` route
+
+```json
+{
+  "routes": {
+    "transform": {
+      "path": "/_v/my-session-app/session/transform",
+      "public": true
+    }
+  }
+}
+```
+
+### Session ecosystem awareness
+
+When building a transform, map out the transform DAG for your store:
+
+```text
+authentication-session → impersonate-session → profile-session
+profile-session → store-session → checkout-session
+profile-session → search-session
+authentication-session + checkout-session + impersonate-session → storefront-permissions
+storefront-permissions → YOUR-TRANSFORM (reads SFP outputs)
+```
+
+Your transform sits at the **end** of whatever dependency chain it requires. Declaring inputs correctly ensures the platform schedules you **after** all upstream transforms.
+
+## Common failure modes
+
+- **Frontend writes B2B state via `updateSession`** — Instead of letting `storefront-permissions` + your transform compute B2B session fields, the frontend PATCHes them directly. This creates race conditions, partial state, and duplicated sources of truth.
+- **Duplicating VTEX-owned fields** — Copying `costcenter`, `organization`, or `postalCode` into your namespace when they already live in `storefront-permissions` or `profile`.
+- **Slow transforms without caching** — Calling external APIs on every transform invocation without LRU + VBase SWR. Transforms run on every session change that touches a declared input; they must be fast.
+- **Reading `public.*` as source of truth** — Frontend components reading `public.organization` or `public.storeNumber` instead of the private namespace field, leading to stale or inconsistent display.
+- **Writing to other apps' output namespaces** — Declaring output fields in `checkout`, `search`, or `storefront-permissions` namespaces you don't own, bypassing native transform recomputation.
+- **Missing tenant keys in LRU** — In-memory cache for org or pricing data keyed only by entity ID without `account:workspace`, unsafe on multi-tenant shared pods.
+
+## Review checklist
+
+- [ ] Does the transform output **only** fields from its own computation/backend, not duplicates of other namespaces?
+- [ ] Are **input** dependencies declared correctly in `vtex.session/configuration.json`?
+- [ ] Are **output** fields limited to your own namespace (plus `public.*` inputs when propagation is needed)?
+- [ ] Is `public.*` used **only** for input propagation, not as a second read model?
+- [ ] Do frontend components read from **private** namespaces, not `public.*`, for business state?
+- [ ] Are upstream API calls in the transform **cached** (LRU + VBase SWR) to keep transform latency low?
+- [ ] Are in-memory cache keys scoped with `account:workspace` for multi-tenant safety?
+- [ ] Is the transform order (DAG) correct—does it run after all its dependency transforms?
+- [ ] Has `updateSession` been removed from frontend code for fields the transform computes?
+
+## Related skills
+
+- [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — Caching layers and parallel I/O applicable inside transforms
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix for the transform endpoint
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and middleware basics
+- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, policies
+
+## Reference
+
+- [VTEX Session System](https://developers.vtex.com/docs/guides/vtex-io-documentation-using-the-session-manager) — Session manager overview and API
+- [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
+- [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — VBase, MasterData, and custom clients
+- [Engineering Guidelines](https://developers.vtex.com/docs/guides/vtex-io-documentation-engineering-guidelines) — Scalability and IO development practices
