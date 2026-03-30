@@ -1,23 +1,40 @@
-This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when working with masterdata v2 entities, schemas, or masterdataclient in vtex io apps. covers data entities, json schema definitions, crud operations, the masterdata builder, triggers, search and scroll operations, and schema lifecycle management. use for storing, querying, and managing custom data in vtex io apps while avoiding the 60-schema limit through proper schema versioning.
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when working with masterdata v2 entities, schemas, or masterdataclient in vtex io apps, or when anyone designing or implementing a solution must scrutinize whether master data is the correct storage. the skill prompts hard questions: native catalog or other vtex stores, oms, or an external database may be better; do not default to md because it is convenient. covers json schema, crud, triggers, search and scroll, schema lifecycle, purchase-path avoidance, single source of truth, and bff handoffs. use for justified custom persistence while avoiding the 60-schema limit.
 
 # MasterData v2 Integration
 
 ## When this skill applies
 
-Use this skill when your VTEX IO app needs to store custom data (reviews, wishlists, form submissions, configuration records), query or filter that data, or set up automated workflows triggered by data changes.
+Use this skill when your VTEX IO app needs to store custom data (reviews, wishlists, form submissions, configuration records), query or filter that data, or set up automated workflows triggered by data changes—and when you must **justify** Master Data versus other VTEX or external stores.
 
 - Defining data entities and JSON Schemas using the `masterdata` builder
 - Performing CRUD operations through MasterDataClient (`ctx.clients.masterdata`)
 - Configuring search, scroll, and indexing for efficient data retrieval
 - Setting up Master Data triggers for automated workflows
 - Managing schema lifecycle to avoid the 60-schema limit
+- **Deciding** whether data belongs in **Catalog** (fields, **specifications**, unstructured SKU/product specs), **Master Data**, **native OMS/checkout** surfaces, or an **external** SQL/NoSQL/database
+- Avoiding **synchronous** Master Data on the **purchase critical path** (cart, checkout, payment, placement) unless there is a **hard** performance and reliability case
+- Preferring **one source of truth**—avoid **duplicating** order headers or OMS lists in Master Data for convenience; prefer **OMS** or a **BFF** with **caching** (see **Related skills**)
 
 Do not use this skill for:
+
 - General backend service patterns (use `vtex-io-service-apps` instead)
 - GraphQL schema definitions (use `vtex-io-graphql-api` instead)
 - Manifest and builder configuration (use `vtex-io-app-structure` instead)
 
 ## Decision rules
+
+### Before you choose Master Data
+
+Architects, developers, and anyone **designing or implementing** a solution should **think deeply** and **treat this section as a checklist to critique the default**: double-check that Master Data is the **right** persistence layer—not an automatic pick. The skill is written to **question** convenience-driven choices.
+
+- **Purpose** — Master Data is a **document-oriented** store (similar in spirit to **document DBs** / DynamoDB-style access patterns). It is **one option** among many; choosing it because it is “there” or “cheap” without a **workload fit** review is a design smell.
+- **Product-bound data** — If the information is fundamentally **about products or SKUs**, evaluate **Catalog** first: **specifications**, **unstructured product/SKU specifications**, and native catalog fields before creating a **parallel** MD entity that mirrors catalog truth.
+- **Purchase path** — **Do not** place **synchronous** Master Data reads/writes in the **hot path** of **checkout** (cart mutation, payment, order placement) unless you have **evidence** (latency budget, failure modes). Prefer **native** commerce stores and **async** or **after-order** enrichment.
+- **Orders and lists** — **Duplicating** **OMS** or **order** data into Master Data to power **My Orders** or similar **usually** fights **single source of truth**. Prefer **OMS APIs** (or **marketplace** protocols) behind a **BFF** or **IO** layer with **application caching** and correct **HTTP/path** semantics—not a second **order database** in MD “because it is easier.”
+- **Exposing MD** — Master Data is **storage** only. Any **storefront** or **partner** access should go through a **service** that enforces **authentication**, **authorization**, and **rate limits**—typically **VTEX IO** or an external **BFF** following [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) patterns.
+- **When MD fits** — After **storage fit** review, if MD remains appropriate, implement CRUD and schema discipline as below; combine with [vtex-io-application-performance](../vtex-io-application-performance/skill.md) and [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) when exposing HTTP or GraphQL from IO.
+
+### Implementation rules
 
 - A **data entity** is a named collection of documents (analogous to a database table). A **JSON Schema** defines structure, validation, and indexing.
 - When using the `masterdata` builder, entities are defined by folder structure: `masterdata/{entityName}/schema.json`. The builder creates entities named `{vendor}_{appName}_{entityName}`.
@@ -28,18 +45,18 @@ Do not use this skill for:
 
 MasterDataClient methods:
 
-| Method | Description |
-|--------|-------------|
-| `getDocument` | Retrieve a single document by ID |
-| `createDocument` | Create a new document, returns generated ID |
-| `createOrUpdateEntireDocument` | Upsert a complete document |
-| `createOrUpdatePartialDocument` | Upsert partial fields (patch) |
-| `updateEntireDocument` | Replace all fields of an existing document |
-| `updatePartialDocument` | Update specific fields only |
-| `deleteDocument` | Delete a document by ID |
-| `searchDocuments` | Search with filters, pagination, and field selection |
-| `searchDocumentsWithPaginationInfo` | Search with total count metadata |
-| `scrollDocuments` | Iterate over large result sets |
+| Method                              | Description                                          |
+| ----------------------------------- | ---------------------------------------------------- |
+| `getDocument`                       | Retrieve a single document by ID                     |
+| `createDocument`                    | Create a new document, returns generated ID          |
+| `createOrUpdateEntireDocument`      | Upsert a complete document                           |
+| `createOrUpdatePartialDocument`     | Upsert partial fields (patch)                        |
+| `updateEntireDocument`              | Replace all fields of an existing document           |
+| `updatePartialDocument`             | Update specific fields only                          |
+| `deleteDocument`                    | Delete a document by ID                              |
+| `searchDocuments`                   | Search with filters, pagination, and field selection |
+| `searchDocumentsWithPaginationInfo` | Search with total count metadata                     |
+| `scrollDocuments`                   | Iterate over large result sets                       |
 
 Search `where` clause syntax:
 
@@ -91,17 +108,25 @@ If you see direct HTTP calls to URLs matching `/api/dataentities/`, `api.vtex.co
 ```typescript
 // Using MasterDataClient through ctx.clients
 export async function getReview(ctx: Context, next: () => Promise<void>) {
-  const { id } = ctx.query
+  const { id } = ctx.query;
 
   const review = await ctx.clients.masterdata.getDocument<Review>({
-    dataEntity: 'reviews',
+    dataEntity: "reviews",
     id: id as string,
-    fields: ['id', 'productId', 'author', 'rating', 'title', 'text', 'approved'],
-  })
+    fields: [
+      "id",
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "approved",
+    ],
+  });
 
-  ctx.status = 200
-  ctx.body = review
-  await next()
+  ctx.status = 200;
+  ctx.body = review;
+  await next();
 }
 ```
 
@@ -109,25 +134,25 @@ export async function getReview(ctx: Context, next: () => Promise<void>) {
 
 ```typescript
 // Direct REST call to Master Data — bypasses client infrastructure
-import axios from 'axios'
+import axios from "axios";
 
 export async function getReview(ctx: Context, next: () => Promise<void>) {
-  const { id } = ctx.query
+  const { id } = ctx.query;
 
   // No caching, no retry, no proper auth, no metrics
   const response = await axios.get(
     `https://api.vtex.com/api/dataentities/reviews/documents/${id}`,
     {
       headers: {
-        'X-VTEX-API-AppKey': process.env.VTEX_APP_KEY,
-        'X-VTEX-API-AppToken': process.env.VTEX_APP_TOKEN,
+        "X-VTEX-API-AppKey": process.env.VTEX_APP_KEY,
+        "X-VTEX-API-AppToken": process.env.VTEX_APP_TOKEN,
       },
-    }
-  )
+    },
+  );
 
-  ctx.status = 200
-  ctx.body = response.data
-  await next()
+  ctx.status = 200;
+  ctx.body = response.data;
+  await next();
 }
 ```
 
@@ -181,7 +206,14 @@ If the app creates or searches documents in a data entity but no JSON Schema exi
     }
   },
   "required": ["productId", "rating", "title", "text"],
-  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
   "v-indexed": ["productId", "author", "approved", "rating", "createdAt"]
 }
 ```
@@ -191,21 +223,21 @@ If the app creates or searches documents in a data entity but no JSON Schema exi
 ```typescript
 // Saving documents without any schema — no validation, no indexing
 await ctx.clients.masterdata.createDocument({
-  dataEntity: 'reviews',
+  dataEntity: "reviews",
   fields: {
-    productId: '12345',
-    rating: 'five', // String instead of number — no validation!
-    title: 123,     // Number instead of string — no validation!
+    productId: "12345",
+    rating: "five", // String instead of number — no validation!
+    title: 123, // Number instead of string — no validation!
   },
-})
+});
 
 // Searching on unindexed fields — full table scan, will time out on large datasets
 await ctx.clients.masterdata.searchDocuments({
-  dataEntity: 'reviews',
-  where: 'productId=12345',  // productId is not indexed — very slow
-  fields: ['id', 'rating'],
+  dataEntity: "reviews",
+  where: "productId=12345", // productId is not indexed — very slow
+  fields: ["id", "rating"],
   pagination: { page: 1, pageSize: 10 },
-})
+});
 ```
 
 ---
@@ -244,6 +276,33 @@ Never cleaning up schemas during development.
 After 60 link cycles, the builder fails:
 "Error: Maximum number of schemas reached for entity 'reviews'"
 The app cannot be linked or installed until old schemas are deleted.
+```
+
+### Constraint: Do not create a parallel source of truth in Master Data without justification
+
+Using Master Data to **mirror** data that already has a **system of record** in **OMS**, **Catalog**, or an **external ERP**—for example **order headers** for a custom list view, or **SKU attributes** that belong in **catalog specifications**—creates **drift**, **reconciliation** cost, and **incident** risk.
+
+**Why this matters**
+
+Two sources of truth disagree after partial failures, retries, or manual edits. Teams spend capacity syncing and debugging instead of **customer outcomes**.
+
+**Detection**
+
+New MD entities whose fields **duplicate** OMS order fields “for performance” without a **BFF cache** plan; **product** attributes stored in MD when **Catalog** specs would suffice; **scheduled jobs** to “fix” MD from OMS because they diverged.
+
+**Correct**
+
+```text
+1. Identify the authoritative system (OMS, Catalog, partner API).
+2. Read from that source via BFF or IO, with caching (application + HTTP semantics) as needed.
+3. Use MD only for data without a native home or after explicit architecture sign-off.
+```
+
+**Wrong**
+
+```text
+"We store order snapshots in MD so the storefront is faster" while OMS remains canonical
+and no reconciliation strategy exists — eventual inconsistency is guaranteed.
 ```
 
 ## Preferred pattern
@@ -312,7 +371,14 @@ Define data entity schemas:
     }
   },
   "required": ["productId", "rating", "title", "text"],
-  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
   "v-indexed": ["productId", "author", "approved", "rating", "createdAt"],
   "v-cache": false
 }
@@ -322,24 +388,24 @@ Set up the client with `masterDataFor`:
 
 ```typescript
 // node/clients/index.ts
-import { IOClients } from '@vtex/api'
-import { masterDataFor } from '@vtex/clients'
+import { IOClients } from "@vtex/api";
+import { masterDataFor } from "@vtex/clients";
 
 interface Review {
-  id: string
-  productId: string
-  author: string
-  email: string
-  rating: number
-  title: string
-  text: string
-  approved: boolean
-  createdAt: string
+  id: string;
+  productId: string;
+  author: string;
+  email: string;
+  rating: number;
+  title: string;
+  text: string;
+  approved: boolean;
+  createdAt: string;
 }
 
 export class Clients extends IOClients {
   public get reviews() {
-    return this.getOrSet('reviews', masterDataFor<Review>('reviews'))
+    return this.getOrSet("reviews", masterDataFor<Review>("reviews"));
   }
 }
 ```
@@ -348,61 +414,75 @@ Implement CRUD operations:
 
 ```typescript
 // node/resolvers/reviews.ts
-import type { ServiceContext } from '@vtex/api'
-import type { Clients } from '../clients'
+import type { ServiceContext } from "@vtex/api";
+import type { Clients } from "../clients";
 
-type Context = ServiceContext<Clients>
+type Context = ServiceContext<Clients>;
 
 export const queries = {
   reviews: async (
     _root: unknown,
     args: { productId: string; page?: number; pageSize?: number },
-    ctx: Context
+    ctx: Context,
   ) => {
-    const { productId, page = 1, pageSize = 10 } = args
+    const { productId, page = 1, pageSize = 10 } = args;
 
     const results = await ctx.clients.reviews.search(
       { page, pageSize },
-      ['id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved'],
-      '',  // sort
-      `productId=${productId} AND approved=true`
-    )
+      [
+        "id",
+        "productId",
+        "author",
+        "rating",
+        "title",
+        "text",
+        "createdAt",
+        "approved",
+      ],
+      "", // sort
+      `productId=${productId} AND approved=true`,
+    );
 
-    return results
+    return results;
   },
-}
+};
 
 export const mutations = {
   createReview: async (
     _root: unknown,
-    args: { input: { productId: string; rating: number; title: string; text: string } },
-    ctx: Context
+    args: {
+      input: { productId: string; rating: number; title: string; text: string };
+    },
+    ctx: Context,
   ) => {
-    const { input } = args
-    const email = ctx.vtex.storeUserEmail ?? 'anonymous@store.com'
+    const { input } = args;
+    const email = ctx.vtex.storeUserEmail ?? "anonymous@store.com";
 
     const response = await ctx.clients.reviews.save({
       ...input,
-      author: email.split('@')[0],
+      author: email.split("@")[0],
       email,
       approved: false,
       createdAt: new Date().toISOString(),
-    })
+    });
 
     return ctx.clients.reviews.get(response.DocumentId, [
-      'id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved',
-    ])
+      "id",
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "createdAt",
+      "approved",
+    ]);
   },
 
-  deleteReview: async (
-    _root: unknown,
-    args: { id: string },
-    ctx: Context
-  ) => {
-    await ctx.clients.reviews.delete(args.id)
-    return true
+  deleteReview: async (_root: unknown, args: { id: string }, ctx: Context) => {
+    await ctx.clients.reviews.delete(args.id);
+    return true;
   },
-}
+};
 ```
 
 Configure triggers (optional):
@@ -430,11 +510,11 @@ Wire into Service:
 
 ```typescript
 // node/index.ts
-import type { ParamsContext, RecorderState } from '@vtex/api'
-import { Service } from '@vtex/api'
+import type { ParamsContext, RecorderState } from "@vtex/api";
+import { Service } from "@vtex/api";
 
-import { Clients } from './clients'
-import { queries, mutations } from './resolvers/reviews'
+import { Clients } from "./clients";
+import { queries, mutations } from "./resolvers/reviews";
 
 export default new Service<Clients, RecorderState, ParamsContext>({
   clients: {
@@ -452,7 +532,7 @@ export default new Service<Clients, RecorderState, ParamsContext>({
       Mutation: mutations,
     },
   },
-})
+});
 ```
 
 ## Common failure modes
@@ -471,6 +551,16 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [ ] Is pagination properly handled (max 100 per page, scroll for large sets)?
 - [ ] Is there a plan for schema cleanup to avoid the 60-schema limit?
 - [ ] Are required policies (`outbound-access`, `ADMIN_DS`) declared in the manifest?
+- [ ] Was **Catalog** or native stores ruled in/out before MD for **product** or **order** data?
+- [ ] Is MD **off** the **purchase critical path** unless explicitly justified?
+- [ ] If exposing MD externally, is access through a **controlled** IO/BFF layer with **auth**?
+
+## Related skills
+
+- [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — IO performance patterns (cache layers, BFF-facing behavior)
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Public vs private routes for MD-backed APIs
+- [architecture-well-architected-commerce](../../../architecture/skills/architecture-well-architected-commerce/skill.md) — Cross-cutting storage and pillar alignment
+- [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF boundaries when MD is not accessed from IO
 
 ## Reference
 
