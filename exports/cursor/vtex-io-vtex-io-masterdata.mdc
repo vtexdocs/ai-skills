@@ -38,6 +38,27 @@ Architects, developers, and anyone **designing or implementing** a solution shou
 - **Exposing MD** — Master Data is **storage** only. Any **storefront** or **partner** access should go through a **service** that enforces **authentication**, **authorization**, and **rate limits**—typically **VTEX IO** or an external **BFF** following [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) patterns.
 - **When MD fits** — After **storage fit** review, if MD remains appropriate, implement CRUD and schema discipline as below; combine with [vtex-io-application-performance](../vtex-io-application-performance/skill.md) and [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) when exposing HTTP or GraphQL from IO.
 
+### Entity governance and hygiene
+
+Before creating a new entity or extending an existing one, understand the landscape:
+
+- **Native entities** — The platform manages entities like `CL` (clients), `AD` (addresses), `OD` (orders), `BK` (bookmarks), `AU` (auth), and others. **Never** create custom entities that duplicate native entity purposes. Know which entities exist before adding new ones.
+- **Entity usage audit** — In accounts with dozens of custom entities, classify each by purpose: **logs/monitoring**, **cache/temporary**, **order extension**, **customer extension**, **marketing**, **CMS/content**, **integration/sync**, **auth/identity**, **logistics/geo**, or **custom business logic**. Entities in the **logs** or **cache** categories often indicate misuse—IO app logs belong in the logger, not MD; caches belong in VBase, not MD.
+- **Critical path flag** — Identify whether an entity is used in **checkout**, **cart**, **payment**, or **login** flows. Entities on the critical path must meet strict latency and availability requirements. If an MD entity is on the critical path, question whether it should be there at all.
+- **Document count awareness** — Use `REST-Content-Range` headers from `GET /search?_fields=id` with `REST-Range: resources=0-0` to efficiently count documents without fetching them. Large entities (100k+ docs) need `scrollDocuments`, pagination strategy, and potentially a BFF caching layer.
+
+### Bulk operations and data migration
+
+When importing, exporting, or migrating large datasets:
+
+- **Validate before import** — Cross-reference import data against the authoritative source (e.g. catalog export for SKU validation, CL entity or user management API for email allowlists). Produce exception reports for invalid rows before touching MD.
+- **JSONL payloads** — Generate one JSON object per MD document in a `.jsonl` file for bulk imports. This enables resumable, line-by-line processing.
+- **Rate limiting** — MD APIs enforce rate limits. Use configurable delays between calls (e.g. 400ms) with exponential backoff on HTTP 429 responses.
+- **Checkpoints** — For large imports (10k+ documents), persist progress to a checkpoint file (last successful document ID or line index). On failure or timeout, resume from the checkpoint instead of restarting.
+- **Parallel with bounded concurrency** — Use a concurrency pool (e.g. `p-queue` with concurrency 5-10) for parallel `POST` or `PATCH` operations. Too much parallelism triggers rate limits; too little is slow.
+- **Bulk delete before re-import** — When replacing all documents in an entity, use scroll + delete before import, or implement a separate delete pass with the same checkpoint and backoff patterns.
+- **Schema alignment** — Ensure import payloads match the entity's JSON Schema exactly. Missing required fields or type mismatches cause silent validation failures.
+
 ### Implementation rules
 
 - A **data entity** is a named collection of documents (analogous to a database table). A **JSON Schema** defines structure, validation, and indexing.
@@ -280,6 +301,34 @@ Never cleaning up schemas during development.
 After 60 link cycles, the builder fails:
 "Error: Maximum number of schemas reached for entity 'reviews'"
 The app cannot be linked or installed until old schemas are deleted.
+```
+
+### Constraint: Do not use Master Data as a log, cache, or temporary store
+
+Entities used for application **logging**, **caching** (IO app state, query results), or **temporary staging** data do not belong in Master Data. Use `ctx.vtex.logger` for logs, **VBase** for app-specific caches and temp state, and external log aggregation for audit trails.
+
+**Why this matters** — Log and cache entities accumulate millions of documents, hit rate limits, make the entity unusable for legitimate queries, and waste storage. MD is not designed for high-write, high-volume, disposable data.
+
+**Detection** — Entities with names like `LOG`, `cache`, `temp`, `staging`, `debug`, or entities whose document count grows unboundedly with traffic volume rather than business events.
+
+**Correct**
+
+```typescript
+// Logs: use structured logger
+ctx.vtex.logger.info({ action: 'priceUpdate', skuId, newPrice })
+
+// Cache: use VBase
+await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
+```
+
+**Wrong**
+
+```typescript
+// Using MD as a log store — creates millions of documents
+await ctx.clients.masterdata.createDocument({
+  dataEntity: 'appLogs',
+  fields: { level: 'info', message: `Price updated for ${skuId}`, timestamp: new Date() },
+})
 ```
 
 ### Constraint: Do not create a parallel source of truth in Master Data without justification
@@ -545,6 +594,10 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - **Searching without indexed fields**: Queries on non-indexed fields trigger full document scans. For large datasets, this causes timeouts and rate limit errors. Ensure all `where` clause fields are in the schema's `v-indexed` array.
 - **Not paginating search results**: Master Data v2 has a maximum page size of 100 documents. Requesting more silently returns only up to the limit. Use proper pagination or `scrollDocuments` for large result sets.
 - **Ignoring the 60-schema limit**: Each app version linked/installed creates a new schema. After 60 link cycles, the builder fails. Periodically clean up unused schemas via the Delete Schema API.
+- **Using MD for logs or caches**: Entities that grow with traffic volume instead of business events. Millions of log or cache documents degrade the account's MD performance.
+- **Bulk import without rate limiting**: Flooding MD with parallel writes triggers 429 errors and account-wide throttling. Always use bounded concurrency with backoff.
+- **Import without validation**: Importing data without cross-referencing the catalog or user store leads to orphaned documents, broken references, and data that fails schema validation silently.
+- **No checkpoint in bulk operations**: A 50k-document import that fails at document 30k must restart from zero without a checkpoint file.
 
 ## Review checklist
 
@@ -558,11 +611,16 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [ ] Was **Catalog** or native stores ruled in/out before MD for **product** or **order** data?
 - [ ] Is MD **off** the **purchase critical path** unless explicitly justified?
 - [ ] If exposing MD externally, is access through a **controlled** IO/BFF layer with **auth**?
+- [ ] Is the entity **not** being used for **logging**, **caching**, or **temporary** data?
+- [ ] For bulk operations, are **rate limiting**, **backoff**, and **checkpoints** implemented?
+- [ ] Is import data **validated** against the authoritative source before writing to MD?
+- [ ] Are **native entities** (CL, AD, OD, etc.) identified and not duplicated by custom entities?
 
 ## Related skills
 
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — IO performance patterns (cache layers, BFF-facing behavior)
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Public vs private routes for MD-backed APIs
+- [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms that may read from or complement MD-stored state
 - [architecture-well-architected-commerce](../../../architecture/skills/architecture-well-architected-commerce/skill.md) — Cross-cutting storage and pillar alignment
 - [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF boundaries when MD is not accessed from IO
 

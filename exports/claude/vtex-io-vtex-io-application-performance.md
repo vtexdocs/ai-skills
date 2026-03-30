@@ -28,6 +28,25 @@ Do not use this skill for:
 - **Parallel requests** — When resolvers need **independent** upstream calls, run them **in parallel**; combine only when outputs depend on each other.
 - **Timeouts on every outbound call** — Every `ctx.clients` call and external HTTP request **must** have an explicit **timeout**. Use `@vtex/api` client options (`timeout`, `retries`, `exponentialTimeoutCoefficient`) to tune per-client behavior. Unbounded waits are the top cause of cascading failures in distributed systems.
 - **Graceful degradation** — When an upstream is slow or down, **fail open** where the business allows (return cached/default data, skip optional enrichment) rather than blocking the response. Consider **circuit breaker** patterns for chronically failing dependencies.
+- **Never cache real-time transactional state** — **Order forms**, **cart simulations**, **payment responses**, **full session state**, and **commitment pricing** must never be served from cache. They reflect live, mutable state that changes on every interaction. Caching these creates stale prices, phantom inventory, or duplicate charges.
+- **Resolver chain deduplication** — When a resolver chain calls the **same** client method **multiple times** (e.g. `getCostCenter` in the resolver and again inside a helper), **deduplicate**: call once, pass the result through, or stash in `ctx.state`. Serial waterfalls of 7+ calls that could be 3 parallel + 1 sequential are the top performance sink.
+- **Phased `Promise.all`** — Group independent calls into **parallel phases**. Phase 1: `Promise.all([getOrderForm(), getCostCenter(), getSession()])`. Phase 2 (depends on Phase 1): `getSkuMetadata()`. Phase 3 (depends on Phase 2): `generatePrice()`. Never `await` six calls sequentially when only two depend on each other.
+- **Batch mutations** — When setting multiple values (e.g. `setManualPrice` per cart item), use `Promise.all` instead of a sequential loop. Each `await` in a loop adds a full round-trip.
+
+### VBase deep patterns
+
+- **Per-entity keys, not blob keys** — Cache individual entities (e.g. `sku:{region}:{skuId}`) instead of composite blobs (e.g. `allSkus:{sortedCartSkuIds}`). Per-entity keys dramatically increase cache hit rates when items are added/removed.
+- **Minimal DTOs** — Store only the fields the consumer needs (e.g. `{ skuId, mappedId, isSpecialItem }` at ~50 bytes) instead of the full API response (~10-50 KB per product). Reduces VBase storage, serialization time, and transfer size.
+- **Sibling prewarming** — When a search API returns a product with 4 SKU variants, cache **all 4** individual SKUs even if only 1 was requested. The next request for a sibling is a VBase hit instead of an API call.
+- **Pass `vbase` as a parameter** — Clients don't have direct access to other clients. Pass `ctx.clients.vbase` as a parameter to client methods or utilities that need it. This keeps code testable and explicit about dependencies.
+- **VBase state machines** — For long-running operations (scans, imports, batch processing), use VBase as a state store with `current-operation.json` (lock + progress), heartbeat extensions, checkpoint/resume, and TTL-based lock expiry to prevent zombie locks.
+
+### `service.json` tuning
+
+- **`timeout`** — Maximum seconds before the platform kills a request. Set based on the longest expected operation; do not leave at the default if your resolver calls slow upstreams.
+- **`memory`** — MB per worker. Increase if LRU caches or large payloads cause OOM; monitor actual usage before over-provisioning.
+- **`workers`** — Concurrent request handlers per replica. More workers handle more concurrent requests but each shares the memory budget and in-process LRU.
+- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling. For payment-critical or high-throughput apps, set `minReplicas >= 2` so cold starts don't hit production traffic.
 
 ### Tenancy and in-memory caches
 
@@ -54,6 +73,58 @@ function cacheKey(ctx: Context, subjectId: string) {
 
 **Wrong** — `globalUserCache.set(email, profile)` keyed **only** by **email**, with **no** `account`/`workspace` segment—**unsafe** on shared pods even though a later **VBase** read would be **account-scoped**, because **this** map is not partitioned by the platform.
 
+### Constraint: Do not use fire-and-forget VBase writes in financial or idempotency-critical paths
+
+When VBase serves as an **idempotency store** (e.g. payment connectors storing transaction state) or a **data-integrity store**, writes **must** be **awaited**. Fire-and-forget writes risk silent failure: a successful upstream operation (e.g. a charge) whose VBase record is lost causes a **duplicate** on the next retry.
+
+**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization, the connector cannot find the previous result and sends **another** payment request—causing a **duplicate charge**.
+
+**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution.
+
+**Correct** — Await the write; accept the latency cost for correctness.
+
+```typescript
+// Critical path: await guarantees the idempotency record is persisted
+await ctx.clients.vbase.saveJSON<Transaction>('transactions', paymentId, transactionData)
+return Authorizations.approve(authorization, { ... })
+```
+
+**Wrong** — Fire-and-forget in a payment flow.
+
+```typescript
+// No await — if this fails silently, the next retry creates a duplicate charge
+ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
+return Authorizations.approve(authorization, { ... })
+```
+
+### Constraint: Do not cache real-time transactional data
+
+**Order forms**, **cart simulation responses**, **payment statuses**, **full session state**, and **commitment prices** must **never** be served from LRU, VBase, or any cache layer. They reflect live mutable state.
+
+**Why this matters** — Serving a cached order form shows phantom items, stale prices, or wrong quantities. Caching payment responses could return a previous transaction's status for a different payment. Caching cart simulations returns stale availability and pricing.
+
+**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching. Or a resolver that caches the result of `checkout.orderForm()`.
+
+**Correct** — Always call the live API for transactional data; cache **reference data** (org, cost center, config, seller lists) around it.
+
+```typescript
+// Reference data: cached (changes rarely)
+const costCenter = await getCostCenterCached(ctx, costCenterId)
+const sellerList = await getSellerListCached(ctx)
+
+// Transactional data: always live
+const orderForm = await ctx.clients.checkout.orderForm()
+const simulation = await ctx.clients.checkout.simulation(payload)
+```
+
+**Wrong** — Caching the order form or cart simulation.
+
+```typescript
+const cacheKey = `orderForm:${orderFormId}`
+const cached = orderFormCache.get(cacheKey)
+if (cached) return cached // Stale cart state served to user
+```
+
 ### Constraint: Do not block the purchase path on slow or unbounded cache refresh
 
 **Stale-while-revalidate** or **origin** calls **must not** add **unbounded** latency to **checkout-critical** middleware if the platform SLA requires a fast response.
@@ -68,35 +139,128 @@ function cacheKey(ctx: Context, subjectId: string) {
 
 ## Preferred pattern
 
-1. **Classify** data: **safe to share** across users (after scoping) vs **user-private** (never in shared cache without encryption and keying).
+1. **Classify** data: **reference data** (org, cost center, config, seller lists → cacheable) vs **transactional data** (order form, cart sim, payment → never cache) vs **user-private** (never in shared cache without encryption and keying).
 2. **Choose** LRU only, VBase only, or **LRU → VBase → origin** (two-layer) for **read-heavy** reference data.
 3. **Deduplicate** within a request: set **`ctx.state`** flags when a **resolver** chain might call the same loader twice.
-4. **Parallelize** independent **`ctx.clients`** calls.
-5. **Document** TTLs and **invalidation** (who writes, when refresh runs).
+4. **Parallelize** independent **`ctx.clients`** calls in **phased** `Promise.all` groups.
+5. **Per-entity VBase keys** with minimal DTOs for high-cardinality data (SKUs, users, org records).
+6. **Document** TTLs and **invalidation** (who writes, when refresh runs).
+
+### Resolver chain optimization (before/after)
+
+```typescript
+// BEFORE: 7 sequential awaits, 2 duplicate calls
+const settings = await getAppSettings(ctx)          // 1
+const session = await getSessions(ctx)               // 2
+const costCenter = await getCostCenter(ctx, ccId)    // 3
+const orderForm = await getOrderForm(ctx)            // 4
+const skus = await getSkuById(ctx, skuIds)           // 5
+const price = await generatePrice(ctx, costCenter)   // 6 (calls getCostCenter AGAIN + getSession AGAIN)
+for (const item of items) {
+  await setManualPrice(ctx, item)                    // 7, 8, 9... (sequential loop)
+}
+
+// AFTER: 3 phases, no duplicates, parallel mutations
+const settings = await getAppSettings(ctx)
+const [session, costCenter, orderForm] = await Promise.all([
+  getSessions(ctx),
+  getCostCenter(ctx, ccId),
+  getOrderForm(ctx),
+])
+const skus = await getSkuMetadataBatch(ctx, skuIds)  // per-entity VBase cache
+const price = await generatePrice(ctx, costCenter, session)  // reuse, no re-fetch
+await Promise.all(items.map(item => setManualPrice(ctx, item)))
+```
+
+### Per-entity VBase caching
+
+```typescript
+interface SkuMetadata {
+  skuId: string
+  mappedSku: string | null
+  isSpecialItem: boolean
+}
+
+async function getSkuMetadataBatch(
+  ctx: Context,
+  skuIds: string[],
+): Promise<Map<string, SkuMetadata>> {
+  const { vbase, search } = ctx.clients
+  const results = new Map<string, SkuMetadata>()
+
+  // Phase 1: check VBase for each SKU in parallel
+  const lookups = await Promise.allSettled(
+    skuIds.map(id => vbase.getJSON<SkuMetadata>('sku-metadata', `sku:${id}`))
+  )
+
+  const missing: string[] = []
+  lookups.forEach((result, i) => {
+    if (result.status === 'fulfilled' && result.value) {
+      results.set(skuIds[i], result.value)
+    } else {
+      missing.push(skuIds[i])
+    }
+  })
+
+  if (missing.length === 0) return results
+
+  // Phase 2: fetch only missing SKUs from API
+  const products = await search.getSkuById(missing)
+
+  // Phase 3: cache ALL sibling SKUs (prewarm)
+  for (const product of products) {
+    for (const sku of product.items) {
+      const metadata: SkuMetadata = {
+        skuId: sku.itemId,
+        mappedSku: extractMapping(sku),
+        isSpecialItem: checkSpecial(sku),
+      }
+      results.set(sku.itemId, metadata)
+      // Fire-and-forget for prewarming (not idempotency-critical)
+      vbase.saveJSON('sku-metadata', `sku:${sku.itemId}`, metadata).catch(() => {})
+    }
+  }
+
+  return results
+}
+```
 
 ## Common failure modes
 
 - **LRU unbounded** — Memory grows without **max** entries; pod **OOM**.
 - **VBase without LRU** — Every request hits **VBase** for **hot** keys; **latency** and **cost** rise.
 - **In-memory cache without tenant in key** — Same pod serves account A then B; **stale** or **wrong** row returned from module cache.
-- **Serial awaits** — Three **independent** Janus calls **awaited** one after another.
+- **Serial awaits** — Three **independent** Janus calls **awaited** one after another; total latency = sum of all instead of max.
+- **Duplicate calls in resolver chains** — `getCostCenter` called in the resolver and again inside a helper; `getSession` called twice in the same flow. Each duplicate adds a full round-trip.
+- **Blob VBase keys** — Keying VBase by `sortedCartSkuIds` means adding 1 item to a cart of 10 requires a full re-fetch instead of 1 lookup.
+- **Caching transactional data** — Order forms, cart simulations, payment responses served from cache; stale prices, phantom items, or duplicate charges.
+- **Fire-and-forget writes in critical paths** — Unawaited VBase writes for idempotency stores; silent failure causes duplicates on retry.
 - **No explicit timeouts** — Relying on default or infinite timeouts for upstream calls; one slow dependency stalls the whole request chain.
+- **Global mutable singletons** — Module-level mutable objects (e.g. token cache metadata) modified by concurrent requests cause race conditions and incorrect behavior.
 - **Treating AppSettings as real-time** — **Stale** admin change until **TTL** expires; **no** notification path.
+- **`console.log` in hot paths** — Logging full response objects with template literals produces `[object Object]`; use `ctx.vtex.logger` with `JSON.stringify` and redact sensitive data.
 
 ## Review checklist
 
 - [ ] Are **in-memory** cache keys built with **`account` + `workspace`** (and entity id) when values are tenant-specific?
 - [ ] Is **LRU** bounded (max entries) and **TTL** defined?
 - [ ] For **VBase**, is **stale-while-revalidate** or **TTL-only** behavior **explicit**?
-- [ ] Are **independent** upstream calls **parallelized** where safe?
+- [ ] Are **independent** upstream calls **parallelized** (`Promise.all` phases) where safe?
+- [ ] Are there **no duplicate calls** to the same client method within a resolver chain?
 - [ ] Is **AppSettings** (or similar) **loaded** at the right **frequency** (once vs per request)?
 - [ ] Is **checkout** or **payment** path **free** of **blocking** optional refreshes?
 - [ ] Does every outbound call have an explicit **timeout** (via `@vtex/api` client options or equivalent)?
 - [ ] For unreliable upstreams, is there a **degradation** path (cached fallback, skip, circuit breaker)?
+- [ ] Are VBase writes **awaited** in financial or idempotency-critical paths?
+- [ ] Is **transactional data** (order form, cart sim, payment) always fetched live, never from cache?
+- [ ] Are VBase keys **per-entity** (not blob) for high-cardinality data like SKUs?
+- [ ] Are `service.json` resource limits (`timeout`, `memory`, `workers`, `replicas`) tuned for the workload?
+- [ ] Is logging done via `ctx.vtex.logger` (not `console.log`) with sensitive data redacted?
 
 ## Related skills
 
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Edge paths, cookies, CDN
+- [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
 - [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
