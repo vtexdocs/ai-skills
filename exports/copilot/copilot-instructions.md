@@ -9345,6 +9345,548 @@ async function getSkuMetadataBatch(
 
 ---
 
+# Authorization & Policy Design
+
+## When this skill applies
+
+Use this skill when a VTEX IO app needs explicit permissions to call external services, consume VTEX resources, or expose access-controlled behavior.
+
+- Adding an external API integration
+- Consuming VTEX resources that require declared permissions
+- Reviewing whether a route or client needs policy changes
+- Tightening app permissions around an existing integration
+
+Do not use this skill for:
+- service runtime tuning
+- HTTP handler structure
+- frontend UI authorization behavior
+- broader trust-boundary or sensitive-data modeling
+- choosing between `AUTH_TOKEN`, `STORE_TOKEN`, and `ADMIN_TOKEN`
+
+## Decision rules
+
+- Treat `manifest.json` policies as explicit declarations of what the app is allowed to access.
+- Use this skill to decide what the app is authorized to do, not which runtime token identity should make the call.
+- Add only the policies required for the integrations and resources the app actually uses.
+- Use License Manager policies when the app needs access to VTEX platform resources protected by LM resource keys.
+- Use app policies such as `"vendor.app-name:policy-name"` when the app consumes resources or operations exposed by another VTEX IO app through role-based policies.
+- Use `outbound-access` when the app needs to call external HTTP services or URLs that are not covered by License Manager or app policies.
+- Prefer narrowly scoped outbound-access declarations over wildcard hosts or paths.
+- When exposing your own routes or operations, define access on the server side through resource-based policies, route protections, or auth directives instead of assuming consumers will declare something in their own manifest.
+- A VRN (VTEX Resource Name) is the internal identifier format VTEX uses for resources and identities. Role-based policies use `resources` expressed as VRNs, and resource-based policies use `principals` expressed as VRNs.
+- Use VRNs only where the platform expects them, especially in `service.json` resource-based policies or when interpreting authorization errors. Do not generate VRNs in `manifest.json` for consumer-side policy declarations.
+- In resource-based policies, multiple `principals` are evaluated as alternatives, and explicit `deny` rules override `allow` rules.
+- When exposing your own role-based policies, keep them minimal and operation-specific rather than broad catch-all permissions.
+- Review policy requirements when adding a new client, external integration, or service route that depends on protected access.
+- Keep route implementation and policy declaration aligned: if a route depends on a protected integration, make sure the permission boundary is visible and intentional.
+
+Policy types at a glance:
+
+- License Manager policy:
+
+```json
+{
+  "policies": [
+    { "name": "Sku.aspx" }
+  ]
+}
+```
+
+- App policy:
+
+```json
+{
+  "policies": [
+    { "name": "vtex.messages:graphql-translate-messages" }
+  ]
+}
+```
+
+- Outbound-access policy:
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "partner.example.com",
+        "path": "/api/*"
+      }
+    }
+  ]
+}
+```
+
+- Resource-based route policy with app principal VRN:
+
+```json
+{
+  "routes": {
+    "privateStatus": {
+      "path": "/_v/private/status/:code",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["POST"],
+          "principals": [
+            "vrn:apps:*:my-sponsor-account:*:app/vendor.partner-app@0.x"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+This route allows a specific IO app principal. Other apps remain denied by default because they do not match any allow rule.
+
+- Resource-based route policy with VTEX ID principal VRN:
+
+```json
+{
+  "routes": {
+    "status": {
+      "path": "/_v/status/:code",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["POST"],
+          "principals": [
+            "vrn:vtex.vtex-id:-:bibi:-:user/vtexappkey-mcc77-HBXYAE"
+          ]
+        },
+        {
+          "effect": "deny",
+          "actions": ["POST"],
+          "principals": [
+            "vrn:vtex.vtex-id:-:bibi:-:user/*@vtex.com"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+This is an advanced pattern for integrations that identify callers through a specific VTEX ID principal, including appkey-based contracts. Prefer app VRNs for IO-to-IO access when the caller is another VTEX IO app. VTEX IO auth tokens such as `AUTH_TOKEN`, `STORE_TOKEN`, and `ADMIN_TOKEN` play a different role: they authenticate requests to VTEX services and help preserve requester context, but they do not automatically replace route-level resource policies based on VRN principals.
+
+## Hard constraints
+
+### Constraint: Every protected integration must have an explicit supporting policy
+
+If a client or route depends on access controlled by License Manager policies, role-based app policies, or `outbound-access`, the app MUST declare the corresponding permission explicitly in `manifest.json`. Resources protected by resource-based policies define access on the server side and do not require consumer apps to declare additional policies just for that server-side enforcement.
+
+**Why this matters**
+
+Without the required policy, the code may be correct but the platform will still block the access at runtime, leading to failures that are hard to debug from handler code alone.
+
+**Detection**
+
+If you see a new external host, VTEX resource, or protected capability being consumed, STOP and verify that the required consumer-side policy exists before merging the code. If the app is exposing a protected route or operation, STOP and confirm that the access rule is also enforced on the server side.
+
+**Correct**
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "partner.example.com",
+        "path": "/api/*"
+      }
+    }
+  ]
+}
+```
+
+**Wrong**
+
+```json
+{
+  "policies": []
+}
+```
+
+### Constraint: Outbound policies must follow least privilege
+
+Outbound-access policies MUST be scoped as narrowly as practical for the target host and path.
+
+**Why this matters**
+
+Broad outbound rules increase risk, make reviews harder, and allow integrations to expand silently beyond their intended surface.
+
+**Detection**
+
+If you see wildcard hosts or overly broad paths when the integration uses a much smaller surface, STOP and narrow the declaration.
+
+**Correct**
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "partner.example.com",
+    "path": "/orders/*"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "*",
+    "path": "/*"
+  }
+}
+```
+
+### Constraint: Policy changes must be reviewed together with the behavior they enable
+
+When a policy is added or widened, the route or integration behavior that depends on it MUST be reviewed in the same change.
+
+**Why this matters**
+
+Permissions are meaningful only in context. Reviewing a policy change without the code that consumes it makes overreach and hidden side effects easier to miss.
+
+**Detection**
+
+If a PR changes `manifest.json` permissions without showing the relevant route, client, or integration code, STOP and request the linked behavior before approving.
+
+**Correct**
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "partner.example.com",
+        "path": "/orders/*"
+      }
+    }
+  ]
+}
+```
+
+**Wrong**
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "partner.example.com",
+        "path": "/api/*"
+      }
+    }
+  ]
+}
+```
+
+This broader policy alone does not explain why the app needs the expanded access.
+
+## Preferred pattern
+
+Start from the client or route behavior, identify the minimal access needed, and declare only that permission in `manifest.json`. When the app exposes protected routes or operations, define the resource-based access rule on the server side as part of the same review.
+
+Example pattern:
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "partner.example.com",
+        "path": "/orders/*"
+      }
+    }
+  ]
+}
+```
+
+Review permissions whenever integrations change, not only when policy errors appear in runtime.
+
+## Common failure modes
+
+- Forgetting the outbound-access policy for a new external integration.
+- Using an outbound-access policy when the real requirement is a License Manager resource key or an app policy exposed by another VTEX IO app.
+- Using wildcard hosts or paths when a narrower declaration would work.
+- Assuming consumer apps must declare manifest policies for resources that are actually enforced through resource-based policies on the server side.
+- Adding permissions without reviewing the route or client behavior they enable.
+- Treating policy failures as code bugs instead of permission bugs.
+- Treating a `403` that names a VRN resource or principal as a handler bug instead of an authorization or policy-mapping problem.
+
+## Review checklist
+
+- [ ] Does every protected integration have an explicit policy?
+- [ ] Is the policy type correct for the access pattern: License Manager, app policy, or outbound-access?
+- [ ] Are outbound-access rules narrow enough for the real integration surface?
+- [ ] If the app exposes protected routes or operations, is server-side access control defined explicitly as well?
+- [ ] Is the policy change reviewed together with the route or client that needs it?
+- [ ] Are wildcard permissions avoided unless strictly necessary?
+
+## Reference
+
+- [Policies](https://developers.vtex.com/docs/guides/vtex-io-documentation-policies) - Policy types and manifest declaration
+- [Accessing external resources within a VTEX IO app](https://developers.vtex.com/docs/guides/accessing-external-resources-within-a-vtex-io-app) - Outbound-access policy guidance
+- [Policies from License Manager](https://developers.vtex.com/docs/guides/policies-from-license-manager) - License Manager resource keys and policy usage
+- [Controlling access to app resources](https://developers.vtex.com/docs/guides/controlling-access-to-app-resources) - Role-based and resource-based access for your own app resources
+- [VTEX Resource Name (VRN)](https://developers.vtex.com/docs/guides/vtex-io-documentation-vrn) - How VTEX expresses resources and principals in policies
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) - App contract and permission declaration
+
+---
+
+# Auth Tokens & Request Context
+
+## When this skill applies
+
+Use this skill when the main decision is which VTEX IO identity should authenticate a backend request to VTEX services.
+
+- Choosing between `ctx.authToken`, `ctx.storeUserAuthToken`, and `ctx.adminUserAuthToken`
+- Deciding whether a VTEX client call should use `AUTH_TOKEN`, `STORE_TOKEN`, or `ADMIN_TOKEN`
+- Reviewing storefront and Admin integrations that should respect the current user identity
+- Replacing hardcoded `appKey` and `appToken` usage inside a VTEX IO app
+
+Do not use this skill for:
+- deciding which policies belong in `manifest.json`
+- modeling route-level authorization or resource-based policies
+- choosing between `ExternalClient`, `JanusClient`, and other client abstractions
+- browser-side login or session UX flows
+- validating route input or deciding what data may cross the app boundary
+
+## Decision rules
+
+- Use this skill to decide which identity talks to VTEX endpoints, not what that identity is authorized to do.
+- Use `AUTH_TOKEN` with `ctx.authToken` only for app-level operations that are not tied to a current shopper or Admin user.
+- Use `STORE_TOKEN` with `ctx.storeUserAuthToken` whenever the action comes from storefront browsing or a shopper-triggered flow and the integration should respect shopper permissions.
+- Use `ADMIN_TOKEN` with `ctx.adminUserAuthToken` whenever the action comes from an Admin interface and the integration should respect the logged-in Admin user's License Manager permissions.
+- Prefer user tokens whenever they are available. The official guidance is to avoid app-token authentication when a store or Admin user token can represent the requester more accurately.
+- If the corresponding user token is not present, fall back to `AUTH_TOKEN` only when the operation is truly app-scoped and does not depend on a current shopper or Admin identity.
+- When using VTEX IO clients that accept `authMethod`, pass the token choice explicitly when the default app identity is not the right one for the request.
+- When wrapping custom VTEX clients, propagate the matching auth token from `IOContext` at the client boundary instead of hardcoding credentials in handlers.
+- Keep token choice aligned with the user journey: storefront flows should not silently escalate to app-level permissions, and Admin flows should not bypass the current Admin role context.
+- `ADMIN_TOKEN` with `ctx.adminUserAuthToken` must remain server-side only and must never be exposed or proxied to browser clients.
+- Treat token choice and policy design as separate concerns: this skill decides which identity is making the call, while auth-and-policies decides what that identity is allowed to do.
+- Do not use `appKey` and `appToken` inside a VTEX IO app unless there is a documented exception outside the normal VTEX IO auth-token model.
+- Never log raw tokens or return them in responses. Tokens are request secrets, and downstream callers should receive only business data.
+
+Token selection at a glance:
+
+| Token | Context field | Use when | Avoid when |
+|---|---|---|---|
+| `AUTH_TOKEN` | `ctx.authToken` | app-level jobs, service-to-service work, or operations not linked to a current user | a shopper or Admin user is already driving the action |
+| `STORE_TOKEN` | `ctx.storeUserAuthToken` | storefront and shopper-triggered operations | backend jobs or Admin-only operations |
+| `ADMIN_TOKEN` | `ctx.adminUserAuthToken` | Admin requests that must respect the current user's LM role | storefront flows or background app tasks |
+
+## Hard constraints
+
+### Constraint: User-driven requests must prefer user tokens over the app token
+
+If a request is initiated by a current shopper or Admin user, the VTEX integration MUST use the corresponding user token instead of defaulting to the app token.
+
+**Why this matters**
+
+Using the app token for user-driven work widens permissions unnecessarily and disconnects the request from the real user context that should govern access.
+
+**Detection**
+
+If the code runs in a storefront or Admin request path and still uses `ctx.authToken` or implicit app-token behavior, STOP and verify whether `ctx.storeUserAuthToken` or `ctx.adminUserAuthToken` should be used instead.
+
+**Correct**
+
+```typescript
+export class OmsClient extends JanusClient {
+  constructor(ctx: IOContext, options?: InstanceOptions) {
+    super(ctx, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        VtexIdclientAutCookie: ctx.storeUserAuthToken,
+      },
+    })
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+export class OmsClient extends JanusClient {
+  constructor(ctx: IOContext, options?: InstanceOptions) {
+    super(ctx, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        VtexIdclientAutCookie: ctx.authToken,
+      },
+    })
+  }
+}
+```
+
+### Constraint: App tokens must be reserved for app-level operations that are not tied to a user
+
+Use `ctx.authToken` only when the request is genuinely app-scoped and no current shopper or Admin identity should govern the action.
+
+**Why this matters**
+
+The app token carries the permissions declared in the app manifest. Using it for user-triggered actions can bypass the narrower shopper or Admin permission model that the platform expects.
+
+**Detection**
+
+If a request originates from an Admin page, storefront interaction, or another user-facing workflow, STOP before using `ctx.authToken` and confirm that the action is truly app-level rather than user-scoped.
+
+**Correct**
+
+```typescript
+export class RatesAndBenefitsClient extends JanusClient {
+  constructor(ctx: IOContext, options?: InstanceOptions) {
+    super(ctx, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        VtexIdclientAutCookie: ctx.authToken,
+      },
+    })
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+export class AdminOrdersClient extends JanusClient {
+  constructor(ctx: IOContext, options?: InstanceOptions) {
+    super(ctx, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        VtexIdclientAutCookie: ctx.authToken,
+      },
+    })
+  }
+}
+```
+
+This is wrong when the client is used from an Admin flow that should respect the logged-in user's role.
+
+### Constraint: VTEX IO apps must not hardcode VTEX API credentials when auth tokens are available
+
+A VTEX IO app MUST use tokens from `IOContext` or `authMethod` instead of embedding `appKey`, `appToken`, or static VTEX credentials in source code or routine runtime configuration.
+
+**Why this matters**
+
+Hardcoded VTEX credentials are harder to rotate, easier to leak, and bypass the request-context model that VTEX IO clients already support.
+
+**Detection**
+
+If you see `X-VTEX-API-AppKey`, `X-VTEX-API-AppToken`, raw VTEX API credentials, or environment variables carrying permanent VTEX credentials inside a normal IO app integration, STOP and replace them with the correct auth-token flow unless there is a documented exception.
+
+**Correct**
+
+```typescript
+await ctx.clients.catalog.getSkuById(id, {
+  authMethod: 'ADMIN_TOKEN',
+})
+```
+
+**Wrong**
+
+```typescript
+await fetch(`https://${ctx.vtex.account}.myvtex.com/api/catalog/pvt/stockkeepingunit/${id}`, {
+  headers: {
+    'X-VTEX-API-AppKey': process.env.VTEX_APP_KEY!,
+    'X-VTEX-API-AppToken': process.env.VTEX_APP_TOKEN!,
+  },
+})
+```
+
+## Preferred pattern
+
+Start from the requester context, choose the token identity that matches that requester, and keep the token propagation inside the client layer.
+
+Minimal selection guide:
+
+```text
+storefront request -> STORE_TOKEN / ctx.storeUserAuthToken
+admin request -> ADMIN_TOKEN / ctx.adminUserAuthToken
+background app work -> AUTH_TOKEN / ctx.authToken
+```
+
+Pass the token explicitly when the client supports `authMethod`:
+
+```typescript
+await ctx.clients.orders.listOrders({
+  authMethod: 'ADMIN_TOKEN',
+})
+```
+
+```typescript
+await ctx.clients.orders.listOrders({
+  authMethod: 'STORE_TOKEN',
+})
+```
+
+Or inject the matching token in a custom VTEX client:
+
+```typescript
+import type { IOContext, InstanceOptions } from '@vtex/api'
+import { JanusClient } from '@vtex/api'
+
+export class OmsClient extends JanusClient {
+  constructor(ctx: IOContext, options?: InstanceOptions) {
+    super(ctx, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        VtexIdclientAutCookie: ctx.adminUserAuthToken,
+      },
+    })
+  }
+}
+```
+
+Keep the decision close to the request boundary, then let downstream handlers and services depend on the correctly configured client rather than choosing tokens ad hoc in many places.
+
+## Common failure modes
+
+- Defaulting every VTEX request to `ctx.authToken`, even when a shopper or Admin user initiated the action.
+- Using `ctx.authToken` in Admin pages and accidentally bypassing the current Admin user's License Manager role context.
+- Using `ctx.authToken` in storefront flows that should be limited by shopper permissions.
+- Hardcoding `appKey` and `appToken` in an IO app instead of using auth tokens from `IOContext`.
+- Choosing the right token in one client method but forgetting to apply the same identity consistently across related calls.
+- Mixing token choice with policy modeling and treating them as the same decision.
+- Logging `ctx.authToken`, `ctx.storeUserAuthToken`, or `ctx.adminUserAuthToken` in plain text, or forwarding raw tokens to downstream services that do not need them.
+
+## Review checklist
+
+- [ ] Does each VTEX integration use the correct requester identity: shopper, Admin user, or app?
+- [ ] Are `ctx.storeUserAuthToken` and `ctx.adminUserAuthToken` preferred when a user is actually driving the action?
+- [ ] Is `ctx.authToken` used only for app-level operations that are not tied to a current user?
+- [ ] Are hardcoded VTEX credentials absent from normal IO app integrations?
+- [ ] Is token propagation centralized in the client layer or explicit `authMethod` usage rather than scattered across handlers?
+
+## Related skills
+
+- [`vtex-io-auth-and-policies`](../vtex-io-auth-and-policies/skill.md) - Use when the main choice is which permissions and policies the chosen identity should carry
+
+## Reference
+
+- [App authentication using auth tokens](https://developers.vtex.com/docs/guides/app-authentication-using-auth-tokens) - Official token model for `AUTH_TOKEN`, `STORE_TOKEN`, and `ADMIN_TOKEN`
+- [Using VTEX IO clients](https://developers.vtex.com/docs/guides/calling-commerce-apis-3-using-vtex-io-clients) - Client usage patterns that complement token selection
+- [Policies](https://developers.vtex.com/docs/guides/vtex-io-documentation-policies) - How app-token permissions relate to manifest-declared policies
+
+---
+
 # Client Integration & Service Access
 
 ## When this skill applies
@@ -10736,6 +11278,168 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 
 ---
 
+# Observability & Operational Readiness
+
+## When this skill applies
+
+Use this skill when a VTEX IO service needs better production visibility, troubleshooting behavior, or operational safety.
+
+- Adding metrics to important client calls or flows
+- Improving logs for routes, workers, or integrations
+- Surfacing failures clearly for operations and support
+- Reviewing whether a service is ready for production
+- Monitoring rate-limit-sensitive integrations
+
+Do not use this skill for:
+- app policy declaration
+- trust-boundary modeling
+- frontend analytics or browser monitoring
+- route contract design by itself
+
+## Decision rules
+
+- Log enough structured context to debug failures, but do not log secrets or sensitive payloads.
+- Use `ctx.vtex.logger` with appropriate log levels such as `info`, `warn`, and `error` instead of `console.log`, so logs are properly collected and searchable in the VTEX logging stack.
+- Treat `ctx.vtex.logger` as the native platform logging mechanism. If a partner needs to forward logs to its own logging system, prefer doing that through a dedicated integration app or client instead of replacing the VTEX logger pattern inside every service.
+- Use client-level metrics on important downstream calls so integration behavior is visible below the handler layer.
+- Choose metric names that reflect the integration and operation, such as `partner-get-order` or `partner-sync-catalog`, so counts, latency, and error rates can be tracked over time.
+- Make failures observable at the point where they happen. Do not swallow errors silently in routes, events, or workers.
+- For rate-limit-sensitive APIs, combine short timeouts, backoff-aware retries, and caching of frequent reads to reduce burst pressure and avoid hitting hard limits.
+- Review whether expensive or fragile flows expose enough operational signals before releasing them.
+
+## Hard constraints
+
+### Constraint: Important failures must be visible in logs, metrics, or durable state
+
+Routes, event handlers, and workers MUST not hide important failures from operators.
+
+**Why this matters**
+
+If failures disappear silently, the service becomes impossible to diagnose under real traffic and retries.
+
+**Detection**
+
+If an error is caught and ignored without logging, metric emission, or explicit failure state, STOP and surface the failure.
+
+**Correct**
+
+```typescript
+try {
+  await ctx.clients.partnerApi.sendOrder(orderId)
+} catch (error) {
+  ctx.vtex.logger.error({
+    message: 'Failed to send order to partner',
+    orderId,
+    account: ctx.vtex.account,
+    routeId: ctx.vtex.route?.id,
+  })
+  throw error
+}
+```
+
+**Wrong**
+
+```typescript
+try {
+  await ctx.clients.partnerApi.sendOrder(orderId)
+} catch (_) {
+  return
+}
+```
+
+### Constraint: Metrics should be attached to important integration calls
+
+Client calls that are operationally important SHOULD include `metric` so request behavior can be tracked consistently.
+
+**Why this matters**
+
+Without metrics, integration failures and latency patterns are much harder to isolate from generic route behavior.
+
+**Detection**
+
+If a key downstream integration call has no `metric` and operations depend on it, STOP and add a meaningful metric name.
+
+**Correct**
+
+```typescript
+return this.http.get(`/orders/${id}`, {
+  metric: 'partner-get-order',
+})
+```
+
+**Wrong**
+
+```typescript
+return this.http.get(`/orders/${id}`)
+```
+
+### Constraint: Logs must stay useful without leaking sensitive data
+
+Logs MUST contain enough context to debug production behavior, but MUST NOT include secrets, tokens, or unnecessarily sensitive payloads.
+
+**Why this matters**
+
+Operational logs are only valuable if they are safe to retain and inspect. Sensitive logging creates security risk while still failing to guarantee useful diagnosis.
+
+**Detection**
+
+If a log line includes tokens, auth headers, raw personal payloads, or entire downstream responses, STOP and sanitize the log.
+
+**Correct**
+
+```typescript
+ctx.vtex.logger.info({
+  message: 'Partner sync started',
+  orderId,
+  account: ctx.vtex.account,
+})
+```
+
+**Wrong**
+
+```typescript
+ctx.vtex.logger.info({
+  message: 'Partner sync started',
+  body: ctx.request.body,
+  auth: ctx.request.header.authorization,
+})
+```
+
+## Preferred pattern
+
+Operationally healthy VTEX IO services should:
+
+- emit metrics for important client calls so counts, latency, and error rates are visible
+- log failures with enough structured context such as domain IDs, account, and `routeId`
+- avoid silent error swallowing
+- sanitize sensitive data before logging
+- review retries, caching, and throughput with rate-limit behavior in mind
+
+Use observability to shorten diagnosis time, not just to create more logs.
+
+## Common failure modes
+
+- Catching and ignoring errors in async flows.
+- Logging too little context to diagnose production incidents.
+- Logging too much sensitive data.
+- Omitting metrics from important integration calls.
+- Treating rate-limit failures as isolated bugs instead of operational signals.
+
+## Review checklist
+
+- [ ] Are important failures visible to operators?
+- [ ] Do key integrations emit useful metrics?
+- [ ] Are logs structured and safe?
+- [ ] Are retries, caching, and rate-limit behavior considered together?
+- [ ] Would someone on call be able to diagnose this flow from the available signals?
+
+## Reference
+
+- [Using Node Clients](https://developers.vtex.com/docs/guides/using-node-clients) - Client usage patterns relevant to metrics and retries
+- [Best practices for avoiding rate-limit errors](https://developers.vtex.com/docs/guides/best-practices-for-avoiding-rate-limit-errors) - Operational guidance for stable integrations
+
+---
+
 # Frontend React Components & Hooks
 
 ## When this skill applies
@@ -11163,6 +11867,179 @@ Using the component in a Store Framework theme:
 - [Store Framework](https://developers.vtex.com/docs/guides/store-framework) — Overview of the block-based storefront system
 - [Using Components](https://developers.vtex.com/docs/guides/store-framework-using-components) — How to use native and custom components in themes
 - [VTEX Styleguide](https://styleguide.vtex.com/) — Official component library for VTEX Admin UIs
+
+---
+
+# Security Boundaries & Exposure Review
+
+## When this skill applies
+
+Use this skill when the main question is whether a VTEX IO route, integration, or service boundary is safe.
+
+- Reviewing public versus private route exposure
+- Validating external input at service boundaries
+- Handling tokens, account context, or sensitive payloads
+- Avoiding cross-account, cross-workspace, or cross-user leakage
+- Hardening integrations that expose or consume sensitive data
+
+Do not use this skill for:
+- policy declaration syntax in `manifest.json`
+- service runtime sizing
+- logging and observability strategy
+- frontend browser security concerns
+- deciding which VTEX auth token should call an endpoint
+
+## Decision rules
+
+- Use this skill to decide what data and input may safely cross the app boundary, not which policies or tokens authorize the call.
+- Treat every public route as an explicit trust boundary.
+- In `service.json`, changing a route from `public: false` to `public: true` is a boundary change and should trigger explicit security review.
+- Use `public: true` for routes that must be callable from outside VTEX IO, such as partner webhooks or externally consumed integration endpoints. Treat them as internet-exposed boundaries.
+- Use `public: false` for routes that are meant only for VTEX internal flows or other IO apps, but do not treat them as implicitly safe. They still require validation and scoped assumptions.
+- A route with `public: true` in `service.json` is reachable from outside the app as long as the account domain is accessible. Do not rely on obscure paths or internal-looking URLs as a security measure.
+- Validate external input as early as possible, before it reaches domain logic or downstream integrations.
+- For webhook-style routes, validate both structure and authenticity, for example through required fields plus a shared secret or signature header, before calling downstream clients.
+- Do not assume a request is safe because it originated from another VTEX service or internal-looking route path.
+- Keep account, workspace, and user context explicit when a service reads or writes scoped data.
+- When data or behavior must be restricted to a specific workspace, check `ctx.vtex.workspace` explicitly and reject calls from other workspaces.
+- Never expose more data than the caller needs. Shape responses intentionally instead of returning raw downstream payloads.
+- Keep secrets, tokens, and security-sensitive headers out of logs and route responses.
+- Do not use `console.log` or `console.error` in production routes or services. Use `ctx.vtex.logger` for application logging with structured objects, and only use a dedicated external logging client when the app intentionally forwards logs to a partner-owned system.
+- Avoid exposing debug or diagnostic routes that return internal configuration, secrets, or full downstream payloads. If such routes are strictly necessary, keep them non-public and limited to minimal, non-sensitive information.
+- Use this skill to decide what may cross the boundary, and use `vtex-io-auth-and-policies` to decide how that boundary is authorized and protected.
+
+## Related skills
+
+- [`vtex-io-auth-and-policies`](../vtex-io-auth-and-policies/skill.md) - Use when the main decision is how route or resource access will be authorized
+- [`vtex-io-auth-tokens-and-context`](../vtex-io-auth-tokens-and-context/skill.md) - Use when the main decision is which runtime identity should call VTEX endpoints
+
+## Hard constraints
+
+### Constraint: Public routes must validate untrusted input at the boundary
+
+Any route exposed beyond a tightly controlled internal boundary MUST validate incoming data before calling domain logic or downstream clients.
+
+**Why this matters**
+
+Unvalidated input at public boundaries creates the fastest path to abuse, bad writes, and accidental downstream failures.
+
+**Detection**
+
+If a public route forwards body fields, params, or headers directly into business logic or client calls without validation, STOP and add validation first.
+
+**Correct**
+
+```typescript
+export async function webhook(ctx: Context) {
+  const body = ctx.request.body
+
+  if (!body?.eventId || !body?.type) {
+    ctx.status = 400
+    ctx.body = { message: 'Invalid payload' }
+    return
+  }
+
+  await ctx.clients.partnerApi.handleWebhook(body)
+  ctx.status = 202
+}
+```
+
+**Wrong**
+
+```typescript
+export async function webhook(ctx: Context) {
+  await ctx.clients.partnerApi.handleWebhook(ctx.request.body)
+  ctx.status = 202
+}
+```
+
+### Constraint: Sensitive data must not cross route boundaries by accident
+
+Routes and integrations MUST not leak tokens, internal headers, raw downstream payloads, or data that belongs to another account, workspace, or user context.
+
+**Why this matters**
+
+Boundary leaks are hard to detect once deployed and can expose information far beyond the intended caller scope.
+
+**Detection**
+
+If a route returns raw downstream responses, logs secrets, or mixes contexts without explicit filtering, STOP and narrow the output before proceeding.
+
+**Correct**
+
+```typescript
+ctx.body = {
+  orderId: order.id,
+  status: order.status,
+}
+```
+
+**Wrong**
+
+```typescript
+ctx.body = order
+```
+
+### Constraint: Trust boundaries must stay explicit when services call each other
+
+When one service calls another, the receiving boundary MUST still be treated as a real security boundary with explicit validation and scoped assumptions.
+
+**Why this matters**
+
+Internal service-to-service traffic can still carry malformed or overbroad data. Assuming “internal means trusted” leads to fragile security posture and cross-context leakage.
+
+**Detection**
+
+If a service accepts data from another service without validating format, scope, or account/workspace context, STOP and make those checks explicit.
+
+**Correct**
+
+```typescript
+if (ctx.vtex.account !== expectedAccount) {
+  ctx.status = 403
+  return
+}
+```
+
+**Wrong**
+
+```typescript
+await processPartnerPayload(ctx.request.body)
+```
+
+## Preferred pattern
+
+Security review should start at the boundary:
+
+1. Who can call this route or trigger this integration?
+2. What data enters the system?
+3. What must be validated immediately?
+4. What data leaves the system?
+5. Could account, workspace, or user context leak across the boundary?
+
+Use minimal request and response shapes, explicit validation, and scoped context checks to keep boundaries safe.
+
+## Common failure modes
+
+- Treating public routes like trusted internal handlers.
+- Returning raw downstream payloads that expose more data than necessary.
+- Logging secrets or security-sensitive headers.
+- Using `console.log` in handlers instead of `ctx.vtex.logger`, making logs less structured and increasing the risk of leaking sensitive data.
+- Mixing account or workspace context without explicit checks.
+- Assuming service-to-service traffic is inherently safe.
+
+## Review checklist
+
+- [ ] Is the trust boundary clear?
+- [ ] Are external inputs validated before reaching domain or integration logic?
+- [ ] Is the response shape intentionally minimal?
+- [ ] Are sensitive values kept out of logs and responses?
+- [ ] Could account, workspace, or user context leak across this boundary?
+
+## Reference
+
+- [Service](https://developers.vtex.com/docs/guides/vtex-io-documentation-service) - Route exposure and service behavior
+- [Policies](https://developers.vtex.com/docs/guides/vtex-io-documentation-policies) - Authorization-related declaration context
 
 ---
 
