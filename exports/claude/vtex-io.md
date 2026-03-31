@@ -246,6 +246,278 @@ Use this split when the backend/API contract and the storefront contract have di
 
 ---
 
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when defining, validating, or consuming vtex io app settings. covers settingsschema, app-level configuration boundaries, and how backend or frontend code should depend on settings safely. use for merchant-configurable behavior, settings forms, or reviewing whether settings belong in app configuration rather than hardcoded logic or custom data entities.
+
+# App Settings & Configuration Boundaries
+
+## When this skill applies
+
+Use this skill when deciding or implementing how a VTEX IO app should expose configurable settings.
+
+- Defining `settingsSchema`
+- Adding merchant-configurable app behavior
+- Reviewing whether configuration belongs in app settings or custom data
+- Reading and validating settings in app code
+
+Do not use this skill for:
+- runtime infrastructure settings in `service.json`
+- Master Data entity design
+- policy declaration details
+- route auth modeling
+
+## Decision rules
+
+- Use app settings for stable configuration that merchants or operators should be able to manage explicitly.
+- Use `settingsSchema` for app-level configuration managed through VTEX Admin, and use `store/contentSchemas.json` for Store Framework block configuration that varies by page or block instance.
+- If the value is global for the app or account, it usually belongs in `settingsSchema`. If it varies per page, block, or theme composition, it usually belongs in `contentSchemas.json`.
+- Do not use app settings as a substitute for high-volume operational data storage.
+- Use JSON Schema explicitly with `properties`, `required`, `default`, `enum`, `format`, and related constraints instead of a generic root `type: object` only.
+- Use `settingsSchema.access: "public"` only for non-sensitive values that are intentionally safe to expose to frontend code through `publicSettingsForApp`.
+- If `access` is omitted, do not assume frontend GraphQL consumers can read the settings. Public frontend access must be an explicit choice.
+- Use app settings for API keys, tokens, and secrets instead of hardcoding them in the codebase.
+- Never expose secrets from app settings directly in HTTP responses, GraphQL responses, HTML, or browser-side props.
+- Never expose secrets from app settings in logs either.
+- For sensitive fields such as API keys or passwords, keep them as `type: "string"` and consider marking them with `format: "password"`. Some platform consumers, such as Apps GraphQL when using `hidePasswords`, may use this metadata to mask values in responses. Do not rely on this as the only security layer: secrets must still be treated as backend-only and never exposed in responses or logs.
+- UI-specific hints such as `ui:widget: "password"` may be supported by some renderers, but they are not part of the core JSON Schema guarantees. Do not assume the standard VTEX Admin App Settings UI will enforce them.
+- Read backend settings through `ctx.clients.apps.getAppSettings(ctx.vtex.appId ?? process.env.VTEX_APP_ID)` and centralize normalization or validation in a helper instead of spreading ad hoc access patterns through handlers.
+- When reading or saving this app's own settings at runtime, use the correct app identifier such as `process.env.VTEX_APP_ID` or `ctx.vtex.appId` and rely on the app token plus standard app-settings permissions. Do not declare extra License Manager policies in `manifest.json` or add workspace-wide policies such as `read-workspace-apps` or undocumented policies such as `write-workspace-apps` just to "fix" a 403.
+- Pixel apps that need configuration should also consume settings through `ctx.clients.apps.getAppSettings(...)` on the backend side of the pixel app. If a value must be available to injected JavaScript, expose only non-sensitive fields through `access: "public"` and `publicSettingsForApp`, keeping secrets strictly on the server side.
+- Make code resilient to missing or incomplete settings by validating or applying defaults at the consumption boundary.
+- Never assume settings are identical across accounts or workspaces. Each workspace may have different app configuration during development, rollout, or debugging.
+
+Settings vs configuration builder:
+
+- Use `settingsSchema` when the configuration is specific to this app and the merchant is expected to edit it in Apps > App Settings.
+- Consider a separate app using the `configuration` builder when the configuration contract needs to be shared across multiple apps, managed separately from the runtime app lifecycle, or injected directly into service context through `ctx.vtex.settings`.
+- Prefer a configuration app when the main goal is structured service configuration delivered through VTEX IO runtime context, instead of settings fetched ad hoc by the app itself.
+
+## Hard constraints
+
+### Constraint: Configurable app behavior must have a schema
+
+Merchant-configurable settings MUST be modeled through an explicit schema instead of ad hoc unvalidated objects.
+
+**Why this matters**
+
+Without a schema, configuration becomes ambiguous, harder to validate, and easier to break across environments.
+
+**Detection**
+
+If code depends on app-level configuration but no schema or validation contract exists, STOP and define it first.
+
+**Correct**
+
+```json
+{
+  "settingsSchema": {
+    "title": "My App Settings",
+    "type": "object",
+    "properties": {
+      "enableModeration": {
+        "title": "Enable moderation",
+        "type": "boolean",
+        "default": false,
+        "description": "If true, new content will require approval before going live."
+      },
+      "apiKey": {
+        "title": "External API key",
+        "type": "string",
+        "minLength": 1,
+        "description": "API key for the external moderation service.",
+        "format": "password"
+      },
+      "mode": {
+        "title": "Mode",
+        "type": "string",
+        "enum": ["sandbox", "production"],
+        "default": "sandbox"
+      }
+    },
+    "required": ["apiKey"]
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+const settings = ctx.state.anything
+```
+
+### Constraint: Sensitive settings must stay backend-only and must not be exposed to the frontend
+
+Secrets stored in app settings such as API keys, tokens, or passwords MUST be treated as backend-only configuration.
+
+**Why this matters**
+
+App settings are a natural place for secrets, but exposing them in HTTP responses, GraphQL payloads, HTML, or frontend props turns configuration into a security leak.
+
+**Detection**
+
+If a route, resolver, or frontend-facing response returns raw settings or includes sensitive fields from settings, STOP and move the external call or secret usage fully to the backend boundary.
+
+**Correct**
+
+```typescript
+const { apiKey } = await ctx.clients.apps.getAppSettings(
+  ctx.vtex.appId ?? process.env.VTEX_APP_ID
+)
+const result = await externalClient.fetchData({ apiKey })
+
+ctx.body = result
+```
+
+**Wrong**
+
+```typescript
+const settings = await ctx.clients.apps.getAppSettings(
+  ctx.vtex.appId ?? process.env.VTEX_APP_ID
+)
+ctx.body = settings
+```
+
+### Constraint: Public app settings access must never expose sensitive configuration
+
+If `settingsSchema.access` is set to `public`, the exposed settings MUST contain only values that are safe to ship to frontend code through `publicSettingsForApp`.
+
+**Why this matters**
+
+`access: "public"` is a delivery choice, not a security control. Once settings are publicly exposed, storefront or frontend code can read them, so secrets and backend-only configuration must never be included there.
+
+**Detection**
+
+If a settings schema marks access as public and includes API keys, tokens, passwords, or any value intended only for backend integrations, STOP and keep those settings private.
+
+**Correct**
+
+```json
+{
+  "settingsSchema": {
+    "title": "Public Storefront Settings",
+    "type": "object",
+    "access": "public",
+    "properties": {
+      "bannerText": {
+        "title": "Banner text",
+        "type": "string"
+      }
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "settingsSchema": {
+    "title": "My App Settings",
+    "type": "object",
+    "access": "public",
+    "properties": {
+      "apiKey": {
+        "title": "External API key",
+        "type": "string",
+        "format": "password"
+      }
+    }
+  }
+}
+```
+
+### Constraint: Settings must not be used as operational data storage
+
+App settings MUST represent configuration, not high-volume mutable records.
+
+**Why this matters**
+
+Settings are for configuration boundaries, not for transactional or large-scale operational data.
+
+**Detection**
+
+If a proposed setting stores records that behave like orders, reviews, logs, or queue items, STOP and move that concern to a more appropriate data mechanism.
+
+**Correct**
+
+```json
+{
+  "enableModeration": true
+}
+```
+
+**Wrong**
+
+```json
+{
+  "allReviews": []
+}
+```
+
+### Constraint: Code must validate or default settings at the consumption boundary
+
+Settings-dependent code MUST tolerate missing or incomplete values safely.
+
+**Why this matters**
+
+Configuration can drift across workspaces and accounts. Code that assumes every setting is present becomes fragile.
+
+**Detection**
+
+If code reads settings and assumes required fields always exist with no validation or defaults, STOP and make the dependency explicit.
+
+**Correct**
+
+```typescript
+const rawSettings = await ctx.clients.apps.getAppSettings(
+  ctx.vtex.appId ?? process.env.VTEX_APP_ID
+)
+const settings = normalizeSettings(rawSettings)
+const enabled = settings.enableModeration ?? false
+```
+
+**Wrong**
+
+```typescript
+const enabled = settings.enableModeration.value
+```
+
+## Preferred pattern
+
+Use settings for stable, merchant-managed configuration, define them with explicit JSON Schema properties, and validate or normalize them where they are consumed.
+For secrets, keep the read and the external call on the backend and return only the business result to the frontend.
+Use frontend GraphQL access only for intentionally public settings, and keep backend-only settings behind `getAppSettings(...)`.
+
+## Common failure modes
+
+- Using settings as operational storage.
+- Using only `type: object` without explicit `properties` and validation details.
+- Reading settings without defaults or validation.
+- Exposing raw settings or secrets to the frontend.
+- Marking settings as `access: "public"` when they contain backend-only or sensitive values.
+- Logging settings or secrets in plain text.
+- Hardcoding API keys or tokens instead of storing them in app settings.
+- Adding workspace-level policies such as `read-workspace-apps` or invalid policies such as `write-workspace-apps` as a generic workaround for app settings permission errors, instead of validating the correct appId and standard app-settings permissions.
+- Using `settingsSchema` when the requirement is really block-level Store Framework configuration.
+- Creating schemas that are too broad or vague.
+
+## Review checklist
+
+- [ ] Does this data really belong in app settings?
+- [ ] Does the `settingsSchema` declare explicit `properties` with clear types and `required` only where necessary?
+- [ ] Are sensitive fields represented safely, for example as `string` fields with `format: "password"`, knowing that some consumers such as Apps GraphQL with `hidePasswords` may use that metadata to mask the output?
+- [ ] Does the consuming code validate or default missing values?
+- [ ] Are secrets kept backend-only and never exposed to the frontend?
+- [ ] If `access: "public"` is used, are all exposed settings intentionally safe for frontend consumption?
+- [ ] Is the settings surface small and intentional?
+
+## Reference
+
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) - App configuration contract
+- [Creating an interface for your app settings](https://developers.vtex.com/docs/guides/vtex-io-documentation-creating-an-interface-for-your-app-settings) - `settingsSchema`, `access`, frontend queries, and backend settings consumption
+- [Configuring your app settings](https://developers.vtex.com/docs/guides/vtex-io-documentation-4-configuringyourappsettings) - Pixel app example for consuming app settings in VTEX IO
+
+---
+
 This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when improving vtex io node or .net services for latency, throughput, and resilience: in-process lru, vbase, stale-while-revalidate, appsettings loading, request context, parallel client calls, and avoiding duplicate work. covers application-level performance patterns that complement edge/cdn caching. use when optimizing backends beyond route-level cache-control.
 
 # VTEX IO application performance
@@ -1382,6 +1654,217 @@ If a client file grows too large, split it by bounded integration domains and ke
 
 ---
 
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when deciding where and how a vtex io app should store and read data. covers when to use app settings, configuration apps, master data, vbase, vtex core apis, or external stores, and how to avoid duplicating sources of truth or abusing configuration stores for operational data. use for new data flows, caching decisions, refactors, or reviewing suspicious storage and access patterns in vtex io apps.
+
+# Data Access & Storage Patterns
+
+## When this skill applies
+
+Use this skill when the main question is where data should live and how a VTEX IO app should read or write it.
+
+- Designing new data flows for an IO app
+- Deciding whether to use app settings, configuration apps, Master Data, VBase, or VTEX core APIs
+- Reviewing code that reads or writes large, duplicated, or critical datasets
+- Introducing caching layers or derived local views around existing APIs
+
+Do not use this skill for:
+- detailed Master Data schema or entity modeling
+- app settings or configuration app schema design
+- auth tokens or policies such as `AUTH_TOKEN`, `STORE_TOKEN`, or manifest permissions
+- service runtime sizing or concurrency tuning
+
+## Decision rules
+
+### Choose the right home for each kind of data
+
+- Use app settings or configuration apps for stable configuration managed by merchants or operators, such as feature flags, credentials, external base URLs, and behavior toggles.
+- Use Master Data for structured custom business records that belong to the account and need validation, filtering, search, pagination, or lifecycle management.
+- Use VBase for simple keyed documents, auxiliary snapshots, or cache-like JSON payloads that are usually read by key rather than searched broadly.
+- Use VTEX core APIs when the data already belongs to a VTEX core domain such as orders, catalog, pricing, or logistics.
+- Use external stores or external APIs when the data belongs to another system and VTEX IO is only integrating with it.
+
+### Keep source of truth explicit
+
+- Treat VTEX core APIs as the source of truth for core commerce domains such as orders, products, prices, inventory, and similar platform-owned data.
+- Do not mirror complete orders, catalog records, prices, or inventories into Master Data or VBase unless there is a narrow derived use case with clear ownership.
+- If an IO app needs a local copy, store only the minimal fields or derived view required for that app and rehydrate full details from the authoritative source when needed.
+- Do not use app settings or configuration apps as generic operational data stores.
+
+### Design reads and caches intentionally
+
+- Prefer API-level filtering, pagination, field selection, and bounded reads instead of loading full datasets into Node and filtering in memory.
+- Use caching only when repeated reads justify it and the cached view has clear invalidation or freshness rules.
+- When a background job or event pipeline needs persistent processing state, store only the status and correlation data required for retries and idempotency.
+- Keep long-lived logs, traces, or unbounded histories out of Master Data and VBase unless the use case explicitly requires a durable app-owned audit trail.
+
+## Hard constraints
+
+### Constraint: Configuration stores must not be used as operational data storage
+
+App settings and configuration apps MUST represent configuration, not transactional records, unbounded lists, or frequently changing operational state.
+
+**Why this matters**
+
+Using configuration stores as data storage blurs system boundaries, makes workspace behavior harder to reason about, and breaks expectations for tools and flows that depend on settings being small and stable.
+
+**Detection**
+
+If you see arrays of records, logs, histories, orders, or other growing operational payloads inside `settingsSchema`, configuration app payloads, or settings-related APIs, STOP and move that data to Master Data, VBase, a core API, or an external store.
+
+**Correct**
+
+```json
+{
+  "settingsSchema": {
+    "type": "object",
+    "properties": {
+      "enableModeration": {
+        "type": "boolean"
+      }
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "settingsSchema": {
+    "type": "object",
+    "properties": {
+      "orders": {
+        "type": "array"
+      }
+    }
+  }
+}
+```
+
+### Constraint: Core systems must remain the source of truth for their domains
+
+VTEX core systems such as Orders, Catalog, Pricing, and Logistics MUST remain the primary source of truth for their own business domains.
+
+**Why this matters**
+
+Treating a local IO copy as the main store for core domains creates reconciliation drift, stale reads, and business decisions based on outdated data.
+
+**Detection**
+
+If an app stores full order payloads, product documents, inventory snapshots, or price tables in Master Data or VBase and then uses those copies as the main source for business decisions, STOP and redesign the flow around the authoritative upstream source.
+
+**Correct**
+
+```typescript
+const order = await ctx.clients.oms.getOrder(orderId)
+
+ctx.body = {
+  orderId: order.orderId,
+  status: order.status,
+}
+```
+
+**Wrong**
+
+```typescript
+const cachedOrder = await ctx.clients.masterdata.getDocument({
+  dataEntity: 'ORD',
+  id: orderId,
+})
+
+ctx.body = cachedOrder
+```
+
+### Constraint: Data-heavy reads must avoid full scans and in-memory filtering
+
+Large or growing datasets MUST be accessed through bounded queries, filters, pagination, or precomputed derived views instead of full scans and broad in-memory filtering.
+
+**Why this matters**
+
+Unbounded reads are inefficient, hard to scale, and easy to turn into fragile service behavior as the dataset grows.
+
+**Detection**
+
+If you see code that fetches entire collections from Master Data, VTEX APIs, or external stores and then filters or aggregates the result in Node for a normal request flow, STOP and redesign the access path.
+
+**Correct**
+
+```typescript
+const documents = await ctx.clients.masterdata.searchDocuments({
+  dataEntity: 'RV',
+  fields: ['id', 'status'],
+  where: 'status=approved',
+  pagination: {
+    page: 1,
+    pageSize: 20,
+  },
+})
+```
+
+**Wrong**
+
+```typescript
+const allDocuments = await ctx.clients.masterdata.scrollDocuments({
+  dataEntity: 'RV',
+  fields: ['id', 'status'],
+})
+
+const approved = allDocuments.filter((doc) => doc.status === 'approved')
+```
+
+## Preferred pattern
+
+Start every data design with four questions:
+
+1. Whose data is this?
+2. Who is the source of truth?
+3. How will the app query it?
+4. Does the app really need to store a local copy?
+
+Then choose intentionally:
+
+- app settings or configuration apps for stable configuration
+- Master Data for structured custom records owned by the app domain
+- VBase for simple keyed documents or cache-like payloads
+- VTEX core APIs for authoritative commerce data
+- external stores or APIs for data owned outside VTEX
+
+If the app stores a local copy, keep it small, derived, and clearly secondary to the authoritative source.
+
+## Common failure modes
+
+- Using app settings as generic storage for records, histories, or large lists.
+- Mirroring complete orders, products, or prices from VTEX core into Master Data or VBase as a parallel source of truth.
+- Fetching entire datasets only to filter, sort, or aggregate them in memory for normal request flows.
+- Using Master Data or VBase for unbounded debug logs or event dumps.
+- Adding caches without clear freshness, invalidation, or ownership rules.
+- Spreading ad hoc data access decisions across handlers instead of keeping source-of-truth and storage decisions explicit.
+
+## Review checklist
+
+- [ ] Is this data truly configuration, or should it live in Master Data, VBase, a core API, or an external system?
+- [ ] Is the authoritative source of truth explicit?
+- [ ] Is VTEX core being treated as authoritative for orders, catalog, prices, inventory, and similar domains?
+- [ ] Is local storage limited to data the app truly owns or a narrow derived view?
+- [ ] Are reads bounded with filters, field selection, and pagination where appropriate?
+- [ ] Does any cache or local copy have clear freshness and invalidation rules?
+
+## Related skills
+
+- [`vtex-io-app-settings`](../vtex-io-app-settings/skill.md) - Use when the main decision is how to model app-level configuration
+- [`vtex-io-service-configuration-apps`](../vtex-io-service-configuration-apps/skill.md) - Use when shared structured configuration should be injected through `ctx.vtex.settings`
+- [`vtex-io-masterdata-strategy`](../vtex-io-masterdata-strategy/skill.md) - Use when the main decision is whether Master Data is the right storage mechanism and how to model it
+
+## Reference
+
+- [Master Data](https://developers.vtex.com/docs/guides/master-data) - Structured account-level custom data storage
+- [VBase](https://developers.vtex.com/docs/guides/vbase) - Key-value storage and JSON blobs for VTEX IO apps
+- [Calling VTEX commerce APIs using VTEX IO clients](https://developers.vtex.com/docs/guides/calling-commerce-apis-3-using-vtex-io-clients) - How to consume Orders, Catalog, Pricing, and other core APIs from VTEX IO
+- [Configuring your app settings](https://developers.vtex.com/docs/guides/vtex-io-documentation-4-configuringyourappsettings) - App settings as configuration rather than operational storage
+- [Creating an interface for your app settings](https://developers.vtex.com/docs/guides/vtex-io-documentation-creating-an-interface-for-your-app-settings) - Public versus private app settings and config boundaries
+
+---
+
 This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when working with graphql schema files in graphql/ or implementing resolvers in node/resolvers/ for vtex io apps. covers schema.graphql definitions, @cachecontrol and @auth directives, custom type definitions, and resolver registration in the service class. use for exposing data through graphql queries and mutations with proper cache control and authentication enforcement.
 
 # GraphQL Schemas & Resolvers
@@ -2462,6 +2945,275 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [Setting Up Triggers on Master Data v2](https://developers.vtex.com/docs/guides/setting-up-triggers-on-master-data-v2) — Trigger configuration for automated workflows
 - [Master Data v2 API Reference](https://developers.vtex.com/docs/api-reference/master-data-api-v2#overview) — Complete API reference for all Master Data v2 endpoints
 - [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — MasterDataClient methods and usage in VTEX IO
+
+---
+
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when deciding whether and how vtex io apps should use master data v2 for custom data. covers entity boundaries, schema lifecycle, indexing strategy, and when master data is the right storage mechanism versus another data approach. use for reviews, wishlists, forms, or other custom data modeling decisions in vtex io apps.
+
+# Master Data Strategy
+
+## When this skill applies
+
+Use this skill when deciding whether Master Data v2 is the right mechanism for custom data in a VTEX IO app.
+
+- Modeling reviews, wishlists, forms, or custom app records
+- Choosing entity boundaries
+- Planning schema indexing and lifecycle
+- Reviewing long-term Master Data design
+
+Do not use this skill for:
+- low-level client usage details
+- runtime or route structure
+- app settings schemas
+- frontend UI behavior
+
+## Decision rules
+
+- Use this skill once Master Data is a serious candidate storage mechanism. For the broader choice between Master Data, VBase, VTEX core APIs, and external stores, use `vtex-io-data-access-patterns`.
+- Use Master Data for structured custom data that needs validation, indexing, and query support.
+- Use the `masterdata` builder when this app introduces a new business entity, owns the data model, and wants the schema to be created and versioned as part of the app contract.
+- Prefer using only the Master Data client when the entity and schema already exist and are shared or centrally managed, and this app only needs to read or write records without redefining the schema itself.
+- For stable schemas that the app owns but should not be recreated or updated on every app version, keep the schema definition in code and use the Master Data client in a controlled setup path to create or update the schema only when needed.
+- Remember that Master Data entities are account-scoped. Changing a shared entity or schema affects every app in that account that depends on it, so prefer client-only consumption when the schema is centrally managed.
+- Keep entity boundaries intentional and aligned with the business concept being stored.
+- Index fields that are actually used for filtering and search.
+- Plan schema lifecycle explicitly to avoid schema sprawl.
+- Consider data volume and retention from the start. If the dataset will grow unbounded and there is no retention or archival strategy, Master Data is likely not the right storage mechanism.
+- Do not treat Master Data as an unbounded dumping ground for arbitrary payloads.
+- Do not use Master Data as an unbounded log or event store for high-volume append-only data. Prefer dedicated logging or storage mechanisms when the main need is raw history rather than structured queries.
+- Do not store secrets, credentials, or global app configuration in Master Data. Use app settings or configuration apps instead.
+- Do not generate one entity or schema per account, workspace, or feature flag. Keep a stable entity name and distinguish tenants or environments through record fields when necessary.
+- Be careful when tying schema evolution directly to app versioning through the `masterdata` builder. Frequent schema changes coupled to app releases can generate excessive schema updates, indexing changes, and long-term schema sprawl.
+
+### Choosing between the `masterdata` builder and the Master Data client
+
+There are three main ways for a VTEX IO app to work with Master Data:
+
+- Owning the schema via the `masterdata` builder:
+  - The app declares entities and schemas under `masterdata/` in the repository.
+  - Schema fields, validation, and indexing evolve together with the app code.
+  - Use this when the app is the primary owner of the data model, schema changes are relatively infrequent, and the schema should be rolled out as part of the app contract.
+
+- Consuming an existing schema via the Master Data client only:
+  - The app uses a Master Data client, but does not declare entities or schemas through the `masterdata` builder.
+  - The app assumes a stable schema managed elsewhere and only reads or writes records that follow that contract.
+  - Use this when the entity is shared across multiple apps or managed centrally, and this app should not redefine or fragment the schema across environments.
+
+- Owning a stable schema definition in code and applying it through the client:
+  - The app keeps a stable schema definition in code instead of `masterdata/` builder files.
+  - A controlled setup path checks whether the schema exists and creates or updates it only when needed.
+  - Use this when the app truly owns the schema, but should not couple schema rollout to every app version or every release pipeline step.
+
+## Hard constraints
+
+### Constraint: Master Data entities must have explicit schema boundaries
+
+Each entity MUST represent a clear business concept and have a schema that matches its intended usage.
+
+**Why this matters**
+
+Weak entity boundaries create confusing queries, poor indexing choices, and schema drift.
+
+**Detection**
+
+If one entity mixes unrelated concepts or stores many unrelated record shapes, STOP and split the design.
+
+**Correct**
+
+```json
+{
+  "title": "review-schema-v1",
+  "type": "object",
+  "properties": {
+    "productId": { "type": "string" },
+    "userId": { "type": "string" },
+    "rating": { "type": "number" },
+    "approved": { "type": "boolean" }
+  },
+  "required": ["productId", "userId", "rating"],
+  "v-indexed": ["productId", "userId", "approved"]
+}
+```
+
+**Wrong**
+
+```json
+{
+  "title": "everything-schema",
+  "type": "object"
+}
+```
+
+### Constraint: Indexed fields must match real query behavior
+
+Fields used in filters or lookups MUST be indexed intentionally.
+
+**Why this matters**
+
+Missing indexes lead to poor query behavior and unnecessary operational risk.
+
+**Detection**
+
+If queries depend on fields that are not represented in indexing strategy, STOP and align schema and access patterns.
+
+**Correct**
+
+```json
+{
+  "v-indexed": ["productId", "approved"]
+}
+```
+
+**Wrong**
+
+```json
+{
+  "v-indexed": []
+}
+```
+
+### Constraint: Schema lifecycle must be managed explicitly
+
+Master Data schema evolution MUST be planned with cleanup and versioning in mind.
+
+**Why this matters**
+
+Unmanaged schema growth creates long-term operational pain and can run into platform limits.
+
+**Detection**
+
+If schema versions are added with no lifecycle or cleanup plan, STOP and define that plan.
+
+**Correct**
+
+```text
+review-schema-v1 -> review-schema-v2 with cleanup plan
+```
+
+**Wrong**
+
+```text
+review-schema-v1, v2, v3, v4, v5 with no cleanup strategy
+```
+
+Remember that changing indexed fields or field types can affect how existing documents are indexed and queried. When schema evolution is coupled to frequent app version changes, this risk increases.
+
+### Constraint: Entity and schema names must remain stable across environments
+
+Entity names and schema identifiers MUST remain stable across accounts, workspaces, and environments. Do not encode account names, workspaces, or rollout flags into the entity or schema name itself.
+
+**Why this matters**
+
+Per-account or per-workspace schema naming leads to schema sprawl, harder lifecycle management, and operational limits that are difficult to clean up later.
+
+**Detection**
+
+If the design proposes one entity or schema per workspace, per account, or per environment, STOP and redesign around stable names with scoped fields or records instead.
+
+**Correct**
+
+```text
+review-schema-v1
+RV
+```
+
+**Wrong**
+
+```text
+review-schema-brazil-master
+RV_US_MASTER
+```
+
+Using one clearly managed schema for development and one for production can be acceptable when there is a deliberate plan to keep them synchronized. Avoid generating schema names per workspace, per account, or per feature flag.
+
+## Preferred pattern
+
+Use Master Data for structured custom records, index only what you query, and plan schema evolution deliberately.
+
+Example: app owning a schema through the `masterdata` builder
+
+- `masterdata/review-schema-v1.json` declares the schema and indexes for the `RV` entity.
+- The app then uses a dedicated Master Data client to create and query `RV` documents.
+
+```json
+{
+  "title": "review-schema-v1",
+  "v-entity": "RV",
+  "type": "object",
+  "properties": {
+    "productId": { "type": "string" },
+    "userId": { "type": "string" },
+    "rating": { "type": "number" },
+    "approved": { "type": "boolean" }
+  },
+  "required": ["productId", "userId", "rating"],
+  "v-indexed": ["productId", "userId", "approved"]
+}
+```
+
+Example: app consuming an existing schema through the client only
+
+- This app declares no `masterdata` builder files.
+- It uses the Master Data client against an existing, stable `RV` entity managed elsewhere.
+
+```typescript
+await ctx.clients.masterdata.createDocument({
+  dataEntity: 'RV',
+  fields: {
+    productId,
+    userId,
+    rating,
+    approved: false,
+  },
+})
+```
+
+Example: app owning a stable schema in code and ensuring it exists through the client
+
+- The app keeps a stable schema definition in code.
+- A controlled setup path ensures the schema exists instead of relying on the `masterdata` builder for every rollout.
+
+```typescript
+const schema = {
+  title: 'review-schema-v1',
+  'v-entity': 'RV',
+}
+
+const existing = await ctx.clients.masterdata.getSchema('review-schema-v1')
+
+if (!existing) {
+  await ctx.clients.masterdata.createOrUpdateSchema('review-schema-v1', schema)
+}
+```
+
+## Common failure modes
+
+- Creating entities that are too broad.
+- Querying on fields that are not indexed.
+- Accumulating schema versions with no lifecycle plan.
+- Using Master Data as a high-volume log or event sink without retention or archival strategy.
+- Storing configuration, secrets, or cross-app shared settings in Master Data instead of using configuration-specific mechanisms.
+- Generating per-account or per-workspace entities such as `RV_storeA_master` instead of using a stable entity like `RV` with scoped record fields.
+- Relying on the `masterdata` builder for frequent schema changes tied to every app version, causing excessive schema updates and indexing side effects over time.
+
+## Review checklist
+
+- [ ] Is Master Data the right storage mechanism for this use case?
+- [ ] Should this app own the schema through the `masterdata` builder, or just consume an existing stable schema through the client?
+- [ ] Would a stable schema in code plus a controlled setup path be safer than coupling schema rollout to every app version?
+- [ ] Does each entity represent a clear business concept?
+- [ ] Are entity and schema names stable across workspaces and accounts?
+- [ ] Are filtered fields indexed intentionally?
+- [ ] Is there a schema lifecycle plan?
+- [ ] If different schemas are used for development and production, is there a clear plan to keep them synchronized without creating schema sprawl?
+
+## Related skills
+
+- [`vtex-io-data-access-patterns`](../vtex-io-data-access-patterns/skill.md) - Use when deciding between Master Data, VBase, VTEX core APIs, or external stores for a given dataset
+
+## Reference
+
+- [Master Data](https://developers.vtex.com/docs/guides/master-data) - Platform data storage context
 
 ---
 
@@ -3602,6 +4354,348 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 - [Using Node Clients](https://developers.vtex.com/docs/guides/using-node-clients) — How to use @vtex/api and @vtex/clients in middlewares and resolvers
 - [Calling Commerce APIs](https://developers.vtex.com/docs/guides/calling-commerce-apis-1-getting-the-service-app-boilerplate) — Tutorial for building a service app that calls VTEX Commerce APIs
 - [Best Practices for Avoiding Rate Limits](https://developers.vtex.com/docs/guides/best-practices-for-avoiding-rate-limit-errors) — Why clients with caching prevent rate-limit issues
+
+---
+
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when designing vtex io configuration apps with the configuration builder or when a service app must receive structured configuration through runtime context. covers the separation between service apps and configuration apps, schema.json and configuration.json, settingstype, and reading injected configuration through ctx.vtex.settings. use for shared service configuration, decoupled configuration lifecycle, or reviewing whether app settings should be replaced by a configuration app.
+
+# Service Configuration Apps
+
+## When this skill applies
+
+Use this skill when a VTEX IO service should receive structured configuration from another app through the `configuration` builder instead of relying only on local app settings.
+
+- Creating a configuration app with the `configuration` builder
+- Exposing configuration entrypoints from a service app
+- Sharing one configuration contract across multiple services or apps
+- Separating configuration lifecycle from runtime app lifecycle
+- Reading injected configuration through `ctx.vtex.settings`
+
+Do not use this skill for:
+- simple app-local configuration managed only through `settingsSchema`
+- Store Framework block settings through `contentSchemas.json`
+- generic service runtime wiring unrelated to configuration
+- policy design beyond the configuration-specific permissions required
+
+## Decision rules
+
+- Treat the service app and the configuration app as separate responsibilities.
+- The service app owns runtime (`node`, `graphql`, etc.), declares the `configuration` builder in `manifest.json`, defines `configuration/schema.json`, and reads injected values through `ctx.vtex.settings`.
+- The configuration app does not own the service runtime. It should not declare `node` or `graphql` builders and usually has only the `configuration` builder.
+- The configuration app points to the target service in the `configuration` field and provides concrete values in `<service-app>/configuration.json`.
+- Use a configuration app when the configuration contract should live independently from the app that consumes it.
+- Prefer a configuration app when multiple apps or services need to share the same configuration model.
+- In service apps, expose configuration entrypoints explicitly through `settingsType: "workspace"` in `node/service.json` routes or events, or through `@settings` in GraphQL when the service should receive configuration from a configuration app.
+- In configuration apps, the folder name under `configuration/` and the key in the `configuration` field should match the target service app ID, for example `shipping-service` in `vendor.shipping-service`.
+- The shape of `configuration.json` must respect the JSON Schema declared by the service app.
+- Read received configuration from `ctx.vtex.settings` inside the service runtime instead of making your own HTTP call just to fetch those values.
+- Handlers and resolvers should cast or validate `ctx.vtex.settings` to match the configuration schema and apply defaults consistent with that schema.
+- Treat configuration apps as a way to inject structured runtime configuration through VTEX IO context, not as a replacement for arbitrary operational data storage.
+- Use `settingsSchema` when configuration is local to one app and should be edited directly in Apps > App Settings. Use configuration apps when the contract should be shared, versioned, or decoupled from the consuming app lifecycle.
+- If a service configured through a configuration app fails to resolve workspace app configuration due to permissions, explicitly evaluate whether the manifest needs the `read-workspace-apps` policy for that scenario. Do not add this policy by default to unrelated services.
+- For service configuration contracts, prefer closed schemas with `additionalProperties: false` and use `definitions` plus `$ref` when the structure becomes more complex.
+
+## Hard constraints
+
+### Constraint: Service apps must explicitly opt in to receiving configuration
+
+A service app MUST declare where configuration can be injected, using `settingsType: "workspace"` in `node/service.json` routes or events, or the `@settings` directive in GraphQL.
+
+**Why this matters**
+
+Configuration apps do not magically apply to all service entrypoints. The service must explicitly mark which routes, events, or queries resolve runtime configuration.
+
+**Detection**
+
+If a service is expected to receive configuration but its routes, events, or GraphQL queries do not declare `settingsType` or `@settings`, STOP and expose the configuration boundary first.
+
+**Correct**
+
+```json
+{
+  "routes": {
+    "status": {
+      "path": "/_v/status/:code",
+      "public": true,
+      "settingsType": "workspace"
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "routes": {
+    "status": {
+      "path": "/_v/status/:code",
+      "public": true
+    }
+  }
+}
+```
+
+### Constraint: Configuration shape must be defined with explicit schema files
+
+Configuration apps and the services they configure MUST use explicit schema files instead of implicit or undocumented payloads.
+
+**Why this matters**
+
+Without `configuration/schema.json` and matching `configuration.json` contracts, shared configuration becomes ambiguous and error-prone across apps.
+
+**Detection**
+
+If a configuration app is introduced without a clear schema file or the service accepts loosely defined configuration payloads, STOP and define the schema first.
+
+**Correct**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/ServiceConfiguration",
+  "definitions": {
+    "ServiceConfiguration": {
+      "type": "object",
+      "properties": {
+        "bank": {
+          "type": "object",
+          "properties": {
+            "account": { "type": "string" },
+            "workspace": { "type": "string", "default": "master" },
+            "version": { "type": "string" },
+            "kycVersion": { "type": "string" },
+            "payoutVersion": { "type": "string" },
+            "host": { "type": "string" }
+          },
+          "required": ["account", "version", "kycVersion", "payoutVersion", "host"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["bank"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "anything": true
+}
+```
+
+### Constraint: Consuming apps must read injected configuration from runtime context, not by inventing extra fetches
+
+When a service is configured through a configuration app, it MUST consume the injected values from `ctx.vtex.settings` instead of creating its own ad hoc HTTP call just to retrieve the same configuration.
+
+**Why this matters**
+
+The purpose of configuration apps is to let VTEX IO inject the structured configuration directly into service context. Adding a custom fetch layer on top creates unnecessary complexity and loses the main runtime advantage of the builder.
+
+**Detection**
+
+If a service already exposes `settingsType` or `@settings` but still performs its own backend fetch to retrieve the same configuration, STOP and move the read to `ctx.vtex.settings`.
+
+**Correct**
+
+```typescript
+export async function handleStatus(ctx: Context) {
+  const settings = ctx.vtex.settings
+  const code = ctx.vtex.route.params.code
+
+  const status = resolveStatus(code, settings)
+  ctx.body = { status }
+}
+```
+
+**Wrong**
+
+```typescript
+export async function handleStatus(ctx: Context) {
+  const settings = await ctx.clients.partnerApi.getSettings()
+  ctx.body = settings
+}
+```
+
+## Preferred pattern
+
+Model the service and the configuration app as separate contracts:
+
+1. The service app exposes where configuration can be resolved.
+2. The service app defines accepted structure in `configuration/schema.json`.
+3. The configuration app declares the service as a builder and supplies values in `configuration.json`.
+4. The service reads the injected configuration through `ctx.vtex.settings`.
+
+Example: service app `vendor.shipping-service`
+
+`manifest.json`:
+
+```json
+{
+  "vendor": "vendor",
+  "name": "shipping-service",
+  "version": "1.0.0",
+  "builders": {
+    "node": "7.x",
+    "configuration": "1.x"
+  }
+}
+```
+
+`configuration/schema.json`:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/ShippingConfiguration",
+  "definitions": {
+    "ShippingConfiguration": {
+      "type": "object",
+      "properties": {
+        "carrierApi": {
+          "type": "object",
+          "properties": {
+            "baseUrl": { "type": "string" },
+            "apiKey": { "type": "string", "format": "password" },
+            "timeoutMs": { "type": "integer", "default": 3000 }
+          },
+          "required": ["baseUrl", "apiKey"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["carrierApi"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+Example: configuration app `vendor.shipping-config`
+
+`manifest.json`:
+
+```json
+{
+  "vendor": "vendor",
+  "name": "shipping-config",
+  "version": "1.0.0",
+  "builders": {
+    "configuration": "1.x"
+  },
+  "configuration": {
+    "shipping-service": "1.x"
+  }
+}
+```
+
+`configuration/shipping-service/configuration.json`:
+
+```json
+{
+  "carrierApi": {
+    "baseUrl": "https://api.carrier.com",
+    "apiKey": "secret-api-key-here",
+    "timeoutMs": 5000
+  }
+}
+```
+
+Example: Node service consuming injected configuration
+
+```typescript
+export async function createShipment(ctx: Context, next: () => Promise<void>) {
+  const settings = ctx.vtex.settings as {
+    carrierApi: {
+      baseUrl: string
+      apiKey: string
+      timeoutMs?: number
+    }
+  }
+
+  const timeoutMs = settings.carrierApi.timeoutMs ?? 3000
+
+  const response = await ctx.clients.carrier.createShipment({
+    baseUrl: settings.carrierApi.baseUrl,
+    apiKey: settings.carrierApi.apiKey,
+    timeoutMs,
+    payload: ctx.state.shipmentPayload,
+  })
+
+  ctx.body = response
+  await next()
+}
+```
+
+Example: GraphQL query using `@settings`
+
+```graphql
+type ShippingStatus {
+  orderId: ID!
+  status: String!
+}
+
+type Query {
+  shippingStatus(orderId: ID!): ShippingStatus
+    @settings(type: "workspace")
+}
+```
+
+```typescript
+export const resolvers = {
+  Query: {
+    shippingStatus: async (_: unknown, args: { orderId: string }, ctx: Context) => {
+      const settings = ctx.vtex.settings as {
+        carrierApi: { baseUrl: string; apiKey: string }
+      }
+
+      return ctx.clients.carrier.getStatus({
+        baseUrl: settings.carrierApi.baseUrl,
+        apiKey: settings.carrierApi.apiKey,
+        orderId: args.orderId,
+      })
+    },
+  },
+}
+```
+
+Minimum working checklist for service configuration apps:
+
+- [ ] The service app declares the `configuration` builder in `manifest.json`.
+- [ ] The service app defines a valid `configuration/schema.json`.
+- [ ] The configuration app provides `<service-app>/configuration.json` with values compatible with the schema.
+- [ ] Service routes or events that need configuration declare `settingsType: "workspace"`.
+- [ ] When the flow depends on workspace app resolution, the service manifest evaluates whether `read-workspace-apps` is required.
+
+Use this approach when configuration should be shared, versioned, and injected by VTEX IO runtime rather than fetched ad hoc by service code.
+
+## Common failure modes
+
+- Using app settings when the real need is a shared configuration contract across apps.
+- Creating configuration apps without explicit schema files.
+- Forgetting `settingsType` or `@settings` in the service that should receive configuration.
+- Fetching configuration over HTTP even though it is already injected in `ctx.vtex.settings`.
+- Treating configuration apps as general-purpose operational storage.
+
+## Review checklist
+
+- [ ] Is a configuration app really needed instead of plain `settingsSchema`?
+- [ ] Could this case be solved with local app settings and `settingsSchema` instead of a separate configuration app?
+- [ ] Does the service explicitly opt in to configuration resolution with `settingsType` or `@settings`?
+- [ ] When configuration is injected through service routes or events, is `settingsType: "workspace"` declared where needed?
+- [ ] Is the configuration contract defined through `configuration/schema.json` and matched by `configuration.json`?
+- [ ] Does the service read configuration from `ctx.vtex.settings` instead of inventing extra fetches?
+- [ ] If the flow depends on reading installed workspace apps or their configuration, was `read-workspace-apps` evaluated intentionally instead of added by default?
+- [ ] Does the configuration schema stay closed and explicit enough for a shared contract?
+- [ ] Is the configuration contract clearly separate from operational data storage?
+
+## Reference
+
+- [Developing service configuration apps](https://developers.vtex.com/docs/guides/vtex-io-documentation-developing-service-configuration-apps) - Official guide for service and configuration apps
+- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) - Overview of the `configuration` builder
+- [Service](https://developers.vtex.com/docs/guides/vtex-io-documentation-service) - Service configuration context for node and GraphQL services
 
 ---
 
