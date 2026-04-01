@@ -21,6 +21,7 @@ Do not use this skill for:
 - A BFF layer is **mandatory** for every headless VTEX project. There is no scenario where a headless storefront can safely operate without one.
 - Route all VTEX API calls through the BFF **except** Intelligent Search, which is the only API safe to call directly from the frontend.
 - Use `VtexIdclientAutCookie` (stored server-side) for shopper-scoped API calls. Use `X-VTEX-API-AppKey`/`X-VTEX-API-AppToken` for machine-to-machine calls.
+- Treat client-side exposure of `VTEX_APP_KEY`, `VTEX_APP_TOKEN`, `VtexIdclientAutCookie`, checkout cookies, or shopper/session tokens as a security violation — not as a recommendation or tradeoff. Use explicit wording such as “must not”, “never expose”, and “server-side only”, and avoid softer language such as “avoid”, “prefer”, or “ideally”.
 - Classify APIs by their path: `/pub/` endpoints are public but most still need BFF proxying for session management; `/pvt/` endpoints are private and **must** go through BFF.
 - Even public Checkout endpoints (`/api/checkout/pub/`) must be proxied through BFF for security — they handle sensitive personal data.
 - Create separate API keys with minimal permissions for different BFF modules rather than sharing one key with broad access.
@@ -1783,7 +1784,8 @@ Do not use this skill for:
 - Call Intelligent Search **directly from the frontend** — it is the ONE exception to the "everything through BFF" rule. It is fully public and requires no authentication.
 - Do NOT proxy Intelligent Search through the BFF unless you have a specific need (e.g., server-side rendering). Proxying adds latency on a high-frequency operation.
 - Always use the API's `sort` parameter and facet paths for filtering and sorting — never re-sort or re-filter results client-side.
-- Always include `from`, `to`, and `locale` parameters in every search request.
+- Always include `page` and `locale` parameters in every search request.
+- When paginating beyond the first page, always reuse the `operator` and `fuzzy` values returned by the API from the first page — the API decides these values dynamically based on the search query.
 - Always send analytics events to the Intelligent Search Events API — without them, search ranking degrades over time.
 
 Search endpoints overview:
@@ -1884,72 +1886,108 @@ async function searchProducts(query: string): Promise<Product[]> {
 
 ---
 
-### Constraint: MUST paginate results with `from` and `to` parameters
+### Constraint: MUST persist operator and fuzzy values across pagination
 
-Every product search request MUST include `from` and `to` query parameters to control pagination. The maximum page size is 50 items (`to - from` must not exceed 49, since indices are inclusive and zero-based).
+When paginating search results beyond the first page, you MUST reuse the `operator` and `fuzzy` values returned by the API in the first page response. The first request should send these as `null`, but subsequent pages must use the values from the initial response.
 
 **Why this matters**
 
-Without pagination parameters, the API defaults to a small result set. Requesting too many results in a single call (or not paginating at all) causes slow responses, high memory usage on the client, and poor user experience. The API enforces a maximum of 50 items per request.
+The Intelligent Search API dynamically determines the best `operator` and `fuzzy` values based on the query and available results. Using fixed values (like always `operator: "or"` or `fuzzy: "0"`) or forgetting to pass them on subsequent pages causes inconsistent results — page 2 may show products that don't match the criteria from page 1, or may miss valid results. This is a common source of poor search experience but is not well-documented by VTEX.
 
 **Detection**
 
-If a call to `/product_search/` does not include `from` and `to` query parameters → STOP immediately. Pagination must always be explicit.
+If pagination implementation does not store and reuse `operator`/`fuzzy` from the first page response → STOP immediately. Subsequent pages will return inconsistent results.
 
 **Correct**
 
 ```typescript
-// Properly paginated search with from/to parameters
-interface SearchOptions {
+// Properly manages operator/fuzzy across pagination
+interface SearchState {
   query: string;
   page: number;
-  pageSize: number;
+  count: number;
   locale: string;
   facets?: string;
+  operator: string | null; // null for first page, then persisted
+  fuzzy: string | null;    // null for first page, then persisted
 }
 
-async function searchProducts(options: SearchOptions): Promise<SearchResponse> {
-  const { query, page, pageSize, locale, facets = "" } = options;
-
-  // Calculate zero-based from/to (inclusive)
-  const from = page * pageSize;
-  const to = from + pageSize - 1;
+async function searchProducts(state: SearchState): Promise<SearchResponse> {
+  const { query, page, count, locale, facets = "", operator, fuzzy } = state;
 
   const params = new URLSearchParams({
     query,
     locale,
-    from: String(from),
-    to: String(to),
+    page: String(page),
+    count: String(count),
   });
+
+  // Only add operator/fuzzy if this is not the first page
+  if (operator !== null) params.set("operator", operator);
+  if (fuzzy !== null) params.set("fuzzy", fuzzy);
 
   const baseUrl = `https://${ACCOUNT}.vtexcommercestable.com.br`;
   const facetPath = facets ? `/${facets}` : "";
   const url = `${baseUrl}/api/io/_v/api/intelligent-search/product_search${facetPath}?${params}`;
 
   const response = await fetch(url);
-  return response.json();
+  const data = await response.json();
+
+  // Store operator/fuzzy from response for next page
+  if (page === 0) {
+    state.operator = data.operator;
+    state.fuzzy = data.fuzzy;
+  }
+
+  return data;
 }
 
-// Usage
-const results = await searchProducts({
+// Usage: first page
+const state: SearchState = {
   query: "running shoes",
   page: 0,
-  pageSize: 20,
+  count: 24,
   locale: "en-US",
-  facets: "category-1/shoes",
-});
+  operator: null, // API will decide
+  fuzzy: null,    // API will decide
+};
+
+const firstPage = await searchProducts(state);
+
+// Usage: subsequent pages
+state.page = 1;
+const secondPage = await searchProducts(state); // reuses operator/fuzzy
 ```
 
 **Wrong**
 
 ```typescript
-// No pagination — returns default small result set, no way to load more
-async function searchProducts(query: string): Promise<SearchResponse> {
+// Using fixed operator/fuzzy values — causes bad results
+async function searchProducts(query: string, page: number): Promise<SearchResponse> {
+  const params = new URLSearchParams({
+    query,
+    locale: "en-US",
+    page: String(page),
+    count: "24",
+    operator: "or", // WRONG: fixed value instead of API-provided
+    fuzzy: "0",     // WRONG: fixed value instead of API-provided
+  });
+
   const response = await fetch(
-    `https://mystore.vtexcommercestable.com.br/api/io/_v/api/intelligent-search/product_search/?query=${query}`
-    // Missing: from, to, locale parameters
+    `https://mystore.vtexcommercestable.com.br/api/io/_v/api/intelligent-search/product_search/?${params}`
   );
   return response.json();
+}
+
+// Or forgetting operator/fuzzy entirely on subsequent pages
+async function searchProductsPage2(query: string): Promise<SearchResponse> {
+  const params = new URLSearchParams({
+    query,
+    locale: "en-US",
+    page: "1", // WRONG: no operator/fuzzy from first page
+    count: "24",
+  });
+  // ...
 }
 ```
 
@@ -2016,7 +2054,7 @@ Data flow for Intelligent Search in a headless storefront:
 Frontend (Browser)
     │
     ├── GET /api/io/_v/api/intelligent-search/product_search/...
-    │   └── Returns: products, facets, pagination info
+    │   └── Returns: products, pagination info, operator, fuzzy
     │
     ├── GET /api/io/_v/api/intelligent-search/facets/...
     │   └── Returns: available filters with counts
@@ -2038,24 +2076,63 @@ const BASE_URL = `https://${ACCOUNT}.${ENVIRONMENT}.com.br/api/io/_v/api/intelli
 
 interface ProductSearchParams {
   query?: string;
-  from?: number;
-  to?: number;
+  page: number;
+  count?: number;
   locale: string;
   facets?: string;
   sort?: "price:asc" | "price:desc" | "orders:desc" | "name:asc" | "name:desc" | "release:desc" | "discount:desc";
   hideUnavailableItems?: boolean;
+  operator?: string | null;
+  fuzzy?: string | null;
+  // Optional parameters
+  simulationBehavior?: "default" | "skip" | "only1P";
+}
+
+interface ProductSearchResponse {
+  products: Product[];
+  recordsFiltered: number;
+  // Pagination info
+  pagination: {
+    count: number;
+    current: { index: number };
+    before: Array<{ index: number }>;
+    after: Array<{ index: number }>;
+    perPage: number;
+    next: { index: number } | null;
+    previous: { index: number } | null;
+    first: { index: number };
+    last: { index: number };
+  };
+  // Search metadata to persist for next pages
+  operator: string;
+  fuzzy: string;
+  // Spelling correction info
+  correction?: {
+    misspelled: boolean;
+    text: string;
+    correction: string;
+  };
+  // Search behavior
+  translated: boolean;
+  locale: string;
+  query: string;
 }
 
 export async function productSearch(params: ProductSearchParams): Promise<ProductSearchResponse> {
-  const { facets = "", ...queryParams } = params;
+  const { facets = "", operator, fuzzy, ...queryParams } = params;
   const searchParams = new URLSearchParams();
 
   if (queryParams.query) searchParams.set("query", queryParams.query);
-  if (queryParams.from !== undefined) searchParams.set("from", String(queryParams.from));
-  if (queryParams.to !== undefined) searchParams.set("to", String(queryParams.to));
+  searchParams.set("page", String(queryParams.page));
   searchParams.set("locale", queryParams.locale);
+  if (queryParams.count) searchParams.set("count", String(queryParams.count));
   if (queryParams.sort) searchParams.set("sort", queryParams.sort);
   if (queryParams.hideUnavailableItems) searchParams.set("hideUnavailableItems", "true");
+  if (queryParams.simulationBehavior) searchParams.set("simulationBehavior", queryParams.simulationBehavior);
+  
+  // Only add operator/fuzzy if not null (i.e., not first page)
+  if (operator !== null && operator !== undefined) searchParams.set("operator", operator);
+  if (fuzzy !== null && fuzzy !== undefined) searchParams.set("fuzzy", fuzzy);
 
   const facetPath = facets ? `/${facets}` : "";
   const url = `${BASE_URL}/product_search${facetPath}?${searchParams}`;
@@ -2067,6 +2144,14 @@ export async function productSearch(params: ProductSearchParams): Promise<Produc
   return response.json();
 }
 ```
+
+Response structure notes:
+
+- **`operator` and `fuzzy`**: Must be stored from the first page and reused on subsequent pages. Also critical for analytics events.
+- **`pagination`**: Contains rich pagination metadata including available pages before/after current
+- **`correction.misspelled`**: Boolean indicating if the search term is misspelled. Must be sent accurately in analytics events.
+- **`recordsFiltered`**: Total number of results matching the search (across all pages)
+- **`products`**: Array of products for the current page only
 
 Faceted navigation helper:
 
@@ -2140,9 +2225,11 @@ import { sendSearchEvent } from "./search-analytics";
 interface SearchState {
   query: string;
   page: number;
-  pageSize: number;
+  count: number;
   locale: string;
   selectedFilters: Record<string, string[]>;
+  operator: string | null;
+  fuzzy: string | null;
   results: ProductSearchResponse | null;
   facets: FacetsResponse | null;
 }
@@ -2150,9 +2237,11 @@ interface SearchState {
 const state: SearchState = {
   query: "",
   page: 0,
-  pageSize: 24,
+  count: 24,
   locale: "en-US",
   selectedFilters: {},
+  operator: null, // API decides on first page
+  fuzzy: null,    // API decides on first page
   results: null,
   facets: null,
 };
@@ -2163,13 +2252,21 @@ async function executeSearch(): Promise<void> {
   const [searchResults, facetResults] = await Promise.all([
     productSearch({
       query: state.query,
-      from: state.page * state.pageSize,
-      to: (state.page * state.pageSize) + state.pageSize - 1,
+      page: state.page,
+      count: state.count,
       locale: state.locale,
       facets: facetPath,
+      operator: state.operator,
+      fuzzy: state.fuzzy,
     }),
     getFacets(facetPath, state.query, state.locale),
   ]);
+
+  // Store operator/fuzzy from first page for subsequent pages
+  if (state.page === 0) {
+    state.operator = searchResults.operator;
+    state.fuzzy = searchResults.fuzzy;
+  }
 
   state.results = searchResults;
   state.facets = facetResults;
@@ -2186,7 +2283,7 @@ async function executeSearch(): Promise<void> {
     url: window.location.href,
     products: searchResults.products.map((p, i) => ({
       productId: p.productId,
-      position: state.page * state.pageSize + i + 1,
+      position: state.page * searchResults.products.length + i + 1,
     })),
   });
 }
@@ -2205,9 +2302,50 @@ function onProductClick(productId: string, position: number): void {
     products: [{ productId, position }],
   });
 }
+
+// Handle page change
+function goToPage(newPage: number): void {
+  state.page = newPage;
+  executeSearch(); // reuses operator/fuzzy from first page
+}
+
+// Handle new search (reset pagination state)
+function newSearch(query: string): void {
+  state.query = query;
+  state.page = 0;
+  state.operator = null; // reset for new search
+  state.fuzzy = null;    // reset for new search
+  executeSearch();
+}
 ```
 
 ## Common failure modes
+
+- **Not tracking `correction.misspelled` and `operator` fields for analytics**: The API returns `correction.misspelled` (boolean indicating if the term is misspelled) and `operator` fields that must be sent correctly in analytics events. These values are critical for the Intelligent Search machine learning to understand search quality and user behavior.
+
+  ```typescript
+  const response = await productSearch({ query: "red nike shoes", page: 0, locale: "en-US" });
+  
+  // Extract values from API response
+  const isMisspelled = response.correction?.misspelled ?? false;
+  const operatorUsed = response.operator; // "and" or "or"
+  
+  // CRITICAL: Send these exact values to analytics
+  sendSearchEvent({
+    type: "search.query",
+    text: response.query,
+    misspelled: isMisspelled,  // Must match API's correction.misspelled
+    operator: operatorUsed,    // Must match API's operator value
+    match: response.recordsFiltered,
+    locale: state.locale,
+    agent: "my-headless-store",
+    url: window.location.href,
+    products: response.products.map((p, i) => ({
+      productId: p.productId,
+      position: i + 1,
+    })),
+  });
+  ```
 
 - **Not sending the `locale` parameter**: Without `locale`, Intelligent Search may return results in the wrong language or fail to apply locale-specific relevance rules. Multi-language stores will display mixed-language results. Always include `locale` in every request.
 
@@ -2216,25 +2354,56 @@ function onProductClick(productId: string, position: number): void {
   const params = new URLSearchParams({
     query: "shoes",
     locale: "en-US", // Required for correct language processing
-    from: "0",
-    to: "19",
+    page: "0",
+    count: "24",
   });
   ```
 
-- **Loading all products at once**: Setting very large `from`/`to` ranges (e.g., 0 to 999) or infinite scroll without limits. The API limits results to 50 items per request. Use proper pagination with reasonable page sizes (12-24 items per page).
+- **Using fixed operator/fuzzy values or forgetting to persist them**: Setting fixed values like `operator: "or"` or `fuzzy: "0"` for all requests, or not passing them at all on subsequent pages. The API dynamically determines these values on the first page — you must store and reuse them for pagination.
 
   ```typescript
-  // Proper pagination with bounded page sizes
-  const PAGE_SIZE = 24; // Reasonable default
-  const MAX_PAGE_SIZE = 50; // API maximum
+  // Store operator/fuzzy from first page, reuse on subsequent pages
+  let searchState = { operator: null, fuzzy: null };
+  
+  const firstPage = await productSearch({
+    query: "shoes",
+    page: 0,
+    count: 24,
+    locale: "en-US"
+  });
+  searchState.operator = firstPage.operator; // Store from API response
+  searchState.fuzzy = firstPage.fuzzy;
+  
+  // Page 2 reuses these values
+  const secondPage = await productSearch({
+    query: "shoes",
+    page: 1,
+    count: 24,
+    locale: "en-US",
+    operator: searchState.operator, // Reuse from first page
+    fuzzy: searchState.fuzzy,
+  });
+  ```
 
-  function getSearchPage(query: string, page: number, locale: string) {
-    const safePageSize = Math.min(PAGE_SIZE, MAX_PAGE_SIZE);
-    const from = page * safePageSize;
-    const to = from + safePageSize - 1;
+- **Assuming `/product_search` returns facets**: The `/product_search` endpoint returns only products and pagination info. To get available filters, you must call the separate `/facets` endpoint. Make parallel requests if you need both.
 
-    return productSearch({ query, from, to, locale });
-  }
+  ```typescript
+  // Fetch products and facets in parallel
+  const [products, filters] = await Promise.all([
+    productSearch({ query: "shoes", page: 0, locale: "en-US" }),
+    getFacets("", "shoes", "en-US"), // Separate call for filters
+  ]);
+  ```
+
+- **Not using `hideUnavailableItems` when appropriate**: By default, the API may return out-of-stock products. For most storefronts, set `hideUnavailableItems: true` to filter them out at the API level rather than client-side.
+
+  ```typescript
+  const response = await productSearch({
+    query: "shoes",
+    page: 0,
+    locale: "en-US",
+    hideUnavailableItems: true, // Filter out-of-stock products
+  });
   ```
 
 - **Rebuilding search ranking logic client-side**: Fetching results and then re-sorting or re-filtering them in the frontend discards Intelligent Search's ranking intelligence. Client-side filtering only works on the current page, not the full catalog. Use the API's `sort` parameter and facet paths.
@@ -2254,13 +2423,16 @@ function onProductClick(productId: string, position: number): void {
 ## Review checklist
 
 - [ ] Is Intelligent Search called directly from the frontend (not unnecessarily routed through BFF)?
-- [ ] Does every search request include `from`, `to`, and `locale` parameters?
+- [ ] Does every search request include `page` and `locale` parameters?
+- [ ] Are `operator` and `fuzzy` values stored from the first page and reused on subsequent pages?
+- [ ] Are `correction.misspelled` and `operator` from the API response sent correctly in analytics events?
 - [ ] Are analytics events sent to `sp.vtex.com/event-api` after search results render?
 - [ ] Are click events sent when a user selects a product from search results?
 - [ ] Is sorting done via the API's `sort` parameter rather than client-side re-sorting?
 - [ ] Is filtering done via facet paths rather than client-side filtering?
 - [ ] Is autocomplete debounced to avoid excessive API calls?
-- [ ] Are page sizes bounded to ≤ 50 items per request?
+- [ ] Are filters fetched from the `/facets` endpoint (not assumed to come from `/product_search`)?
+- [ ] Is `hideUnavailableItems` set to `true` for storefronts that should hide out-of-stock products?
 
 ## Reference
 
