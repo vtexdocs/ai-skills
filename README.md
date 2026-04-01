@@ -4,7 +4,7 @@
 
 <h1 align="center">VTEX AI Skills</h1>
 <p align="center">
-  <strong>21 AI agent skills for VTEX platform development — one source, five export formats.</strong>
+  <strong>42 AI agent skills for VTEX platform development — one source, six export formats.</strong>
 </p>
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
@@ -13,9 +13,9 @@
   <a href="#contributing">Contributing</a>
 </p>
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-21-F71963" alt="21 skills">
-  <img src="https://img.shields.io/badge/tracks-5-blue" alt="5 tracks">
-  <img src="https://img.shields.io/badge/platforms-5-green" alt="5 platforms">
+  <img src="https://img.shields.io/badge/skills-42-F71963" alt="42 skills">
+  <img src="https://img.shields.io/badge/tracks-6-blue" alt="6 tracks">
+  <img src="https://img.shields.io/badge/platforms-6-green" alt="6 platforms">
   <img src="https://img.shields.io/github/license/vtexdocs/ai-skills" alt="License">
   <img src="https://img.shields.io/github/actions/workflow/status/vtexdocs/ai-skills/generate-exports.yml?label=exports" alt="Build">
 </p>
@@ -101,7 +101,7 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 
 - **AI assistants don't know VTEX-specific patterns.** The Overrides API, PPP endpoints, BFF requirements, and MasterData schema limits aren't in any LLM's training data at the depth you need. These skills fill that gap.
 - **Real constraints, not generic advice.** PCI compliance via the Secure Proxy, idempotency requirements on payment endpoints, the 2.5s fulfillment simulation timeout, the 60-schema MasterData limit — these are the details that prevent costly mistakes in production.
-- **One source, five platforms.** Skills are authored once in a canonical Markdown format and exported automatically. No manual sync, no drift between tools.
+- **One source, six platforms.** Skills are authored once in a canonical Markdown format and exported automatically. No manual sync, no drift between tools.
 - **Built from official VTEX documentation.** Not generic LLM knowledge. Every constraint has a source, a detection pattern, and paired correct/wrong code examples.
 
 ---
@@ -110,18 +110,30 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 
 | Platform | Format | Auto-detection | Files |
 |---|---|---|---|
-| **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 6 |
-| **Cursor** | `.mdc` rules | ✅ Glob + description | 26 |
-| **GitHub Copilot** | Instructions | ✅ Auto-loaded | 6 |
-| **Claude Projects** | Knowledge files | Manual upload | 26 |
-| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 21 |
+| **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 7 |
+| **Cursor** | `.mdc` rules | ✅ Glob + description | 49 |
+| **GitHub Copilot** | Instructions | ✅ Auto-loaded | 7 |
+| **Claude Projects** | Knowledge files | Manual upload | 49 |
+| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 43 |
+| **Kiro** | `POWER.md` + steering | ✅ Auto-discovered | 50 |
 
 ---
 
 ## Tracks & Skills
 
 <details>
-<summary><strong>Track 1: FastStore Implementation</strong> — 4 skills for storefront customization</summary>
+<summary><strong>Track 1: Well-Architected Commerce & Solution Architecture</strong> — 1 skill for cross-cutting architecture</summary>
+
+Cross-cutting guidance for designing and reviewing VTEX commerce solutions. Encodes the Well-Architected Commerce pillars: Technical Foundation, Future-proof, and Operational Excellence.
+
+| Skill | Description |
+|---|---|
+| `architecture-well-architected-commerce` | Solution design, architecture reviews, and RFP-level technical structure |
+
+</details>
+
+<details>
+<summary><strong>Track 2: FastStore Implementation</strong> — 4 skills for storefront customization</summary>
 
 Overrides, theming, SDK hooks, and data fetching for FastStore storefronts. Covers the override API, design token system, cart/session/search state management, and GraphQL API extensions.
 
@@ -135,13 +147,14 @@ Overrides, theming, SDK hooks, and data fetching for FastStore storefronts. Cove
 </details>
 
 <details>
-<summary><strong>Track 2: Payment Connector Development</strong> — 4 skills for PPP integration</summary>
+<summary><strong>Track 3: Payment Connector Development</strong> — 5 skills for PPP integration</summary>
 
-All 9 Payment Provider Protocol endpoints, idempotency patterns, async payment flows, and PCI compliance via the Secure Proxy. Covers both mandatory payment flow and optional configuration flow.
+All 9 Payment Provider Protocol endpoints, Payment Provider Framework lifecycle, idempotency patterns, async payment flows, and PCI compliance via the Secure Proxy.
 
 | Skill | Description |
 |---|---|
 | `payment-provider-protocol` | All 9 PPP endpoints: 6 payment flow + 3 configuration flow |
+| `payment-provider-framework` | PPF lifecycle, configuration endpoints, retry and notification patterns |
 | `payment-idempotency` | `paymentId` and `requestId` idempotency, duplicate prevention |
 | `payment-async-flow` | Async approval, callback URLs, and the 7-day retry window |
 | `payment-pci-security` | Secure Proxy, card tokenization, and PCI constraint enforcement |
@@ -149,31 +162,26 @@ All 9 Payment Provider Protocol endpoints, idempotency patterns, async payment f
 </details>
 
 <details>
-<summary><strong>Track 3: Custom VTEX IO Apps</strong> — evolving skill set for IO app development</summary>
+<summary><strong>Track 4: Custom VTEX IO Apps</strong> — 24 skills for IO app development</summary>
 
-App manifest, builders, policies, `@vtex/api` clients, React components, GraphQL schemas, and MasterData v2 integration. The most comprehensive track, covering both frontend and backend IO development.
+Comprehensive coverage of VTEX IO app development organized into five groups: Foundations, API Exposure, Frontend, Data & Config, and Security & Operations.
 
-This track is being reorganized into smaller groups:
-- Foundations
-- API exposure
-- Frontend
-- Data and config
-- Security and operations
-
-| Skill | Description |
+| Group | Skills |
 |---|---|
-| `vtex-io-app-structure` | Manifest, builders, policies, and app architecture |
-| `vtex-io-service-apps` | Node service apps, `ctx.clients`, and `@vtex/api` client hierarchy |
-| `vtex-io-react-apps` | React components, `css-handles`, hooks, and Styleguide usage |
-| `vtex-io-graphql-api` | GraphQL schemas, resolvers, `@cacheControl`, and `@auth` directives |
-| `vtex-io-masterdata` | MasterData v2 CRUD, schema design, and the 60-schema limit |
+| **Foundations** | `vtex-io-app-contract`, `vtex-io-service-runtime`, `vtex-io-client-integration`, `vtex-io-app-structure`¹, `vtex-io-service-apps`¹ |
+| **API Exposure** | `vtex-io-graphql-api`, `vtex-io-http-routes`, `vtex-io-events-and-workers` |
+| **Frontend** | `vtex-io-storefront-react`, `vtex-io-admin-react`, `vtex-io-render-runtime-and-blocks`, `vtex-io-messages-and-i18n`, `vtex-io-react-apps`¹ |
+| **Data & Config** | `vtex-io-app-settings`, `vtex-io-service-configuration-apps`, `vtex-io-masterdata-strategy`, `vtex-io-data-access-patterns`, `vtex-io-masterdata`¹, `vtex-io-service-paths-and-cdn`, `vtex-io-application-performance`, `vtex-io-session-apps` |
+| **Security & Ops** | `vtex-io-auth-tokens-and-context`, `vtex-io-auth-and-policies`, `vtex-io-security-boundaries`, `vtex-io-observability-and-ops` |
 
-See [tracks/vtex-io/index.md](tracks/vtex-io/index.md) for the planned grouped model and VTEX IO skill roadmap.
+¹ Original broader skills retained alongside the newer focused splits.
+
+See [tracks/vtex-io/index.md](tracks/vtex-io/index.md) for the full skill table and learning order.
 
 </details>
 
 <details>
-<summary><strong>Track 4: Marketplace Integration</strong> — 4 skills for marketplace connectors</summary>
+<summary><strong>Track 5: Marketplace Integration</strong> — 4 skills for marketplace connectors</summary>
 
 SKU catalog sync, order hooks, fulfillment simulation, and rate limiting for marketplace connectors. Covers the Change Notification flow, Feed v3 vs Hook tradeoffs, and invoice/tracking patterns.
 
@@ -181,13 +189,13 @@ SKU catalog sync, order hooks, fulfillment simulation, and rate limiting for mar
 |---|---|
 | `marketplace-catalog-sync` | Change Notification entry point, SKU suggestion lifecycle |
 | `marketplace-order-hook` | Feed v3 (pull) vs Hook (push), filter types, commit patterns |
-| `marketplace-fulfillment` | Simulation endpoint, 2.5s timeout, invoice and tracking updates |
+| `marketplace-fulfillment` | External Seller protocol, simulation, orders, invoice and tracking |
 | `marketplace-rate-limiting` | 429 handling, exponential backoff, circuit breaker patterns |
 
 </details>
 
 <details>
-<summary><strong>Track 5: Headless Front-End Development</strong> — 4 skills for headless storefronts</summary>
+<summary><strong>Track 6: Headless Front-End Development</strong> — 4 skills for headless storefronts</summary>
 
 BFF architecture, Intelligent Search API, checkout proxy patterns, and caching strategy for headless VTEX storefronts. Covers why a BFF is mandatory and which APIs can never be called from the browser.
 
@@ -207,8 +215,8 @@ BFF architecture, Intelligent Search API, checkout proxy patterns, and caching s
 This repository is an [Open Plugin](https://open-plugins.com) — a portable, platform-agnostic skill pack that any AI coding tool can discover and install.
 
 ```
-rules/*.mdc              # 26 Cursor rules (auto-discovered)
-skills/*/SKILL.md        # 21 agent skills (auto-discovered)
+rules/*.mdc              # 49 Cursor rules (auto-discovered)
+skills/*/SKILL.md        # 43 agent skills (auto-discovered)
 .cursor-plugin/plugin.json   # Cursor plugin manifest
 .plugin/plugin.json          # Vendor-neutral plugin manifest
 ```
@@ -229,6 +237,10 @@ vtex_skills/
   _templates/
     skill-template.md       # Canonical template for new skills
   tracks/                   # SOURCE — edit skill files here
+    architecture/
+      index.md
+      skills/
+        architecture-well-architected-commerce/skill.md
     faststore/
       index.md
       skills/
@@ -254,23 +266,24 @@ vtex_skills/
       index.md
       skills/
         payment-provider-protocol/skill.md
+        payment-provider-framework/skill.md
         payment-idempotency/skill.md
         payment-async-flow/skill.md
         payment-pci-security/skill.md
     vtex-io/
       index.md
       skills/
-        vtex-io-app-structure/skill.md
-        vtex-io-service-apps/skill.md
-        vtex-io-react-apps/skill.md
-        vtex-io-graphql-api/skill.md
-        vtex-io-masterdata/skill.md
+        vtex-io-app-contract/skill.md
+        vtex-io-service-runtime/skill.md
+        vtex-io-client-integration/skill.md
+        ... (24 skills — see tracks/vtex-io/index.md)
   exports/                  # auto-generated — do not edit
-    agents-md/              # AGENTS.md format (6 files)
-    claude/                 # Claude Projects format (26 files)
-    copilot/                # GitHub Copilot format (6 files)
-    cursor/                 # Cursor .mdc format (26 files)
-    opencode/               # OpenCode SKILL.md format (21 files)
+    agents-md/              # AGENTS.md format
+    claude/                 # Claude Projects format
+    copilot/                # GitHub Copilot format
+    cursor/                 # Cursor .mdc format
+    kiro/                   # Kiro Power + steering format
+    opencode/               # OpenCode SKILL.md format
   skills/                   # auto-generated — do not edit (OpenCode export)
   rules/                    # auto-generated — do not edit (Cursor export)
   scripts/
@@ -294,6 +307,7 @@ bun run export:copilot
 bun run export:claude
 bun run export:agents-md
 bun run export:opencode
+bun run export:kiro
 ```
 
 Exports are written to `exports/{platform}/` and overwrite existing files. Run export after any skill changes before committing.
