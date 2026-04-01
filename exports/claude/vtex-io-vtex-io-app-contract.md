@@ -1,0 +1,245 @@
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when defining or changing the contract of a vtex io app through manifest.json, builder declarations, dependencies, peerdependencies, billingoptions, and app identity. covers how the app declares capabilities and integration boundaries. use for scaffolding apps, splitting responsibilities across apps, or fixing contract-level link and publish issues.
+
+# App Contract & Builder Boundaries
+
+## When this skill applies
+
+Use this skill when the main decision is about what a VTEX IO app is, what capabilities it declares, and which integration boundaries it publishes through `manifest.json`.
+
+- Creating a new VTEX IO app and defining its initial contract
+- Adding or removing builders to match app capabilities
+- Choosing between `dependencies` and `peerDependencies`
+- Deciding whether a capability belongs in the current app or should move to another app
+- Troubleshooting link or publish failures caused by manifest-level contract issues
+
+Do not use this skill for:
+- service runtime behavior such as `service.json`, memory, workers, or route exposure
+- HTTP handler implementation, middleware composition, or event processing
+- GraphQL schema, resolver, or data-fetching implementation
+- storefront, admin, or render-runtime frontend behavior
+- policy modeling and security boundary enforcement
+
+## Decision rules
+
+- Treat `manifest.json` as the app contract. It declares identity, builders, dependencies, peer dependencies, and high-level capabilities that other apps or the platform rely on.
+- Add a builder only when the app truly owns that capability. Builders are not placeholders for future work.
+- Keep the contract narrow. If a manifest starts to represent unrelated concerns, split those concerns into separate apps instead of creating a catch-all app.
+- Use `dependencies` only for apps that can be safely auto-installed as part of the current app contract. Use `peerDependencies` for apps that must already exist in the environment, remain externally managed, or declare `billingOptions`.
+- Keep naming and versioning publishable: `vendor`, `name`, and `version` must form a stable identity that can be linked, published, and consumed safely.
+- Keep `billingOptions` aligned with the commercial contract of the app. If the app has billing implications, declare them explicitly in the manifest rather than leaving pricing behavior implicit.
+- Apps that declare `billingOptions` cannot be consumed through `dependencies`. If the current app requires a billable app, model that relationship with `peerDependencies` and require manual installation by the account or edition owner.
+- Edition apps are compositions of app contracts, not exceptions to them. Keep each underlying app contract explicit, narrow, and semver-safe so composition stays predictable across host environments.
+- `manifest.json` can also declare app-level permissions and configuration surfaces, but detailed policy modeling belongs in security-focused skills and detailed `settingsSchema` design belongs in app-settings skills.
+
+This is not an exhaustive list of builders; see the official Builders docs for the full catalog.
+
+Builder ownership reference:
+
+| Builder | Own this builder when the app contract includes |
+|---------|--------------------------------------------------|
+| `node` | backend runtime capability owned by this app |
+| `graphql` | GraphQL schema exposure owned by this app |
+| `react` | React bundles owned by this app |
+| `admin` | Admin UI surfaces owned by this app |
+| `store` | Store Framework block registration owned by this app |
+| `messages` | localized message bundles owned by this app |
+| `pixel` | storefront pixel injection owned by this app |
+| `masterdata` | Master Data schema assets owned by this app |
+
+Contract boundary heuristic:
+1. If the capability is shipped, versioned, and maintained with this app, declare its builder here.
+2. If the capability is only consumed from another app, declare a dependency instead of duplicating the builder.
+3. If the capability introduces a separate runtime, security model, or release cadence, consider splitting it into another app.
+
+## Hard constraints
+
+### Constraint: Every shipped capability must be declared in the manifest contract
+
+If the app ships a processable VTEX IO capability, `manifest.json` MUST declare the corresponding builder. Do not rely on folder presence alone, and do not assume VTEX IO infers capabilities from the repository structure.
+Symmetrically, do not declare builders for capabilities that are not actually shipped by this app.
+
+**Why this matters**
+
+VTEX IO compiles and links apps based on declared builders, not on intent. If the builder is missing, the platform ignores that capability and the app contract becomes misleading. The app may link partially while the expected feature is absent.
+
+**Detection**
+
+If you see a maintained `/node`, `/react`, `/graphql`, `/admin`, `/store`, `/messages`, `/pixel`, or `/masterdata` directory, STOP and verify that the matching builder exists in `manifest.json`. If the builder exists but the capability does not, STOP and remove the builder or move the capability back into scope.
+
+**Correct**
+
+```json
+{
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
+  "builders": {
+    "node": "7.x",
+    "graphql": "1.x",
+    "messages": "1.x"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.4.0",
+  "builders": {
+    "messages": "1.x"
+  }
+}
+```
+
+The app ships backend and GraphQL capabilities but declares only `messages`, so the runtime contract is incomplete and the platform ignores the missing builders.
+
+### Constraint: App identity and versioning must stay publishable and semver-safe
+
+The `vendor`, `name`, and `version` fields MUST identify a valid VTEX IO app contract. Use kebab-case for the app name, keep the vendor consistent with ownership, and use full semantic versioning.
+
+**Why this matters**
+
+Consumers, workspaces, and release flows rely on app identity stability. Invalid names or incomplete versions break linking and publishing, while identity drift creates unsafe upgrades and hard-to-debug dependency mismatches.
+
+**Detection**
+
+If you see uppercase characters, underscores, non-semver versions, or vendor/name changes mixed into unrelated work, STOP and validate whether the change is intentional and release-safe.
+
+**Correct**
+
+```json
+{
+  "vendor": "acme",
+  "name": "order-status-dashboard",
+  "version": "2.1.0"
+}
+```
+
+**Wrong**
+
+```json
+{
+  "vendor": "AcmeTeam",
+  "name": "Order_Status_Dashboard",
+  "version": "2.1"
+}
+```
+
+This identity is not safely publishable because the name is not kebab-case and the version is not valid semver.
+
+### Constraint: Dependencies and peerDependencies must express installation intent correctly
+
+Use `dependencies` only for apps that this app should install as part of its contract and that can be auto-installed safely. Use `peerDependencies` for apps that must already be present in the environment, should remain externally managed, or declare `billingOptions`.
+
+**Why this matters**
+
+This is the core contract boundary between your app and the rest of the VTEX IO workspace. Misclassifying a relationship causes broken installations, hidden coupling, and environment-specific behavior that only appears after link or publish. In particular, builder-hub rejects dependencies on apps that declare `billingOptions`.
+
+**Detection**
+
+If the app requires another app to function in every environment, STOP and confirm whether it belongs in `dependencies` or `peerDependencies`. If the target app declares `billingOptions`, STOP and move it to `peerDependencies`. If the app only integrates with a platform capability, host app, edition-managed app, or paid app that the account is expected to manage manually, STOP and keep it out of `dependencies`.
+
+**Correct**
+
+```json
+{
+  "dependencies": {
+    "vtex.search-graphql": "0.x"
+  },
+  "peerDependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "dependencies": {
+    "vtex.store": "2.x",
+    "vtex.paid-app-example": "1.x"
+  },
+  "peerDependencies": {}
+}
+```
+
+This contract hard-installs a host app that should usually be externally managed and also attempts to auto-install a billable app, which builder-hub rejects.
+
+## Preferred pattern
+
+Start by deciding the smallest useful contract for the app, then declare only the identity and builders required for that contract.
+
+Recommended manifest for a focused service-plus-GraphQL app:
+
+```json
+{
+  "vendor": "acme",
+  "name": "reviews-platform",
+  "version": "0.1.0",
+  "title": "Reviews Platform",
+  "description": "VTEX IO app that owns review APIs and review GraphQL exposure",
+  "builders": {
+    "node": "7.x",
+    "graphql": "1.x",
+    "messages": "1.x"
+  },
+  "billingOptions": {
+    "type": "free"
+  },
+  "dependencies": {
+    "vtex.search-graphql": "0.x"
+  },
+  "peerDependencies": {
+    "vtex.store": "2.x"
+  }
+}
+```
+
+Recommended contract split:
+
+```text
+reviews-platform/
+├── manifest.json        # identity, builders, dependencies, peerDependencies
+├── node/                # backend capability owned by this app
+├── graphql/             # GraphQL capability owned by this app
+└── messages/            # app-owned translations
+
+reviews-storefront/
+├── manifest.json        # separate release surface for storefront concerns
+├── react/
+└── store/
+```
+
+Use this split when the backend/API contract and the storefront contract have different ownership, release cadence, or integration boundaries.
+
+## Common failure modes
+
+- Declaring builders for aspirational capabilities that the app does not yet own, which makes the contract broader than the real implementation.
+- Using one large manifest to represent backend runtime, frontend rendering, settings, policies, and integration concerns that should be separated into multiple skills or apps.
+- Putting host-level apps in `dependencies` when they should remain `peerDependencies`.
+- Pinning exact dependency versions instead of major-version ranges such as `0.x`, `1.x`, or `3.x`.
+- Treating `manifest.json` as a dumping ground for runtime or security details that belong in more specific skills.
+- Modeling `settingsSchema` here instead of using this skill only to decide whether app-level configuration belongs in the contract at all.
+
+## Review checklist
+
+- [ ] Does the manifest describe only capabilities this app actually owns and ships?
+- [ ] Does every shipped capability have a matching builder declaration?
+- [ ] Is the app identity publishable: valid `vendor`, kebab-case `name`, and full semver `version`?
+- [ ] If the app has billing behavior, is `billingOptions` explicit and aligned with the app contract?
+- [ ] Are `dependencies` and `peerDependencies` separated by installation intent?
+- [ ] Would splitting the contract into two apps reduce unrelated concerns or release coupling?
+- [ ] Are runtime, route, GraphQL implementation, frontend, and security details kept out of this skill?
+
+## Reference
+
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) - Complete reference for `manifest.json` fields
+- [Builders](https://developers.vtex.com/docs/guides/vtex-io-documentation-builders) - Builder catalog and capability mapping
+- [Dependencies](https://developers.vtex.com/docs/guides/vtex-io-documentation-dependencies) - Dependency and peer dependency behavior in VTEX IO
+- [Billing Options](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest#billingoptions) - How app billing behavior is declared in the manifest
+- [Creating the New App](https://developers.vtex.com/docs/guides/vtex-io-documentation-3-creating-the-new-app) - App initialization flow and manifest basics
