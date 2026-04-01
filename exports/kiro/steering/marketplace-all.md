@@ -669,15 +669,17 @@ const fastFulfillmentSimulation: RequestHandler = async (req, res) => {
 
 ---
 
-# Fulfillment, Invoice & Tracking
+# Fulfillment, simulation, orders & OMS follow-up
 
 ## When this skill applies
 
-Use this skill when building a seller integration that needs to send invoice data and tracking information to a VTEX marketplace after fulfilling an order.
+Use this skill when building an **External Seller** integration: VTEX forwards availability, shipping, checkout simulation, and order placement to **your** fulfillment base URL, and you call the marketplace **OMS** APIs for invoice and tracking after dispatch.
 
-- Handling the Authorize Fulfillment callback from the marketplace
-- Sending invoice notifications via `POST /api/oms/pvt/orders/{marketplaceOrderId}/invoice` (VTEX marketplace order ID in the path — not the seller’s internal order number)
-- Updating tracking information via `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}`
+- Implementing **`POST /pvt/orderForms/simulation`** (indexation and/or checkout — with or without customer context)
+- Implementing **`POST /pvt/orders`** (order placement — create **reservation**; return **`orderId`** = reservation id in your system)
+- Handling **`POST /pvt/orders/{sellerOrderId}/fulfill`** (order dispatch after approval — path uses the **same** id you returned as `orderId` at placement)
+- Sending invoice notifications via `POST /api/oms/pvt/orders/{marketplaceOrderId}/invoice` (marketplace order id in the path)
+- Updating tracking via `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}`
 - Implementing partial invoicing for split shipments
 
 Do not use this skill for:
@@ -687,33 +689,141 @@ Do not use this skill for:
 
 ## Decision rules
 
-- After payment is approved, the VTEX marketplace sends an **Authorize Fulfillment** request to the seller's endpoint (`POST /pvt/orders/{sellerOrderId}/fulfill`). Only begin fulfillment after receiving this callback.
-- Send invoices via `POST /api/oms/pvt/orders/{orderId}/invoice`. Required fields: `type`, `invoiceNumber`, `invoiceValue` (in cents), `issuanceDate`, and `items` array.
+### External Seller protocol (implemented on the seller host)
+
+- **Fulfillment simulation** — `POST /pvt/orderForms/simulation`. VTEX calls it during **product indexation** and during **checkout**. Requests may include **only** `items` (and optionally query params), or the **full** checkout context: `items`, `postalCode`, `country`, `clientProfileData`, `shippingData`, `selectedSla`, etc. Without postal code / profile (typical indexation), the response must still state whether each item is **available**. With full context, return **`items`**, **`logisticsInfo`** (one entry per requested item), **`postalCode`**, **`country`**, and set **`allowMultipleDeliveries`** to `true` as required by the contract. **`items[].id`** is the **seller SKU id**; **`items[].seller`** is the **seller id** on the marketplace account.
+- **Response shape** — Each `logisticsInfo[]` row aligns with a requested item (`itemIndex`). Include **`slas[]`** with all delivery options (home delivery and **pickup-in-point** when applicable), **`deliveryChannels[]`** with per-channel stock, **`shipsTo`**, and **`stockBalance`**. SLA fields include `price` (shipping per item, in cents), `shippingEstimate` / `shippingEstimateDate` (e.g. `5bd`, `30m`). Pickup SLAs must include **`pickupStoreInfo`** (address, `friendlyName`, etc.).
+- **SLA** — The simulation handler must respond within **2.5 seconds** or the offer is treated as unavailable.
+- **Order placement** — `POST /pvt/orders` with a **JSON array** of orders. For each order, create a **reservation** in your system. The **response** must be the same structure with an added **`orderId`** on each order: that value is your **reservation id** and becomes the **`sellerOrderId`** in later protocol calls (e.g. authorize fulfillment path parameter).
+- **Order dispatch (authorize fulfillment)** — After marketplace approval, VTEX calls `POST /pvt/orders/{sellerOrderId}/fulfill` where **`sellerOrderId`** equals the **`orderId`** you returned at placement. Body includes **`marketplaceOrderId`** and **`marketplaceOrderGroup`**. Convert the reservation to a firm order in your system; response body includes `date`, `marketplaceOrderId`, **`orderId`** (seller reference), `receipt`.
+
+### OMS APIs (seller → marketplace)
+
+- Send invoices via `POST /api/oms/pvt/orders/{marketplaceOrderId}/invoice`. Required fields: `type`, `invoiceNumber`, `invoiceValue` (in cents), `issuanceDate`, and `items` array. Path **`marketplaceOrderId`** is the VTEX marketplace order id, not your reservation id.
 - Use `type: "Output"` for sales invoices (shipment) and `type: "Input"` for return invoices.
-- Send tracking information **separately** after the carrier provides it, using `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}`. Do not hardcode placeholder tracking values in the initial invoice.
+- Send tracking **separately** after the carrier provides it, using `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}`.
 - For split shipments, send **one invoice per package** with only the items in that package. Each `invoiceValue` must reflect only its items.
 - Once an order is invoiced, it cannot be canceled without first sending a return invoice (`type: "Input"`).
 - The fulfillment simulation endpoint must respond within **2.5 seconds** or the product is considered unavailable.
 
-**Architecture/Data Flow**:
+**Architecture / data flow (high level)**:
 
 ```text
-VTEX Marketplace                    External Seller
-       │                                   │
-       │── POST /fulfill (auth) ──────────▶│  Payment approved
-       │                                   │── Start fulfillment
-       │                                   │── Pick, pack, ship
-       │◀── POST /invoice (invoice) ──────│  Invoice issued
-       │    (status → invoiced)            │
-       │                                   │── Carrier picks up
-       │◀── PATCH /invoice/{num} ─────────│  Tracking number added
-       │    (status → delivering)          │
-       │                                   │── Package delivered
-       │◀── PATCH /invoice/{num} ─────────│  isDelivered: true
-       │    (status → delivered)           │
+VTEX Checkout / indexation          External Seller                    VTEX OMS (marketplace)
+       │                                   │                                   │
+       │── POST /pvt/orderForms/simulation ▶│  Price, stock, SLAs               │
+       │◀── 200 + items + logisticsInfo ───│                                   │
+       │                                   │                                   │
+       │── POST /pvt/orders (array) ───────▶│  Create reservation               │
+       │◀── same + orderId (reservation) ─│                                   │
+       │                                   │                                   │
+       │── POST /pvt/orders/{id}/fulfill ──▶│  Commit / pick pack               │
+       │◀── date, marketplaceOrderId, ... ─│                                   │
+       │                                   │── POST .../invoice ────────────────▶│
+       │                                   │── PATCH .../invoice/{n} ─────────▶│
 ```
 
 ## Hard constraints
+
+### Constraint: Marketplace order ID in OMS paths
+
+Any `{orderId}` in **`/api/oms/pvt/orders/{orderId}/...`** MUST be the **VTEX marketplace order id** (OMS), not the **`orderId`** you returned at **`POST /pvt/orders`** (reservation id). Map `marketplaceOrderId` from the protocol (placement payload, fulfill body, or events) before calling invoice or tracking APIs.
+
+**Why this matters**
+
+Using the reservation id in OMS URLs fails to match the marketplace order; invoices and tracking never attach to the customer order.
+
+**Detection**
+
+If the same variable is used for both `POST /pvt/orders` response `orderId` and `POST .../oms/.../invoice` without mapping → STOP.
+
+**Correct**
+
+```typescript
+// reservationId from your POST /pvt/orders response; marketplaceOrderId from VTEX payload
+await omsClient.post(`/api/oms/pvt/orders/${marketplaceOrderId}/invoice`, payload);
+```
+
+**Wrong**
+
+```typescript
+await omsClient.post(`/api/oms/pvt/orders/${reservationId}/invoice`, payload);
+```
+
+---
+
+### Constraint: Fulfillment simulation contract and latency
+
+The seller MUST implement **`POST /pvt/orderForms/simulation`** to return a valid **`items`** array for every request. When the request includes checkout context (e.g. `postalCode`, `clientProfileData`, `shippingData`), the response MUST include aligned **`logisticsInfo`**, **`slas`** for all relevant modes (including pickup when offered), and **`allowMultipleDeliveries`: true** where required. The handler MUST complete within **2.5 seconds**.
+
+**Why this matters**
+
+Incomplete `logisticsInfo` or missing SLAs break checkout shipping selection. Slow responses mark offers unavailable and hurt conversion.
+
+**Detection**
+
+If simulation returns only `items` with prices but omits `logisticsInfo` when the request had `shippingData` → warn. If p95 latency approaches 2s without caching → warn.
+
+**Correct**
+
+```typescript
+// Pseudocode: branch on whether checkout context is present
+if (hasCheckoutContext(req.body)) {
+  return res.json({
+    country: req.body.country,
+    items: pricedItems,
+    logisticsInfo: buildLogisticsPerItem(pricedItems, req.body),
+    postalCode: req.body.postalCode,
+    allowMultipleDeliveries: true,
+  });
+}
+return res.json({ items: availabilityOnlyItems /* + minimal logistics if required */ });
+```
+
+**Wrong**
+
+```typescript
+// WRONG: Full checkout body but response omits logisticsInfo / SLAs
+res.json({ items: pricedItemsOnly });
+```
+
+---
+
+### Constraint: Order placement must return seller `orderId` (reservation)
+
+**`POST /pvt/orders`** accepts a **JSON array** of orders. The response MUST be the same orders with **`orderId`** set on each element to your **reservation identifier** (seller system). VTEX uses that value as **`sellerOrderId`** in **`POST /pvt/orders/{sellerOrderId}/fulfill`**.
+
+**Why this matters**
+
+Omitting or reusing a fake `orderId` breaks the link between marketplace order flow and your reservation and prevents dispatch from routing correctly.
+
+**Detection**
+
+If the handler returns 200 without adding `orderId`, or returns a single object instead of an array → warn.
+
+**Correct**
+
+```typescript
+app.post("/pvt/orders", (req, res) => {
+  const orders = req.body as Array<Record<string, unknown>>;
+  const out = orders.map((order) => {
+    const reservationId = createReservation(order);
+    return { ...order, orderId: reservationId, followUpEmail: "" };
+  });
+  res.json(out);
+});
+```
+
+**Wrong**
+
+```typescript
+app.post("/pvt/orders", (req, res) => {
+  createReservation(req.body);
+  res.status(200).send(); // WRONG: missing orderId echo
+});
+```
+
+---
 
 ### Constraint: Send Correct Invoice Format with All Required Fields
 
@@ -753,7 +863,7 @@ interface InvoicePayload {
 
 async function sendInvoiceNotification(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoice: InvoicePayload
 ): Promise<void> {
   // Validate required fields before sending
@@ -778,12 +888,15 @@ async function sendInvoiceNotification(
     );
   }
 
-  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, invoice);
+  await client.post(`/api/oms/pvt/orders/${marketplaceOrderId}/invoice`, invoice);
 }
 
 // Example usage:
-async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<void> {
-  await sendInvoiceNotification(client, orderId, {
+async function invoiceOrder(
+  client: AxiosInstance,
+  marketplaceOrderId: string
+): Promise<void> {
+  await sendInvoiceNotification(client, marketplaceOrderId, {
     type: "Output",
     invoiceNumber: "NFE-2026-001234",
     invoiceValue: 15990, // $159.90 in cents
@@ -804,9 +917,9 @@ async function invoiceOrder(client: AxiosInstance, orderId: string): Promise<voi
 // WRONG: Missing required fields, value in dollars instead of cents
 async function sendBrokenInvoice(
   client: AxiosInstance,
-  orderId: string
+  marketplaceOrderId: string
 ): Promise<void> {
-  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+  await client.post(`/api/oms/pvt/orders/${marketplaceOrderId}/invoice`, {
     // Missing 'type' field — API may reject or default incorrectly
     invoiceNumber: "001234",
     invoiceValue: 159.9, // WRONG: dollars, not cents — causes financial mismatch
@@ -820,7 +933,7 @@ async function sendBrokenInvoice(
 
 ### Constraint: Update Tracking Promptly After Shipping
 
-Tracking information MUST be sent as soon as the carrier provides it. Use `PATCH /api/oms/pvt/orders/{orderId}/invoice/{invoiceNumber}` to add tracking to an existing invoice.
+Tracking information MUST be sent as soon as the carrier provides it. Use `PATCH /api/oms/pvt/orders/{marketplaceOrderId}/invoice/{invoiceNumber}` to add tracking to an existing invoice.
 
 **Why this matters**
 
@@ -842,12 +955,12 @@ interface TrackingUpdate {
 
 async function updateOrderTracking(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoiceNumber: string,
   tracking: TrackingUpdate
 ): Promise<void> {
   await client.patch(
-    `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
+    `/api/oms/pvt/orders/${marketplaceOrderId}/invoice/${invoiceNumber}`,
     tracking
   );
 }
@@ -855,30 +968,32 @@ async function updateOrderTracking(
 // Send tracking as soon as carrier provides it
 async function onCarrierPickup(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoiceNumber: string,
   carrierData: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
-  await updateOrderTracking(client, orderId, invoiceNumber, {
+  await updateOrderTracking(client, marketplaceOrderId, invoiceNumber, {
     courier: carrierData.name,
     trackingNumber: carrierData.trackingId,
     trackingUrl: carrierData.trackingUrl,
   });
-  console.log(`Tracking updated for order ${orderId}: ${carrierData.trackingId}`);
+  console.log(
+    `Tracking updated for marketplace order ${marketplaceOrderId}: ${carrierData.trackingId}`
+  );
 }
 
 // Update delivery status when confirmed
 async function onDeliveryConfirmed(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoiceNumber: string
 ): Promise<void> {
-  await updateOrderTracking(client, orderId, invoiceNumber, {
+  await updateOrderTracking(client, marketplaceOrderId, invoiceNumber, {
     courier: "",
     trackingNumber: "",
     isDelivered: true,
   });
-  console.log(`Order ${orderId} marked as delivered`);
+  console.log(`Marketplace order ${marketplaceOrderId} marked as delivered`);
 }
 ```
 
@@ -888,9 +1003,9 @@ async function onDeliveryConfirmed(
 // WRONG: Sending empty/fake tracking data with the invoice
 async function invoiceWithFakeTracking(
   client: AxiosInstance,
-  orderId: string
+  marketplaceOrderId: string
 ): Promise<void> {
-  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+  await client.post(`/api/oms/pvt/orders/${marketplaceOrderId}/invoice`, {
     type: "Output",
     invoiceNumber: "NFE-001",
     invoiceValue: 9990,
@@ -936,7 +1051,7 @@ interface Shipment {
 
 async function sendPartialInvoices(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   shipments: Shipment[]
 ): Promise<void> {
   for (const shipment of shipments) {
@@ -946,7 +1061,7 @@ async function sendPartialInvoices(
       0
     );
 
-    await sendInvoiceNotification(client, orderId, {
+    await sendInvoiceNotification(client, marketplaceOrderId, {
       type: "Output",
       invoiceNumber: shipment.invoiceNumber,
       invoiceValue: shipmentValue,
@@ -959,14 +1074,14 @@ async function sendPartialInvoices(
     });
 
     console.log(
-      `Partial invoice ${shipment.invoiceNumber} sent for order ${orderId}: ` +
+      `Partial invoice ${shipment.invoiceNumber} sent for marketplace order ${marketplaceOrderId}: ` +
         `${shipment.items.length} items, value=${shipmentValue}`
     );
   }
 }
 
 // Example: Order with 3 items shipped in 2 packages
-await sendPartialInvoices(client, "ORD-123", [
+await sendPartialInvoices(client, "vtex-marketplace-order-id-12345", [
   {
     invoiceNumber: "NFE-001-A",
     items: [
@@ -989,11 +1104,11 @@ await sendPartialInvoices(client, "ORD-123", [
 // WRONG: Sending full order value for partial shipment
 async function wrongPartialInvoice(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   totalOrderValue: number,
   shippedItems: OrderItem[]
 ): Promise<void> {
-  await client.post(`/api/oms/pvt/orders/${orderId}/invoice`, {
+  await client.post(`/api/oms/pvt/orders/${marketplaceOrderId}/invoice`, {
     type: "Output",
     invoiceNumber: "NFE-001-A",
     invoiceValue: totalOrderValue, // WRONG: Full order value, not partial
@@ -1010,6 +1125,103 @@ async function wrongPartialInvoice(
 
 ## Preferred pattern
 
+### Implement fulfillment simulation
+
+Register **`POST /pvt/orderForms/simulation`**. Parse **`items[]`** (`id` = seller SKU, `seller` = seller id on marketplace). If the body has **no** `postalCode` / `clientProfileData`, treat as **indexation**: return availability (and minimal logistics if your contract requires it). If the body includes **checkout** fields, build **`logisticsInfo`** per `itemIndex`, populate **`slas`** (delivery + pickup-in-point with `pickupStoreInfo` when applicable), **`deliveryChannels`**, **`stockBalance`**, set **`country`** / **`postalCode`**, and **`allowMultipleDeliveries`: true**. Keep CPU and I/O bounded so you stay **under 2.5s**.
+
+```typescript
+import { RequestHandler } from "express";
+
+const fulfillmentSimulation: RequestHandler = async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const items = body.items as Array<{ id: string; quantity: number; seller: string }>;
+  const hasCheckoutContext = Boolean(body.postalCode && body.shippingData);
+
+  const pricedItems = await priceAndStockForItems(items);
+
+  if (!hasCheckoutContext) {
+    res.json({ items: pricedItems, logisticsInfo: minimalLogistics(pricedItems) });
+    return;
+  }
+
+  res.json({
+    country: body.country,
+    postalCode: body.postalCode,
+    items: pricedItems,
+    logisticsInfo: buildFullLogistics(pricedItems, body),
+    allowMultipleDeliveries: true,
+  });
+};
+
+function minimalLogistics(
+  pricedItems: Array<{ id: string; requestIndex: number }>
+): unknown[] {
+  return pricedItems.map((_, i) => ({
+    itemIndex: i,
+    quantity: 1,
+    shipsTo: ["USA"],
+    slas: [],
+    stockBalance: "",
+    deliveryChannels: [{ id: "delivery", stockBalance: "" }],
+  }));
+}
+
+function buildFullLogistics(
+  pricedItems: Array<{ id: string; requestIndex: number }>,
+  _checkoutBody: unknown
+): unknown[] {
+  // Replace with SLA / carrier rules derived from checkoutBody
+  return pricedItems.map((_, i) => ({
+    itemIndex: i,
+    quantity: 1,
+    shipsTo: ["USA"],
+    slas: [],
+    stockBalance: 0,
+    deliveryChannels: [],
+  }));
+}
+
+async function priceAndStockForItems(
+  items: Array<{ id: string; quantity: number; seller: string }>
+): Promise<Array<Record<string, unknown>>> {
+  return items.map((item, requestIndex) => ({
+    id: item.id,
+    quantity: item.quantity,
+    seller: item.seller,
+    measurementUnit: "un",
+    merchantName: null,
+    price: 0,
+    priceTags: [],
+    priceValidUntil: null,
+    requestIndex,
+    unitMultiplier: 1,
+    attachmentOfferings: [],
+  }));
+}
+```
+
+### Implement order placement (reservation)
+
+Register **`POST /pvt/orders`**. Body is an **array**. Persist each order as a **reservation**; respond with the **same** objects plus **`orderId`** (reservation key) and typically **`followUpEmail`**. That **`orderId`** is what VTEX passes as **`sellerOrderId`** on **`POST /pvt/orders/{sellerOrderId}/fulfill`**.
+
+```typescript
+import { RequestHandler } from "express";
+
+function createReservation(_order: Record<string, unknown>): string {
+  return `res-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const orderPlacement: RequestHandler = (req, res) => {
+  const orders = req.body as Array<Record<string, unknown>>;
+  const out = orders.map((order) => ({
+    ...order,
+    orderId: createReservation(order),
+    followUpEmail: "",
+  }));
+  res.json(out);
+};
+```
+
 ### Implement the Authorize Fulfillment Endpoint
 
 The marketplace calls this endpoint when payment is approved.
@@ -1019,9 +1231,11 @@ import express, { RequestHandler } from "express";
 
 interface FulfillOrderRequest {
   marketplaceOrderId: string;
+  marketplaceOrderGroup: string;
 }
 
 interface OrderMapping {
+  /** Same id returned as orderId from POST /pvt/orders (reservation) */
   sellerOrderId: string;
   marketplaceOrderId: string;
   items: OrderItem[];
@@ -1033,10 +1247,10 @@ const orderStore = new Map<string, OrderMapping>();
 
 const authorizeFulfillmentHandler: RequestHandler = async (req, res) => {
   const sellerOrderId = req.params.sellerOrderId;
-  const { marketplaceOrderId }: FulfillOrderRequest = req.body;
+  const { marketplaceOrderId, marketplaceOrderGroup }: FulfillOrderRequest = req.body;
 
   console.log(
-    `Fulfillment authorized: seller=${sellerOrderId}, marketplace=${marketplaceOrderId}`
+    `Fulfillment authorized: reservation=${sellerOrderId}, marketplaceOrder=${marketplaceOrderId}, group=${marketplaceOrderGroup}`
   );
 
   // Store the marketplace order ID mapping
@@ -1056,6 +1270,7 @@ const authorizeFulfillmentHandler: RequestHandler = async (req, res) => {
   res.status(200).json({
     date: new Date().toISOString(),
     marketplaceOrderId,
+    // Echo seller reservation id (same as path param / placement orderId)
     orderId: sellerOrderId,
     receipt: null,
   });
@@ -1128,18 +1343,18 @@ async function generateInvoice(order: OrderMapping): Promise<{
 ```typescript
 async function handleCarrierPickup(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoiceNumber: string,
   carrier: { name: string; trackingId: string; trackingUrl: string }
 ): Promise<void> {
-  await updateOrderTracking(client, orderId, invoiceNumber, {
+  await updateOrderTracking(client, marketplaceOrderId, invoiceNumber, {
     courier: carrier.name,
     trackingNumber: carrier.trackingId,
     trackingUrl: carrier.trackingUrl,
   });
 
   console.log(
-    `Tracking ${carrier.trackingId} sent for order ${orderId}`
+    `Tracking ${carrier.trackingId} sent for marketplace order ${marketplaceOrderId}`
   );
 }
 ```
@@ -1149,11 +1364,11 @@ async function handleCarrierPickup(
 ```typescript
 async function handleDeliveryConfirmation(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   invoiceNumber: string
 ): Promise<void> {
   await client.patch(
-    `/api/oms/pvt/orders/${orderId}/invoice/${invoiceNumber}`,
+    `/api/oms/pvt/orders/${marketplaceOrderId}/invoice/${invoiceNumber}`,
     {
       isDelivered: true,
       courier: "",
@@ -1161,7 +1376,7 @@ async function handleDeliveryConfirmation(
     }
   );
 
-  console.log(`Order ${orderId} marked as delivered`);
+  console.log(`Marketplace order ${marketplaceOrderId} marked as delivered`);
 }
 ```
 
@@ -1241,6 +1456,12 @@ async function waitForDeliveryConfirmation(
 
 ## Common failure modes
 
+- **Treating indexation simulation like checkout.** The same endpoint receives **minimal** bodies (no customer location) during indexation and **rich** bodies during checkout. Returning checkout-grade `logisticsInfo` for minimal calls can be unnecessary work; returning **only** prices for checkout calls **without** SLAs and `logisticsInfo` breaks shipping selection.
+
+- **Omitting `orderId` on order placement.** VTEX expects an **array** response echoing each order with **`orderId`** set to your reservation. Empty 200 responses or missing `orderId` strand the order pipeline.
+
+- **Using reservation `orderId` in OMS invoice URLs.** After placement, you must use **`marketplaceOrderId`** from the protocol when calling **`/api/oms/pvt/orders/...`**. Confusing the two ids produces 404 or silent failure on invoice/tracking.
+
 - **Sending invoice before fulfillment authorization.** The seller sends an invoice notification immediately when the order is placed, before receiving the Authorize Fulfillment callback from the marketplace. Payment may still be pending or under review. Invoicing before authorization can result in the invoice being rejected or the order being in an inconsistent state. Only send the invoice after receiving `POST /pvt/orders/{sellerOrderId}/fulfill`.
 
 - **Not handling return invoices for cancellation.** A seller tries to cancel an invoiced order by calling the Cancel Order endpoint directly without first sending a return invoice. Once an order is in "invoiced" status, it cannot be canceled without a return invoice (`type: "Input"`). The Cancel Order API will reject the request.
@@ -1249,12 +1470,12 @@ async function waitForDeliveryConfirmation(
 // Correct: Send return invoice before canceling an invoiced order
 async function cancelInvoicedOrder(
   client: AxiosInstance,
-  orderId: string,
+  marketplaceOrderId: string,
   originalItems: InvoiceItem[],
   originalInvoiceValue: number
 ): Promise<void> {
   // Step 1: Send return invoice (type: "Input")
-  await sendInvoiceNotification(client, orderId, {
+  await sendInvoiceNotification(client, marketplaceOrderId, {
     type: "Input", // Return invoice
     invoiceNumber: `RET-${Date.now()}`,
     invoiceValue: originalInvoiceValue,
@@ -1264,7 +1485,7 @@ async function cancelInvoicedOrder(
 
   // Step 2: Now cancel the order
   await client.post(
-    `/api/marketplace/pvt/orders/${orderId}/cancel`,
+    `/api/marketplace/pvt/orders/${marketplaceOrderId}/cancel`,
     { reason: "Customer requested return" }
   );
 }
@@ -1274,7 +1495,12 @@ async function cancelInvoicedOrder(
 
 ## Review checklist
 
-- [ ] Does the seller only begin fulfillment after receiving the Authorize Fulfillment callback?
+- [ ] Does **`POST /pvt/orderForms/simulation`** handle both minimal (indexation) and checkout-shaped requests, returning **`logisticsInfo`** and **`slas`** when context is present?
+- [ ] Does **`POST /pvt/orders`** accept an array and return each order with **`orderId`** (reservation id)?
+- [ ] Does **`POST /pvt/orders/{sellerOrderId}/fulfill`** read **`marketplaceOrderId`** and **`marketplaceOrderGroup`** and match **`sellerOrderId`** to the reservation from placement?
+- [ ] Are OMS **`/invoice`** and **`PATCH .../invoice`** calls using **`marketplaceOrderId`**, not the reservation id?
+- [ ] Does the seller only begin physical fulfillment after receiving the Authorize Fulfillment callback?
+- [ ] For **IO/BFF** connectors: are **caching** and **route** choices aligned with **vtex-io** skills (simulation **SLA**, data **scope**)?
 - [ ] Does the invoice payload include all required fields (`type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, `items`)?
 - [ ] Is `invoiceValue` in cents (not dollars)?
 - [ ] Is tracking sent separately after the carrier provides real data (not hardcoded placeholders)?
@@ -1284,12 +1510,14 @@ async function cancelInvoicedOrder(
 
 ## Reference
 
-- [External Seller Connector - Order Invoicing](https://developers.vtex.com/docs/guides/external-seller-integration-connector#order-invoicing) — Seller-side invoicing flow in the integration guide
-- [Order Invoice Notification API](https://developers.vtex.com/docs/api-reference/orders-api#post-/api/oms/pvt/orders/-orderId-/invoice) — API reference for sending invoice data
-- [Update Order Tracking API](https://developers.vtex.com/docs/api-reference/orders-api#patch-/api/oms/pvt/orders/-orderId-/invoice/-invoiceNumber-) — API reference for adding/updating tracking info
-- [Sending Invoice and Tracking to Marketplace](https://developers.vtex.com/docs/guides/external-marketplace-integration-invoice-tracking) — Guide for marketplace connector invoice/tracking flow
-- [Order Flow and Status](https://help.vtex.com/en/docs/tutorials/order-flow-and-status) — Complete order status lifecycle
-- [Authorize Fulfillment API](https://developers.vtex.com/docs/api-reference/marketplace-protocol-external-seller-fulfillment#post-/pvt/orders/-sellerOrderId-/fulfill) — API reference for the fulfillment authorization endpoint
+- [External Seller integration guide](https://developers.vtex.com/docs/guides/external-seller-integration-connector) — End-to-end seller connector (fulfillment URL, orders, invoicing)
+- [Marketplace Protocol — External seller fulfillment](https://developers.vtex.com/docs/api-reference/marketplace-protocol-external-seller-fulfillment) — Simulation, order placement, authorize fulfillment, and related endpoints
+- [External Seller Connector — Order invoicing](https://developers.vtex.com/docs/guides/external-seller-integration-connector#order-invoicing) — When and how to notify invoices to the marketplace OMS
+- [Order Invoice Notification API](https://developers.vtex.com/docs/api-reference/orders-api#post-/api/oms/pvt/orders/-orderId-/invoice) — `POST` invoice to OMS (`orderId` in path = marketplace order)
+- [Update Order Tracking API](https://developers.vtex.com/docs/api-reference/orders-api#patch-/api/oms/pvt/orders/-orderId-/invoice/-invoiceNumber-) — `PATCH` tracking on an invoice
+- [Order Flow and Status](https://help.vtex.com/en/docs/tutorials/order-flow-and-status) — Order status lifecycle
+
+VTEX also maintains an open **reference implementation** for the External Seller service under the **`vtex-apps/external-seller-example`** GitHub repository (useful as a scaffold; align behavior with the official protocol docs above).
 
 ---
 

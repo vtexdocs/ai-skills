@@ -831,6 +831,7 @@ async function cancelInvoicedOrder(
 - [ ] Does **`POST /pvt/orders/{sellerOrderId}/fulfill`** read **`marketplaceOrderId`** and **`marketplaceOrderGroup`** and match **`sellerOrderId`** to the reservation from placement?
 - [ ] Are OMS **`/invoice`** and **`PATCH .../invoice`** calls using **`marketplaceOrderId`**, not the reservation id?
 - [ ] Does the seller only begin physical fulfillment after receiving the Authorize Fulfillment callback?
+- [ ] For **IO/BFF** connectors: are **caching** and **route** choices aligned with **vtex-io** skills (simulation **SLA**, data **scope**)?
 - [ ] Does the invoice payload include all required fields (`type`, `invoiceNumber`, `invoiceValue`, `issuanceDate`, `items`)?
 - [ ] Is `invoiceValue` in cents (not dollars)?
 - [ ] Is tracking sent separately after the carrier provides real data (not hardcoded placeholders)?
