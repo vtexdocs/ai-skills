@@ -435,7 +435,7 @@ mutation CreateReview {
 ## Related skills
 
 - [`vtex-io-service-apps`](vtex-io-vtex-io-service-apps.md) — Service app fundamentals needed for all GraphQL resolvers
-- [`vtex-io-app-structure`](vtex-io-vtex-io-app-structure.md) — Manifest and builder configuration that GraphQL depends on
+- [`vtex-io-app-structure`](../vtex-io-app-structure/skill.md) — Manifest and builder configuration that GraphQL depends on
 - [`vtex-io-masterdata`](vtex-io-vtex-io-masterdata.md) — MasterData integration commonly used as a data source in resolvers
 
 ## Reference
