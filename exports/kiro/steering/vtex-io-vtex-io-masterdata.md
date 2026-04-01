@@ -1,0 +1,484 @@
+<!-- globs: **/masterdata/**/*.ts, masterdata/**/*.json, node/clients/**/*MasterData*.ts -->
+
+Apply when working with MasterData v2 entities, schemas, or MasterDataClient in VTEX IO apps. Covers data entities, JSON Schema definitions, CRUD operations, the masterdata builder, triggers, search and scroll operations, and schema lifecycle management. Use for storing, querying, and managing custom data in VTEX IO apps while avoiding the 60-schema limit through proper schema versioning.
+
+# MasterData v2 Integration
+
+## When this skill applies
+
+Use this skill when your VTEX IO app needs to store custom data (reviews, wishlists, form submissions, configuration records), query or filter that data, or set up automated workflows triggered by data changes.
+
+- Defining data entities and JSON Schemas using the `masterdata` builder
+- Performing CRUD operations through MasterDataClient (`ctx.clients.masterdata`)
+- Configuring search, scroll, and indexing for efficient data retrieval
+- Setting up Master Data triggers for automated workflows
+- Managing schema lifecycle to avoid the 60-schema limit
+
+Do not use this skill for:
+- General backend service patterns (use `vtex-io-service-apps` instead)
+- GraphQL schema definitions (use `vtex-io-graphql-api` instead)
+- Manifest and builder configuration (use `vtex-io-app-structure` instead)
+
+## Decision rules
+
+- A **data entity** is a named collection of documents (analogous to a database table). A **JSON Schema** defines structure, validation, and indexing.
+- When using the `masterdata` builder, entities are defined by folder structure: `masterdata/{entityName}/schema.json`. The builder creates entities named `{vendor}_{appName}_{entityName}`.
+- Use `ctx.clients.masterdata` or `masterDataFor` from `@vtex/clients` for all CRUD operations — never direct REST calls.
+- All fields used in `where` clauses MUST be declared in the schema's `v-indexed` array for efficient querying.
+- Use `searchDocuments` for bounded result sets (known small size, max page size 100). Use `scrollDocuments` for large/unbounded result sets.
+- The `masterdata` builder creates a new schema per app version. Clean up unused schemas to avoid the 60-schema-per-entity hard limit.
+
+MasterDataClient methods:
+
+| Method | Description |
+|--------|-------------|
+| `getDocument` | Retrieve a single document by ID |
+| `createDocument` | Create a new document, returns generated ID |
+| `createOrUpdateEntireDocument` | Upsert a complete document |
+| `createOrUpdatePartialDocument` | Upsert partial fields (patch) |
+| `updateEntireDocument` | Replace all fields of an existing document |
+| `updatePartialDocument` | Update specific fields only |
+| `deleteDocument` | Delete a document by ID |
+| `searchDocuments` | Search with filters, pagination, and field selection |
+| `searchDocumentsWithPaginationInfo` | Search with total count metadata |
+| `scrollDocuments` | Iterate over large result sets |
+
+Search `where` clause syntax:
+
+```text
+where: "productId=12345 AND approved=true"
+where: "rating>3"
+where: "createdAt between 2025-01-01 AND 2025-12-31"
+```
+
+Architecture:
+
+```text
+VTEX IO App (node builder)
+  │
+  ├── ctx.clients.masterdata.createDocument()
+  │       │
+  │       ▼
+  │   Master Data v2 API
+  │       │
+  │       ├── Validates against JSON Schema
+  │       ├── Indexes declared fields
+  │       └── Fires triggers (if conditions match)
+  │             │
+  │             ▼
+  │         HTTP webhook / Email / Action
+  │
+  └── ctx.clients.masterdata.searchDocuments()
+          │
+          ▼
+      Master Data v2 (reads indexed fields for efficient queries)
+```
+
+## Hard constraints
+
+### Constraint: Use MasterDataClient — Never Direct REST Calls
+
+All Master Data operations in VTEX IO apps MUST go through the MasterDataClient (`ctx.clients.masterdata`) or the `masterDataFor` factory from `@vtex/clients`. You MUST NOT make direct REST calls to `/api/dataentities/` endpoints.
+
+**Why this matters**
+
+The MasterDataClient handles authentication token injection, request routing, retry logic, caching, and proper error handling. Direct REST calls bypass all of these, requiring manual auth headers, pagination, and retry logic. When the VTEX auth token format changes, direct calls break while the client handles it transparently.
+
+**Detection**
+
+If you see direct HTTP calls to URLs matching `/api/dataentities/`, `api.vtex.com/api/dataentities`, or raw fetch/axios calls targeting Master Data endpoints, warn the developer to use `ctx.clients.masterdata` instead.
+
+**Correct**
+
+```typescript
+// Using MasterDataClient through ctx.clients
+export async function getReview(ctx: Context, next: () => Promise<void>) {
+  const { id } = ctx.query
+
+  const review = await ctx.clients.masterdata.getDocument<Review>({
+    dataEntity: 'reviews',
+    id: id as string,
+    fields: ['id', 'productId', 'author', 'rating', 'title', 'text', 'approved'],
+  })
+
+  ctx.status = 200
+  ctx.body = review
+  await next()
+}
+```
+
+**Wrong**
+
+```typescript
+// Direct REST call to Master Data — bypasses client infrastructure
+import axios from 'axios'
+
+export async function getReview(ctx: Context, next: () => Promise<void>) {
+  const { id } = ctx.query
+
+  // No caching, no retry, no proper auth, no metrics
+  const response = await axios.get(
+    `https://api.vtex.com/api/dataentities/reviews/documents/${id}`,
+    {
+      headers: {
+        'X-VTEX-API-AppKey': process.env.VTEX_APP_KEY,
+        'X-VTEX-API-AppToken': process.env.VTEX_APP_TOKEN,
+      },
+    }
+  )
+
+  ctx.status = 200
+  ctx.body = response.data
+  await next()
+}
+```
+
+---
+
+### Constraint: Define JSON Schemas for All Data Entities
+
+Every data entity your app uses MUST have a corresponding JSON Schema, either via the `masterdata` builder (recommended) or created via the Master Data API before the app is deployed.
+
+**Why this matters**
+
+Without a schema, Master Data stores documents as unstructured JSON. This means no field validation, no indexing (making search extremely slow on large datasets), no type safety, and no trigger support. Queries on unindexed fields perform full scans, which can time out or hit rate limits.
+
+**Detection**
+
+If the app creates or searches documents in a data entity but no JSON Schema exists for that entity (either in the `masterdata/` builder directory or via API), warn the developer to define a schema.
+
+**Correct**
+
+```json
+{
+  "$schema": "http://json-schema.org/schema#",
+  "title": "review-schema-v1",
+  "type": "object",
+  "properties": {
+    "productId": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": ["productId", "rating", "title", "text"],
+  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-indexed": ["productId", "author", "approved", "rating", "createdAt"]
+}
+```
+
+**Wrong**
+
+```typescript
+// Saving documents without any schema — no validation, no indexing
+await ctx.clients.masterdata.createDocument({
+  dataEntity: 'reviews',
+  fields: {
+    productId: '12345',
+    rating: 'five', // String instead of number — no validation!
+    title: 123,     // Number instead of string — no validation!
+  },
+})
+
+// Searching on unindexed fields — full table scan, will time out on large datasets
+await ctx.clients.masterdata.searchDocuments({
+  dataEntity: 'reviews',
+  where: 'productId=12345',  // productId is not indexed — very slow
+  fields: ['id', 'rating'],
+  pagination: { page: 1, pageSize: 10 },
+})
+```
+
+---
+
+### Constraint: Manage Schema Versions to Avoid the 60-Schema Limit
+
+Master Data v2 data entities have a limit of 60 schemas per entity. When using the `masterdata` builder, each app version linked or installed creates a new schema. You MUST delete unused schemas regularly.
+
+**Why this matters**
+
+Once the 60-schema limit is reached, the `masterdata` builder cannot create new schemas, and linking or installing new app versions will fail. This is a hard platform limit that cannot be increased.
+
+**Detection**
+
+If the app has been through many link/install cycles, warn the developer to check and clean up old schemas using the Delete Schema API.
+
+**Correct**
+
+```bash
+# Periodically clean up unused schemas
+# List schemas for the entity
+curl -X GET "https://{account}.vtexcommercestable.com.br/api/dataentities/reviews/schemas" \
+  -H "X-VTEX-API-AppKey: {appKey}" \
+  -H "X-VTEX-API-AppToken: {appToken}"
+
+# Delete old schemas that are no longer in use
+curl -X DELETE "https://{account}.vtexcommercestable.com.br/api/dataentities/reviews/schemas/old-schema-name" \
+  -H "X-VTEX-API-AppKey: {appKey}" \
+  -H "X-VTEX-API-AppToken: {appToken}"
+```
+
+**Wrong**
+
+```text
+Never cleaning up schemas during development.
+After 60 link cycles, the builder fails:
+"Error: Maximum number of schemas reached for entity 'reviews'"
+The app cannot be linked or installed until old schemas are deleted.
+```
+
+## Preferred pattern
+
+Add the masterdata builder and policies:
+
+```json
+{
+  "builders": {
+    "node": "7.x",
+    "graphql": "1.x",
+    "masterdata": "1.x"
+  },
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "api.vtex.com",
+        "path": "/api/*"
+      }
+    },
+    {
+      "name": "ADMIN_DS"
+    }
+  ]
+}
+```
+
+Define data entity schemas:
+
+```json
+{
+  "$schema": "http://json-schema.org/schema#",
+  "title": "review-schema-v1",
+  "type": "object",
+  "properties": {
+    "productId": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "rating": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": ["productId", "rating", "title", "text"],
+  "v-default-fields": ["productId", "author", "rating", "title", "approved", "createdAt"],
+  "v-indexed": ["productId", "author", "approved", "rating", "createdAt"],
+  "v-cache": false
+}
+```
+
+Set up the client with `masterDataFor`:
+
+```typescript
+// node/clients/index.ts
+import { IOClients } from '@vtex/api'
+import { masterDataFor } from '@vtex/clients'
+
+interface Review {
+  id: string
+  productId: string
+  author: string
+  email: string
+  rating: number
+  title: string
+  text: string
+  approved: boolean
+  createdAt: string
+}
+
+export class Clients extends IOClients {
+  public get reviews() {
+    return this.getOrSet('reviews', masterDataFor<Review>('reviews'))
+  }
+}
+```
+
+Implement CRUD operations:
+
+```typescript
+// node/resolvers/reviews.ts
+import type { ServiceContext } from '@vtex/api'
+import type { Clients } from '../clients'
+
+type Context = ServiceContext<Clients>
+
+export const queries = {
+  reviews: async (
+    _root: unknown,
+    args: { productId: string; page?: number; pageSize?: number },
+    ctx: Context
+  ) => {
+    const { productId, page = 1, pageSize = 10 } = args
+
+    const results = await ctx.clients.reviews.search(
+      { page, pageSize },
+      ['id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved'],
+      '',  // sort
+      `productId=${productId} AND approved=true`
+    )
+
+    return results
+  },
+}
+
+export const mutations = {
+  createReview: async (
+    _root: unknown,
+    args: { input: { productId: string; rating: number; title: string; text: string } },
+    ctx: Context
+  ) => {
+    const { input } = args
+    const email = ctx.vtex.storeUserEmail ?? 'anonymous@store.com'
+
+    const response = await ctx.clients.reviews.save({
+      ...input,
+      author: email.split('@')[0],
+      email,
+      approved: false,
+      createdAt: new Date().toISOString(),
+    })
+
+    return ctx.clients.reviews.get(response.DocumentId, [
+      'id', 'productId', 'author', 'rating', 'title', 'text', 'createdAt', 'approved',
+    ])
+  },
+
+  deleteReview: async (
+    _root: unknown,
+    args: { id: string },
+    ctx: Context
+  ) => {
+    await ctx.clients.reviews.delete(args.id)
+    return true
+  },
+}
+```
+
+Configure triggers (optional):
+
+```json
+{
+  "name": "notify-moderator-on-new-review",
+  "active": true,
+  "condition": "approved=false",
+  "action": {
+    "type": "email",
+    "provider": "default",
+    "subject": "New review pending moderation",
+    "to": ["moderator@mystore.com"],
+    "body": "A new review has been submitted for product {{productId}} by {{author}}."
+  },
+  "retry": {
+    "times": 3,
+    "delay": { "addMinutes": 5 }
+  }
+}
+```
+
+Wire into Service:
+
+```typescript
+// node/index.ts
+import type { ParamsContext, RecorderState } from '@vtex/api'
+import { Service } from '@vtex/api'
+
+import { Clients } from './clients'
+import { queries, mutations } from './resolvers/reviews'
+
+export default new Service<Clients, RecorderState, ParamsContext>({
+  clients: {
+    implementation: Clients,
+    options: {
+      default: {
+        retries: 2,
+        timeout: 5000,
+      },
+    },
+  },
+  graphql: {
+    resolvers: {
+      Query: queries,
+      Mutation: mutations,
+    },
+  },
+})
+```
+
+## Common failure modes
+
+- **Direct REST calls to /api/dataentities/**: Using `axios` or `fetch` to call Master Data endpoints bypasses the client infrastructure — no auth, no caching, no retries. Use `ctx.clients.masterdata` or `masterDataFor` instead.
+- **Searching without indexed fields**: Queries on non-indexed fields trigger full document scans. For large datasets, this causes timeouts and rate limit errors. Ensure all `where` clause fields are in the schema's `v-indexed` array.
+- **Not paginating search results**: Master Data v2 has a maximum page size of 100 documents. Requesting more silently returns only up to the limit. Use proper pagination or `scrollDocuments` for large result sets.
+- **Ignoring the 60-schema limit**: Each app version linked/installed creates a new schema. After 60 link cycles, the builder fails. Periodically clean up unused schemas via the Delete Schema API.
+
+## Review checklist
+
+- [ ] Is the `masterdata` builder declared in `manifest.json`?
+- [ ] Do all data entities have JSON Schemas with proper field definitions?
+- [ ] Are all `where` clause fields declared in `v-indexed`?
+- [ ] Are CRUD operations using `ctx.clients.masterdata` or `masterDataFor` (no direct REST calls)?
+- [ ] Is pagination properly handled (max 100 per page, scroll for large sets)?
+- [ ] Is there a plan for schema cleanup to avoid the 60-schema limit?
+- [ ] Are required policies (`outbound-access`, `ADMIN_DS`) declared in the manifest?
+
+## Reference
+
+- [Creating a Master Data v2 CRUD App](https://developers.vtex.com/docs/guides/create-master-data-crud-app) — Complete guide for building Master Data apps with the masterdata builder
+- [Working with JSON Schemas in Master Data v2](https://developers.vtex.com/docs/guides/working-with-json-schemas-in-master-data-v2) — Schema structure, validation, and indexing configuration
+- [Schema Lifecycle](https://developers.vtex.com/docs/guides/master-data-schema-lifecycle) — How schemas evolve and impact data entities over time
+- [Setting Up Triggers on Master Data v2](https://developers.vtex.com/docs/guides/setting-up-triggers-on-master-data-v2) — Trigger configuration for automated workflows
+- [Master Data v2 API Reference](https://developers.vtex.com/docs/api-reference/master-data-api-v2#overview) — Complete API reference for all Master Data v2 endpoints
+- [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — MasterDataClient methods and usage in VTEX IO

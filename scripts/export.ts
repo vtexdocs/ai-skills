@@ -9,7 +9,7 @@ import { spawnSync } from "child_process";
 import matter from "gray-matter";
 import { join, dirname } from "path";
 
-interface SkillFrontmatter {
+export interface SkillFrontmatter {
   name: string;
   description: string;
   track: string;
@@ -30,7 +30,7 @@ interface SkillFrontmatter {
   };
 }
 
-interface Skill {
+export interface Skill {
   frontmatter: SkillFrontmatter;
   content: string;
   filePath: string;
@@ -322,6 +322,114 @@ function formatTrackTitle(trackName: string): string {
   return titles[trackName] || trackName;
 }
 
+export function rewriteSkillLinks(content: string, currentSkill: Skill, allSkills: Skill[]): string {
+  const linkRegex = /\[([^\]]+)\]\(([^)]*\/skill\.md)\)/g;
+
+  return content.replace(linkRegex, (match, text, href) => {
+    // Extract skill name from the path: the directory just before /skill.md
+    const parts = href.split("/");
+    const skillDirIndex = parts.length - 2; // directory before "skill.md"
+    if (skillDirIndex < 0) return match;
+
+    const referencedSkillName = parts[skillDirIndex];
+
+    // Find the referenced skill in allSkills
+    const referencedSkill = allSkills.find(
+      (s) => s.frontmatter.name === referencedSkillName
+    );
+
+    if (!referencedSkill) return match;
+
+    const track = resolveField<string>(referencedSkill.frontmatter, "track") ?? referencedSkill.frontmatter.track;
+    const newHref = `${track}-${referencedSkillName}.md`;
+    return `[${text}](${newHref})`;
+  });
+}
+
+
+// ─── Kiro Power Exporter ────────────────────────────────────────────────────
+
+export function buildKiroSkillSteering(skill: Skill, skills: Skill[]): string {
+  const parts: string[] = [];
+
+  const globs = resolveField<string[]>(skill.frontmatter, "globs");
+  if (globs && globs.length > 0) {
+    parts.push(`<!-- globs: ${globs.join(", ")} -->`);
+  }
+
+  const desc = skill.frontmatter.description;
+  if (desc) {
+    parts.push(normalizeDescription(desc));
+  }
+
+  const rewritten = rewriteSkillLinks(skill.content.trim(), skill, skills);
+  parts.push(rewritten);
+
+  return parts.join("\n\n") + "\n";
+}
+
+export function buildKiroPowerMd(skills: Skill[], tracks: Track[]): string {
+  const lines: string[] = [];
+
+  // Kiro Power frontmatter
+  lines.push("---");
+  lines.push('name: "vtex-platform"');
+  lines.push('displayName: "VTEX Platform"');
+  lines.push('description: "Complete guide for building on the VTEX ecommerce platform. Covers FastStore storefronts, headless architecture (BFF, checkout, search, caching), VTEX IO app development, marketplace integrations, and payment provider protocol."');
+  lines.push('keywords: ["vtex", "faststore", "ecommerce", "storefront", "headless-cms", "headless", "checkout", "payment", "marketplace", "vtex-io", "graphql", "bff", "intelligent-search", "pci", "cart", "session", "catalog", "order", "fulfillment", "masterdata"]');
+  lines.push('author: "Community"');
+  lines.push("---");
+  lines.push("");
+
+  lines.push("# VTEX Skills — Kiro Power");
+  lines.push("");
+  lines.push(
+    "Kiro Power com skills de desenvolvimento VTEX. Os arquivos de steering"
+  );
+  lines.push(
+    "em `steering/` fornecem orientação contextual baseada nos globs dos skills."
+  );
+  lines.push("");
+  lines.push("## Tracks");
+
+  for (const track of tracks) {
+    lines.push("");
+    lines.push(`### ${formatTrackTitle(track.name)}`);
+    lines.push("");
+    for (const skill of track.skills) {
+      const slug = skillSlug(skill);
+      const desc = skill.frontmatter.description;
+      if (desc) {
+        lines.push(`- **${slug}**: ${normalizeDescription(desc)}`);
+      } else {
+        lines.push(`- **${slug}**`);
+      }
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function buildKiroTrackSteering(track: Track, skills: Skill[]): string {
+  const parts: string[] = [];
+
+  parts.push(`# ${formatTrackTitle(track.name)}`);
+
+  for (let i = 0; i < track.skills.length; i++) {
+    const skill = track.skills[i];
+    const rewritten = rewriteSkillLinks(skill.content.trim(), skill, skills);
+    parts.push(rewritten);
+
+    if (i < track.skills.length - 1) {
+      parts.push("---");
+    }
+  }
+
+  return parts.join("\n\n") + "\n";
+}
+
+
 // ─── Platform Exporters ─────────────────────────────────────────────────────
 
 const exporters: Record<string, PlatformExporter> = {
@@ -411,6 +519,29 @@ const exporters: Record<string, PlatformExporter> = {
       }
     },
   },
+  kiro: {
+    name: "Kiro",
+    outputDir: "exports/kiro",
+    async export(skills: Skill[], tracks: Track[]): Promise<void> {
+      const outDir = this.outputDir;
+      const steeringDir = join(outDir, "steering");
+      ensureDir(outDir);
+      ensureDir(steeringDir);
+
+      writeOutput(join(outDir, "POWER.md"), buildKiroPowerMd(skills, tracks));
+
+      for (const skill of skills) {
+        const track = resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track;
+        const fileName = `${track}-${skillSlug(skill)}.md`;
+        writeOutput(join(steeringDir, fileName), buildKiroSkillSteering(skill, skills));
+      }
+
+      for (const track of tracks) {
+        const fileName = `${track.name}-all.md`;
+        writeOutput(join(steeringDir, fileName), buildKiroTrackSteering(track, skills));
+      }
+    },
+  },
 };
 
 function parseArgs(): string[] {
@@ -480,7 +611,11 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((error) => {
-  console.error("Export failed:", error);
-  process.exit(1);
-});
+// Only run main when executed directly (not when imported as a module)
+const isMainModule = process.argv[1]?.endsWith("export.ts");
+if (isMainModule) {
+  main().catch((error) => {
+    console.error("Export failed:", error);
+    process.exit(1);
+  });
+}
