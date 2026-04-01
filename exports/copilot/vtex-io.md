@@ -1,5 +1,289 @@
 # Custom VTEX IO Apps
 
+# Admin React Interfaces
+
+## When this skill applies
+
+Use this skill when building administrative React interfaces for VTEX Admin experiences.
+
+- Settings pages
+- Moderation tools
+- Internal dashboards
+- Operational forms and tables
+
+Do not use this skill for:
+- storefront components
+- render-runtime blocks
+- route authorization design
+- backend service structure
+
+## Decision rules
+
+- Use VTEX official design systems for admin interfaces.
+- Prefer `vtex.styleguide` as the default choice for VTEX IO admin apps published to customers.
+- Accept `@vtex/shoreline` as an official VTEX design system, especially in internal back-office contexts.
+- Prefer core Styleguide layout patterns such as `Layout`, `PageHeader`, and `PageBlock` for page composition.
+- Prefer Styleguide building blocks for common admin needs: `Table`, `Input`, `Dropdown`, `Toggle`, `Tabs`, `Modal`, `Spinner`, and `Alert`.
+- Keep admin screens focused on operational clarity rather than storefront styling concerns.
+- Prefer explicit loading, empty, and error states for data-heavy admin pages.
+- Use button loading states and toast-based feedback for async actions so users can tell when a mutation starts, succeeds, or fails.
+- Prefer internationalized messages over hardcoded admin copy so labels and feedback can stay consistent across stores and locales.
+- Use tables, forms, filters, and feedback patterns that align with VTEX Admin conventions.
+- Prefer official design system components over custom clickable `div` or `span` patterns so focus behavior, keyboard navigation, and accessibility attributes remain correct by default.
+- For large lists and tables, prefer pagination and server-side filtering over loading everything into the browser and filtering in memory.
+- For search and filtering, prefer the search and filter patterns offered by the official design systems instead of inventing custom control behavior.
+- Keep labels, messages, and action copy in a single language per app and avoid mixing tones or languages on the same screen.
+- In forms, keep actions consistent: use a primary save action, an optional secondary cancel action when appropriate, and explicit feedback after submit.
+
+## Hard constraints
+
+### Constraint: Admin UIs must use VTEX design systems
+
+Admin panel components MUST use VTEX official design systems.
+
+**Why this matters**
+
+VTEX Admin has a consistent design language. VTEX official design systems preserve that consistency, while generic third-party UI libraries create inconsistent visuals, styling conflicts, and review problems.
+
+**Detection**
+
+If you see Material UI, Chakra, Ant Design, or another generic third-party UI system in an admin app, STOP and replace it with VTEX design system patterns. Do not flag `@vtex/shoreline` as third-party.
+
+**Correct**
+
+```tsx
+import { Layout, PageHeader, PageBlock, Table } from 'vtex.styleguide'
+```
+
+```tsx
+import { Button, Table, EmptyState } from '@vtex/shoreline'
+```
+
+**Wrong**
+
+```tsx
+import { DataGrid } from '@material-ui/data-grid'
+```
+
+### Constraint: Admin screens must expose loading, empty, and error states
+
+Operational interfaces MUST make data state visible to the user.
+
+**Why this matters**
+
+Admin users need reliable operational feedback. Silent blank screens are harder to support and diagnose than explicit states.
+
+**Detection**
+
+If a page loads remote data but renders nothing meaningful on loading, empty, or error cases, STOP and add explicit UI states.
+
+**Correct**
+
+```tsx
+if (loading) {
+  return (
+    <PageBlock>
+      <Spinner />
+    </PageBlock>
+  )
+}
+
+if (error) {
+  return (
+    <PageBlock>
+      <Alert type="error">Failed to load data. Please try again.</Alert>
+    </PageBlock>
+  )
+}
+```
+
+**Wrong**
+
+```tsx
+return <Table items={data?.items ?? []} />
+```
+
+### Constraint: Admin actions must provide explicit user feedback
+
+Mutations in admin screens MUST report success, failure, or pending state clearly.
+
+**Why this matters**
+
+Operational actions affect real store configuration and data. Users need immediate feedback to avoid repeated or ambiguous actions.
+
+**Detection**
+
+If a button triggers a write action with no feedback on result, STOP and add explicit feedback.
+
+**Correct**
+
+```tsx
+<Button isLoading={saving}>Save</Button>
+showToast({ message: 'Settings saved successfully' })
+```
+
+**Wrong**
+
+```tsx
+<Button onClick={save}>Save</Button>
+```
+
+### Constraint: Data-heavy admin screens must stay bounded and navigable
+
+Lists, tables, and search-heavy admin screens MUST use bounded rendering patterns such as pagination and should prefer server-side filtering when the API supports it.
+
+**Why this matters**
+
+Admin pages often deal with operational datasets that grow over time. Rendering too many rows at once or filtering only in memory creates poor performance and brittle UX.
+
+**Detection**
+
+If a page renders very large collections without pagination, or loads the full dataset into the browser just to filter locally, STOP and add bounded navigation or server-side filtering.
+
+**Correct**
+
+```tsx
+<Table items={items} />
+<Pagination currentItemFrom={1} currentItemTo={10} totalItems={120} />
+```
+
+**Wrong**
+
+```tsx
+const filtered = allItems.filter(matchesSearch)
+return <Table items={filtered} />
+```
+
+### Constraint: Interactive controls must use accessible semantics
+
+Admin interactions MUST use accessible controls and should prefer official design system components instead of custom clickable non-semantic elements.
+
+**Why this matters**
+
+Keyboard navigation, focus handling, and screen-reader behavior are part of baseline admin usability. Non-semantic clickable elements make accessibility regressions much more likely.
+
+**Detection**
+
+If you see clickable `div` or `span` elements being used as primary controls where a button, link, or design system component should be used, STOP and replace them.
+
+**Correct**
+
+```tsx
+<Button variation="primary">Save</Button>
+```
+
+**Wrong**
+
+```tsx
+<div onClick={save}>Save</div>
+```
+
+## Admin builder structure
+
+Admin pages in VTEX IO are exposed through the Admin builder:
+
+- Use the `admin/` folder to declare navigation and routes.
+- Use `admin/navigation.json` to define sections, subsections, and Admin navigation paths.
+- Use `admin/routes.json` to map each Admin path to a React component implemented under `react/`.
+- Use the `react/` folder to implement the page components used by Admin routes.
+
+Practical rules:
+
+- Each entry in `admin/routes.json` should point to a real component in `react/`.
+- The route `path` should stay aligned with the navigation structure declared in `admin/navigation.json`.
+- Page components should use VTEX Admin layout patterns such as `Layout`, `PageHeader`, and `PageBlock`, or official Shoreline equivalents in internal contexts.
+
+### Example: navigation.json structure
+
+`admin/navigation.json`:
+
+```json
+[
+  {
+    "section": "storeSettings",
+    "subSection": "storeFront",
+    "subSectionItems": [
+      {
+        "labelId": "admin/my-settings.navigation.title",
+        "path": "/admin/app/my-settings"
+      }
+    ]
+  }
+]
+```
+
+Main fields:
+
+- `section` / `subSection`: define where the link appears in the Admin navigation tree.
+- `subSectionItems[].path`: should match the `path` declared in `admin/routes.json`.
+- `titleId` / `labelId`: message IDs used to internationalize navigation labels.
+- `adminVersion`: optional and only needed for compatibility between legacy and newer Admin experiences. Do not use it in the default example for new apps.
+
+### Example: tying Admin builder to a React page
+
+`admin/routes.json`:
+
+```json
+{
+  "admin.app.my-settings": {
+    "component": "MySettingsPage",
+    "path": "/admin/app/my-settings"
+  }
+}
+```
+
+`react/MySettingsPage.tsx`:
+
+```tsx
+import React from 'react'
+import { Layout, PageHeader, PageBlock } from 'vtex.styleguide'
+
+const MySettingsPage: React.FC = () => (
+  <Layout pageHeader={<PageHeader title="My settings" />}>
+    <PageBlock>
+      {/* Page content goes here */}
+    </PageBlock>
+  </Layout>
+)
+
+export default MySettingsPage
+```
+
+## Preferred pattern
+
+Use VTEX design systems to keep operational state explicit and optimize for clarity over ornamental UI.
+Use `PageHeader` and `PageBlock` with Styleguide where appropriate, or equivalent official Shoreline patterns in internal contexts. Use `Spinner`/`Alert`/`EmptyState` for data states and `showToast` plus button loading states for async feedback.
+Use paginated tables for large datasets, prefer server-side filtering when possible, and keep form actions consistent with primary save and optional cancel behavior.
+
+## Common failure modes
+
+- Using third-party UI libraries in admin apps.
+- Omitting loading, empty, or error states.
+- Triggering mutations without visible feedback.
+- Rendering large tables without pagination or filtering everything only in memory.
+- Building clickable controls with non-semantic elements instead of accessible buttons or links.
+- Mixing languages or inconsistent copy style on the same admin screen.
+
+## Review checklist
+
+- [ ] Does the screen use VTEX official design systems (Styleguide or Shoreline), not generic UI libs?
+- [ ] Does the page use `PageHeader` and `PageBlock` layout patterns where appropriate (or Shoreline equivalents)?
+- [ ] Are loading, empty, and error states explicit?
+- [ ] Are large tables or lists paginated and filtered in a scalable way?
+- [ ] Are write actions safe and visible?
+- [ ] Are interactive controls using accessible semantics instead of clickable non-semantic elements?
+- [ ] Are labels and feedback messages internationalized instead of hardcoded?
+- [ ] Is the app using one consistent language and tone for labels and actions?
+- [ ] Does the UI look and behave like a VTEX Admin tool?
+
+## Reference
+
+- [Admin apps](https://developers.vtex.com/docs/guides/vtex-io-documentation-admin-builder) - Admin builder context
+- [Shoreline repository](https://github.com/vtex/shoreline) - Official VTEX Shoreline design system repository
+- [Shoreline docs](https://admin-ui.vercel.app/) - Shoreline component and design system documentation
+
+---
+
 # App Contract & Builder Boundaries
 
 ## When this skill applies
@@ -3199,6 +3483,232 @@ if (!existing) {
 
 ---
 
+# Messages & Internationalization
+
+## When this skill applies
+
+Use this skill when a VTEX IO app needs translated copy instead of hardcoded strings.
+
+- Adding localized UI text to storefront or Admin apps
+- Creating or updating `/messages/*.json` translation files
+- Defining message keys in `context.json`
+- Reviewing React, Admin, or backend code that currently hardcodes user-facing copy
+- Integrating app-specific translations with `vtex.messages`
+
+Do not use this skill for:
+- general UI layout or component composition
+- authorization, policies, or auth tokens
+- service runtime sizing
+- choosing between HTTP, GraphQL, and event-driven APIs
+
+## Decision rules
+
+- Use the `messages` builder and translation files for user-facing copy instead of hardcoding labels, button text, or UI messages in source code.
+- Keep translation keys stable, explicit, and scoped to the app domain instead of generic keys such as `title` or `button`. The exact format may vary, but keys should remain specific, descriptive, and clearly owned by the app.
+- Prefix message IDs according to their UI surface or domain, for example `store/...` for storefront messages and `admin/...` for Admin or Site Editor messages, so keys stay organized and do not collide across contexts.
+- Define message keys in `/messages/context.json` so VTEX IO can discover and manage the app’s translation surface. Keep it as a flat map of `messageId -> description` and include the keys the app actually uses.
+- Keep translated message payloads small and app-focused. Do not turn the messages system into a general content store.
+- In React or Admin UIs, prefer message IDs and localization helpers over literal copy in JSX.
+- In backend or GraphQL flows, translate only when the app boundary truly needs localized text; otherwise return stable machine-oriented data and let the caller localize the presentation.
+- Use app-level overrides of `vtex.messages` only when the app truly needs to customize translation behavior or message resolution beyond normal app-local message files.
+
+## Hard constraints
+
+### Constraint: User-facing strings must come from the messages infrastructure
+
+User-facing strings MUST come from the messages infrastructure instead of being hardcoded in components, handlers, or resolvers.
+
+**Why this matters**
+
+Hardcoded copy breaks localization, makes message review harder, and creates inconsistent behavior across storefront, Admin, and backend flows.
+
+**Detection**
+
+If you see labels, buttons, headings, alerts, or other user-facing text embedded directly in JSX or backend response formatting for a localized app, STOP and move that copy to message files.
+
+**Correct**
+
+```tsx
+<FormattedMessage id="admin/my-app.save" />
+```
+
+**Wrong**
+
+```tsx
+<button>Save</button>
+```
+
+### Constraint: Message keys must be declared and organized explicitly
+
+Message keys MUST be app-scoped and represented in the app’s message configuration instead of being invented ad hoc in code.
+
+**Why this matters**
+
+Unstructured keys become hard to maintain, collide across app areas, and make message ownership unclear.
+
+**Detection**
+
+If code introduces new message IDs with no corresponding translation files or `context.json` entry, STOP and add the message contract explicitly.
+
+**Correct**
+
+```json
+{
+  "admin/my-app.save": "Save"
+}
+```
+
+**Wrong**
+
+```json
+{
+  "save": "Save"
+}
+```
+
+### Constraint: The messages system must not be used as a general content or configuration store
+
+Translation files MUST contain localized copy, not operational configuration, secrets, or large content payloads.
+
+**Why this matters**
+
+The messages infrastructure is designed for translated strings. Using it for other data creates maintenance confusion and mixes localization concerns with configuration or content storage.
+
+**Detection**
+
+If message files contain API URLs, credentials, business rules, or long structured content blobs, STOP and move that data to app settings, configuration apps, or a content-specific mechanism.
+
+**Correct**
+
+```json
+{
+  "store/my-app.emptyState.title": "No records found"
+}
+```
+
+**Wrong**
+
+```json
+{
+  "apiBaseUrl": "https://partner.example.com",
+  "featureFlags": {
+    "betaMode": true
+  }
+}
+```
+
+## Preferred pattern
+
+Recommended file layout:
+
+```text
+.
+├── messages/
+│   ├── context.json
+│   ├── en.json
+│   └── pt.json
+└── react/
+    └── components/
+        └── SaveButton.tsx
+```
+
+Minimal messages setup:
+
+```json
+// messages/context.json
+{
+  "admin/my-app.save": "Label for the save action in the admin settings page"
+}
+```
+
+```json
+// messages/en.json
+{
+  "admin/my-app.save": "Save",
+  "store/my-app.emptyState.title": "No records found"
+}
+```
+
+```json
+// messages/pt.json
+{
+  "admin/my-app.save": "Salvar"
+}
+```
+
+```tsx
+import { FormattedMessage } from 'react-intl'
+
+export function SaveButton() {
+  return <FormattedMessage id="admin/my-app.save" />
+}
+```
+
+Backend or GraphQL translation pattern:
+
+```graphql
+scalar IOMessage
+
+type ProductLabel {
+  id: ID
+  label: IOMessage
+}
+
+type Query {
+  productLabel(id: ID!): ProductLabel
+}
+```
+
+```typescript
+export const resolvers = {
+  Query: {
+    productLabel: async (_: unknown, { id }: { id: string }) => {
+      return {
+        id,
+        label: {
+          content: 'store/my-app.product-label',
+          description: 'Label for product badge',
+          from: 'en-US',
+        },
+      }
+    },
+  },
+}
+```
+
+Keep a complete `en.json` as the default fallback, even when the app’s main audience uses another locale, so the messages system has a stable base for resolution and auto-translation behavior.
+
+Use translated IDs in code, keep translation files explicit, and centralize user-facing copy in the messages system instead of scattering literals through the app.
+
+## Common failure modes
+
+- Hardcoding user-facing strings in JSX, resolvers, or handler responses.
+- Adding new message IDs in code without updating `context.json` or the message files.
+- Using generic or collision-prone keys such as `title`, `save`, or `button`.
+- Storing configuration values or non-localized business payloads in message files.
+- Treating `vtex.messages` overrides as the default path instead of app-local message management.
+
+## Review checklist
+
+- [ ] Are user-facing strings sourced from the messages infrastructure instead of hardcoded in code?
+- [ ] Are message keys explicit, app-scoped, and declared consistently?
+- [ ] Does `context.json` reflect the translation surface used by the app?
+- [ ] Are message files limited to localized copy rather than configuration or operational data?
+- [ ] Is any customization of `vtex.messages` truly necessary for this app?
+
+## Related skills
+
+- [`vtex-io-storefront-react`](../vtex-io-storefront-react/skill.md) - Use when the main question is storefront component structure and shopper-facing UI behavior
+- [`vtex-io-admin-react`](../vtex-io-admin-react/skill.md) - Use when the main question is Admin UI structure and operational interaction patterns
+- [`vtex-io-graphql-api`](../vtex-io-graphql-api/skill.md) - Use when the main question is GraphQL schema and resolver design rather than translation infrastructure
+
+## Reference
+
+- [Messages](https://developers.vtex.com/docs/apps/vtex.messages) - VTEX messages app and runtime translation behavior
+- [Overwriting the Messages app](https://developers.vtex.com/docs/guides/vtex-io-documentation-overwriting-the-messages-app) - How app-specific overrides of `vtex.messages` work
+
+---
+
 # Observability & Operational Readiness
 
 ## When this skill applies
@@ -3788,6 +4298,188 @@ Using the component in a Store Framework theme:
 - [Store Framework](https://developers.vtex.com/docs/guides/store-framework) — Overview of the block-based storefront system
 - [Using Components](https://developers.vtex.com/docs/guides/store-framework-using-components) — How to use native and custom components in themes
 - [VTEX Styleguide](https://styleguide.vtex.com/) — Official component library for VTEX Admin UIs
+
+---
+
+# Render Runtime & Block Registration
+
+## When this skill applies
+
+Use this skill when a VTEX IO storefront component needs to be exposed to Store Framework as a block.
+
+- Registering components in `store/interfaces.json`
+- Mapping block names to React components
+- Defining block composition and allowed children
+- Reviewing whether a component is correctly wired into theme JSON
+
+Do not use this skill for:
+- shopper-facing component internals
+- admin interfaces
+- backend service or route design
+- policy modeling
+
+## Decision rules
+
+- Every block visible to Store Framework must be registered in `store/interfaces.json`.
+- Keep block names, component mapping, and composition explicit.
+- The block ID used as the key in `store/interfaces.json`, for example `product-reviews`, is the same ID that storefront themes reference under `blocks` in `store/*.json`.
+- The `component` field should map to the React entry name under `react/`, such as `ProductReviews`, or a nested path such as `product/ProductReviews` when the app structure is hierarchical.
+- Use `composition` intentionally when the block needs an explicit child model. `children` means the component renders nested blocks through `props.children`, while `blocks` means the block exposes named block slots controlled by Store Framework.
+- `composition` is optional. For many simple blocks, declaring `component` and, when needed, `allowed` is enough.
+- Use this skill for the render/runtime contract, and use storefront/admin skills for the component implementation itself.
+
+## Hard constraints
+
+### Constraint: Storefront blocks must be declared in interfaces.json
+
+Every React component intended for Store Framework use MUST have a corresponding `interfaces.json` entry.
+
+**Why this matters**
+
+Without the interface declaration, the component cannot be referenced from theme JSON.
+
+**Detection**
+
+If a storefront React component is intended to be used as a block but has no matching interface entry, STOP and add it first.
+
+**Correct**
+
+```json
+{
+  "product-reviews": {
+    "component": "ProductReviews"
+  }
+}
+```
+
+**Wrong**
+
+```tsx
+// react/ProductReviews.tsx exists with no interfaces.json mapping
+```
+
+### Constraint: Component mapping must resolve to real React entry files
+
+The `component` field in `interfaces.json` MUST map to a real exported React entry file.
+
+**Why this matters**
+
+Broken mapping silently disconnects block contracts from implementation.
+
+**Detection**
+
+If an interface points to a component name with no corresponding React entry file, STOP and fix the mapping.
+
+**Correct**
+
+```json
+{
+  "product-reviews": {
+    "component": "ProductReviews"
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "product-reviews": {
+    "component": "MissingComponent"
+  }
+}
+```
+
+### Constraint: Block composition must be intentional
+
+Composition and allowed child blocks MUST match the component's actual layout and runtime expectations.
+
+**Why this matters**
+
+Incorrect composition contracts make theme usage brittle and confusing.
+
+**Detection**
+
+If `allowed` or `composition` do not reflect how the component is supposed to receive children, STOP and correct the block contract.
+
+**Correct**
+
+```json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "composition": "children",
+    "allowed": ["product-review-item"]
+  }
+}
+```
+
+**Wrong**
+
+```json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "composition": "blocks",
+    "allowed": []
+  }
+}
+```
+
+## Preferred pattern
+
+Keep block contracts explicit in `interfaces.json` and keep block implementation concerns separate from render-runtime registration.
+
+Minimal block lifecycle:
+
+```json
+// store/interfaces.json
+{
+  "product-reviews": {
+    "component": "ProductReviews",
+    "composition": "children",
+    "allowed": ["product-review-item"]
+  },
+  "product-review-item": {
+    "component": "ProductReviewItem"
+  }
+}
+```
+
+```json
+// store/home.json
+{
+  "store.home": {
+    "blocks": ["product-reviews"]
+  }
+}
+```
+
+```tsx
+// react/ProductReviews.tsx
+export default function ProductReviews() {
+  return <div>...</div>
+}
+```
+
+This wiring makes the block name visible in the theme, maps it to a real React entry, and keeps composition rules explicit at the render-runtime boundary.
+
+## Common failure modes
+
+- Forgetting to register a storefront component as a block.
+- Mapping block names to missing React entry files.
+- Using the wrong composition model.
+
+## Review checklist
+
+- [ ] Is the block declared in `interfaces.json`?
+- [ ] Does the component mapping resolve correctly?
+- [ ] Are composition and allowed children intentional?
+- [ ] Is runtime registration clearly separated from component internals?
+
+## Reference
+
+- [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) - Block and theme context
 
 ---
 
@@ -5404,3 +6096,156 @@ Your transform sits at the **end** of whatever dependency chain it requires. Dec
 - [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
 - [Clients](https://developers.vtex.com/docs/guides/vtex-io-documentation-clients) — VBase, MasterData, and custom clients
 - [Engineering Guidelines](https://developers.vtex.com/docs/guides/vtex-io-documentation-engineering-guidelines) — Scalability and IO development practices
+
+---
+
+# Storefront React Components
+
+## When this skill applies
+
+Use this skill when building shopper-facing React components under the `react` builder for storefront experiences.
+
+- Creating product or category UI widgets
+- Building custom banners, forms, and shopper-facing layout pieces
+- Using storefront hooks or context providers
+- Styling components with css-handles
+
+Do not use this skill for:
+- admin pages
+- block registration and render-runtime contracts
+- service runtime or backend route design
+- GraphQL schema design
+
+## Decision rules
+
+- Treat storefront components as browser-facing UI and keep them safe for shopper contexts.
+- Prefer keeping storefront components presentational and props-driven, and move complex data fetching or business logic to hooks or container components.
+- Use `vtex.css-handles` instead of hardcoded global class names.
+- Prefer receiving data through props or documented storefront hooks and contexts such as `useProduct`, `useRuntime`, or `useOrderForm` instead of calling VTEX APIs directly from the browser or using app keys in storefront code.
+- Keep components resilient to loading, empty, and unavailable product or search context.
+- For shopper-facing copy, use message IDs and helpers from the messages infrastructure, as described in `vtex-io-messages-and-i18n`, instead of string literals.
+- Treat storefront components as part of the storefront accessibility surface: use semantic HTML elements such as `button` or `a` instead of clickable `div`s, and ensure important content has appropriate labels or alternative text.
+- When accessing browser globals such as `window` or `document`, guard against server-side execution, for example by using `useEffect` or checking `typeof window !== 'undefined'`.
+
+## Hard constraints
+
+### Constraint: Storefront styling must use css-handles
+
+Storefront components MUST expose styling through `css-handles`, not arbitrary hardcoded class names.
+
+**Why this matters**
+
+css-handles are the customization contract for storefront components. Hardcoded or hidden class names make themes harder to extend safely.
+
+**Detection**
+
+If a storefront component uses arbitrary global class names without css-handles, STOP and expose styling through handles first.
+
+**Correct**
+
+```tsx
+const CSS_HANDLES = ['container', 'title'] as const
+```
+
+**Wrong**
+
+```tsx
+return <div className="my-random-block-root">...</div>
+```
+
+### Constraint: Storefront components must remain browser-safe
+
+Storefront React code MUST not depend on Node-only APIs or server-only assumptions.
+
+**Why this matters**
+
+These components run in the shopper-facing frontend. Server-only dependencies break rendering and create runtime failures in the browser.
+
+**Detection**
+
+If a component uses Node-only modules, filesystem access, or server runtime assumptions, STOP and redesign it for the browser.
+
+**Correct**
+
+```tsx
+return <span>{label}</span>
+```
+
+**Wrong**
+
+```tsx
+import fs from 'fs'
+```
+
+### Constraint: Shopper-facing strings must be localizable
+
+Visible storefront strings MUST use the app i18n pattern instead of hardcoded text.
+
+**Why this matters**
+
+Storefront UIs run across locales and stores. Hardcoded strings make the component less reusable and less consistent with VTEX IO localization.
+
+**Detection**
+
+If shopper-visible copy is hardcoded in JSX, STOP and move it to the i18n mechanism.
+
+**Correct**
+
+```tsx
+<FormattedMessage id="storefront.cta" />
+```
+
+**Wrong**
+
+```tsx
+<span>Buy now</span>
+```
+
+## Preferred pattern
+
+Keep storefront components small, props-driven, css-handle-based, and safe for shopper contexts.
+
+Minimal css-handles pattern:
+
+```tsx
+import { useCssHandles } from 'vtex.css-handles'
+
+const CSS_HANDLES = ['container', 'title'] as const
+
+export function MyComponent() {
+  const { handles } = useCssHandles(CSS_HANDLES)
+
+  return (
+    <div className={handles.container}>
+      <h2 className={handles.title}>...</h2>
+    </div>
+  )
+}
+```
+
+## Common failure modes
+
+- Hardcoding class names instead of using css-handles.
+- Using browser-unsafe dependencies.
+- Hardcoding shopper-visible strings.
+- Fetching data in ad hoc ways instead of using VTEX storefront patterns.
+- Putting complex business logic or heavy data fetching directly inside presentational components instead of using hooks or containers.
+- Using non-semantic clickable elements such as `div` or `span` with `onClick` where a `button` or `a` element should be used.
+
+## Review checklist
+
+- [ ] Is this component truly shopper-facing?
+- [ ] Are styles exposed through css-handles?
+- [ ] Is the component safe for browser execution?
+- [ ] Are visible strings localized?
+- [ ] Is the data flow appropriate for a storefront component?
+
+## Related skills
+
+- [`vtex-io-render-runtime-and-blocks`](../vtex-io-render-runtime-and-blocks/skill.md) - Use when the main question is block registration and Store Framework wiring
+- [`vtex-io-messages-and-i18n`](../vtex-io-messages-and-i18n/skill.md) - Use when the main question is how shopper-facing strings should be translated and organized
+
+## Reference
+
+- [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) - Storefront app context, data, and hooks
+- [CSS Handles](https://developers.vtex.com/docs/guides/css-handles) - Styling contract for VTEX IO storefront components
