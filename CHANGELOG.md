@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/vtexdocs/ai-skills/compare/v1.4.0...v1.4.1) (2026-04-01)
+
+
+### Bug Fixes
+
+* update banner for 6 tracks and Kiro platform ([8bb5a9d](https://github.com/vtexdocs/ai-skills/commit/8bb5a9d1db1375616966b6d4a6c86098dd988e8a))
+* update banner for 6 tracks and Kiro platform ([7de2234](https://github.com/vtexdocs/ai-skills/commit/7de22347fee036c0eec082b88897e7394d9466b3))
+
 ## [1.4.0](https://github.com/vtexdocs/ai-skills/compare/v1.3.0...v1.4.0) (2026-04-01)
 
 
