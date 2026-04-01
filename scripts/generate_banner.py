@@ -38,6 +38,7 @@ WHITE    = (255, 255, 255)
 GRAY     = (170, 167, 165)
 
 TRACKS: list[tuple[str, str]] = [
+    ("Architecture", "compass"),
     ("FastStore",    "store"),
     ("Payment",      "shield-check"),
     ("VTEX IO",      "box"),
@@ -134,15 +135,15 @@ TITLE_Y       = 72
 TITLE_SIZE    = 90
 TITLE_LEADING = 14
 
-ICON_SIZE    = 64
-ICON_ROW_Y   = 278
-ICON_FIRST_X = 88
-ICON_STEP    = 116
+ICON_SIZE    = 56
+ICON_ROW_Y   = 282
+ICON_FIRST_X = 72
+ICON_STEP    = 108
 
 LABEL_Y    = 360
 LABEL_SIZE = 18
 
-FOOTER_TEXT = "Works with Cursor · GitHub Copilot · Claude · AGENTS.md · OpenCode"
+FOOTER_TEXT = "Works with Cursor · GitHub Copilot · Claude · AGENTS.md · OpenCode · Kiro"
 FOOTER_X    = 53
 FOOTER_Y    = 445
 FOOTER_SIZE = 18
