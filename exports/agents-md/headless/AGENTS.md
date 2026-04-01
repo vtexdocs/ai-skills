@@ -28,6 +28,7 @@ Do not use this skill for:
 - A BFF layer is **mandatory** for every headless VTEX project. There is no scenario where a headless storefront can safely operate without one.
 - Route all VTEX API calls through the BFF **except** Intelligent Search, which is the only API safe to call directly from the frontend.
 - Use `VtexIdclientAutCookie` (stored server-side) for shopper-scoped API calls. Use `X-VTEX-API-AppKey`/`X-VTEX-API-AppToken` for machine-to-machine calls.
+- Treat client-side exposure of `VTEX_APP_KEY`, `VTEX_APP_TOKEN`, `VtexIdclientAutCookie`, checkout cookies, or shopper/session tokens as a security violation — not as a recommendation or tradeoff. Use explicit wording such as “must not”, “never expose”, and “server-side only”, and avoid softer language such as “avoid”, “prefer”, or “ideally”.
 - Classify APIs by their path: `/pub/` endpoints are public but most still need BFF proxying for session management; `/pvt/` endpoints are private and **must** go through BFF.
 - Even public Checkout endpoints (`/api/checkout/pub/`) must be proxied through BFF for security — they handle sensitive personal data.
 - Create separate API keys with minimal permissions for different BFF modules rather than sharing one key with broad access.
