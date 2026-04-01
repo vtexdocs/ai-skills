@@ -356,6 +356,7 @@ async function cancelPaymentHandler(req: Request, res: Response): Promise<void> 
 - [`payment-provider-protocol`](payment-payment-provider-protocol.md) — Endpoint contracts and response shapes
 - [`payment-async-flow`](payment-payment-async-flow.md) — Callback URL notification and the 7-day retry window
 - [`payment-pci-security`](payment-payment-pci-security.md) — PCI compliance and Secure Proxy
+- [`vtex-io-application-performance`](vtex-io-vtex-io-application-performance.md) — VBase write correctness (await in critical paths), per-client timeout/retry config, and caching rules for IO-based connectors
 
 ## Reference
 

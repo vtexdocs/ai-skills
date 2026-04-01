@@ -23,7 +23,10 @@ Do not use this skill for:
 - **Without VTEX IO**: the `callbackUrl` is a notification endpoint — POST the updated status with `X-VTEX-API-AppKey`/`X-VTEX-API-AppToken` headers.
 - **With VTEX IO**: the `callbackUrl` is a retry endpoint — POST to it (no payload) to trigger the Gateway to re-call POST `/payments`.
 - Always preserve the `X-VTEX-signature` query parameter in the `callbackUrl` — never strip or modify it.
-- Set `delayToCancel` to 604800 (7 days) for async methods to match the Gateway's retry window.
+- For asynchronous methods, `delayToCancel` MUST reflect the actual validity of the payment method, not the 7‑day internal Gateway retry window:
+  - Pix: between 900 and 3600 seconds (15–60 minutes), aligned with QR code expiration.
+  - BankInvoice (Boleto): aligned with the invoice due date / payment deadline configured in the provider.
+  - Other async methods: aligned with the provider's documented expiry SLA.
 
 ## Hard constraints
 
@@ -48,7 +51,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
   if (isAsync) {
     const pending = await acquirer.initiateAsyncPayment(req.body);
 
-    // Store callbackUrl for later notification
+    // Store payment and callbackUrl for later notification
     await store.save(paymentId, {
       paymentId,
       status: "undefined",
@@ -67,19 +70,56 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
       message: "Awaiting customer action",
       delayToAutoSettle: 21600,
       delayToAutoSettleAfterAntifraud: 1800,
-      delayToCancel: 604800,  // 7 days for async
+      delayToCancel: computeDelayToCancel(paymentMethod, pending),
       paymentUrl: pending.qrCodeUrl ?? pending.boletoUrl ?? undefined,
     });
+
     return;
   }
 
   // Synchronous methods (credit card) can return final status
   const result = await acquirer.authorizeSyncPayment(req.body);
+
   res.status(200).json({
     paymentId,
     status: result.status,  // "approved" or "denied" is OK for sync
-    // ... other fields
+    authorizationId: result.authorizationId ?? null,
+    nsu: result.nsu ?? null,
+    tid: result.tid ?? null,
+    acquirer: "MyProvider",
+    code: result.code ?? null,
+    message: result.message ?? null,
+    delayToAutoSettle: 21600,
+    delayToAutoSettleAfterAntifraud: 1800,
+    delayToCancel: 21600,
   });
+}
+
+const PIX_MIN_DELAY = 900;   // 15 minutes
+const PIX_MAX_DELAY = 3600;  // 60 minutes
+
+function computeDelayToCancel(paymentMethod: string, pending: any): number {
+  if (paymentMethod === "Pix") {
+    // Use provider QR TTL but clamp to 15–60 minutes
+    const providerTtlSeconds = pending.pixTtlSeconds ?? 1800; // default 30 min
+    return Math.min(Math.max(providerTtlSeconds, PIX_MIN_DELAY), PIX_MAX_DELAY);
+  }
+
+  if (paymentMethod === "BankInvoice") {
+    // Example: seconds until boleto due date
+    const now = Date.now();
+    const dueDate = new Date(pending.dueDate).getTime();
+    const diffSeconds = Math.max(Math.floor((dueDate - now) / 1000), 0);
+    return diffSeconds;
+  }
+
+  // Other async methods: follow provider SLA if provided
+  if (pending.expirySeconds) {
+    return pending.expirySeconds;
+  }
+
+  // Conservative fallback: 24h
+  return 86400;
 }
 ```
 
@@ -130,17 +170,36 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     callbackUrl,  // Stored exactly as received, including query params
   });
 
-  // ... return undefined response
+  // Return async "undefined" response (see previous constraint)
+  res.status(200).json({
+    paymentId,
+    status: "undefined",
+    authorizationId: null,
+    nsu: null,
+    tid: null,
+    acquirer: "MyProvider",
+    code: "PENDING",
+    message: "Awaiting customer action",
+    delayToAutoSettle: 21600,
+    delayToAutoSettleAfterAntifraud: 1800,
+    delayToCancel: 86400,
+  });
 }
 
 // When the acquirer webhook arrives, use the stored callbackUrl
 async function handleAcquirerWebhook(req: Request, res: Response): Promise<void> {
   const { paymentReference, status } = req.body;
-  const payment = await store.findByAcquirerRef(paymentReference);
-  if (!payment) { res.status(404).send(); return; }
 
-  // Update local state
-  await store.updateStatus(payment.paymentId, status === "paid" ? "approved" : "denied");
+  const payment = await store.findByAcquirerRef(paymentReference);
+  if (!payment) {
+    res.status(404).send();
+    return;
+  }
+
+  const pppStatus = status === "paid" ? "approved" : "denied";
+
+  // Update local state first
+  await store.updateStatus(payment.paymentId, pppStatus);
 
   // Use the EXACT stored callbackUrl — do not modify it
   await fetch(payment.callbackUrl, {
@@ -152,7 +211,7 @@ async function handleAcquirerWebhook(req: Request, res: Response): Promise<void>
     },
     body: JSON.stringify({
       paymentId: payment.paymentId,
-      status: status === "paid" ? "approved" : "denied",
+      status: pppStatus,
     }),
   });
 
@@ -181,34 +240,71 @@ async function handleAcquirerWebhook(req: Request, res: Response): Promise<void>
 }
 ```
 
-### Constraint: MUST be ready for repeated Create Payment calls
+### Constraint: MUST be ready for repeated Create Payment calls (idempotent, but status can evolve)
 
-The connector MUST handle the Gateway calling Create Payment with the same `paymentId` multiple times during the 7-day retry window. Each call must return the current payment status (which may have been updated via callback since the last call).
+The connector MUST handle the Gateway calling Create Payment (POST `/payments`) with the same `paymentId` multiple times during the retry window. Each call MUST not create a new charge at the acquirer, must return a response based on the locally persisted state for that `paymentId`, and must reflect the current status (`"undefined"`, `"approved"`, or `"denied"`) which may have changed after a callback.
+
+Idempotency is about side effects on the acquirer: the first call creates the charge, retries MUST NOT call the acquirer again. For async methods, the response status may legitimately evolve from `"undefined"` to `"approved"` or `"denied"`, but only because your local store was updated by the webhook.
 
 **Why this matters**
-The Gateway retries `undefined` payments automatically. If the connector treats each call as a new payment, it will create duplicate charges. If the connector always returns the original `undefined` status without checking for updates, the Gateway never learns that the payment was approved, and eventually cancels it.
+The Gateway retries `POST /payments` for `undefined` payments automatically for up to 7 days. If the connector treats each call as a new payment, it will create duplicate charges at the acquirer. If the connector always returns the original `"undefined"` response without checking for an updated status, the Gateway never learns that the payment was approved, and eventually cancels it.
 
 **Detection**
-If the Create Payment handler does not check for an existing `paymentId` and return the latest status, STOP. The handler must support idempotent retries that reflect the current state.
+If the Create Payment handler does not check for an existing `paymentId` before calling the acquirer, or always returns the original response without looking at the current status in storage, the agent MUST stop and guide the developer to implement proper idempotency with status evolution based on stored state only.
 
 **Correct**
 ```typescript
 async function createPaymentHandler(req: Request, res: Response): Promise<void> {
-  const { paymentId } = req.body;
+  const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   // Check for existing payment — may have been updated via callback
   const existing = await store.findByPaymentId(paymentId);
   if (existing) {
-    // Return current status — may have changed from "undefined" to "approved"
+    // Do NOT call the acquirer again.
+    // Return a response derived from the current stored state.
     res.status(200).json({
       ...existing.response,
-      status: existing.status,  // Reflects the latest state
+      status: existing.status,  // Reflect the latest state: "undefined" | "approved" | "denied"
     });
     return;
   }
 
-  // First time — create new payment
-  // ...
+  // First time — call the acquirer once
+  const asyncMethods = ["BankInvoice", "Pix"];
+  const isAsync = asyncMethods.includes(paymentMethod);
+
+  const acquirerResult = await acquirer.authorize(req.body);
+
+  const initialStatus = isAsync ? "undefined" : acquirerResult.status;
+
+  const response = {
+    paymentId,
+    status: initialStatus,
+    authorizationId: acquirerResult.authorizationId ?? null,
+    nsu: acquirerResult.nsu ?? null,
+    tid: acquirerResult.tid ?? null,
+    acquirer: "MyProvider",
+    code: acquirerResult.code ?? null,
+    message: acquirerResult.message ?? null,
+    delayToAutoSettle: 21600,
+    delayToAutoSettleAfterAntifraud: 1800,
+    delayToCancel: isAsync
+      ? computeDelayToCancel(paymentMethod, acquirerResult)
+      : 21600,
+    ...(acquirerResult.paymentUrl
+      ? { paymentUrl: acquirerResult.paymentUrl }
+      : {}),
+  };
+
+  await store.save(paymentId, {
+    paymentId,
+    status: initialStatus,
+    response,
+    callbackUrl,
+    acquirerReference: acquirerResult.reference,
+  });
+
+  res.status(200).json(response);
 }
 ```
 
@@ -217,12 +313,79 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 async function createPaymentHandler(req: Request, res: Response): Promise<void> {
   const { paymentId } = req.body;
 
-  // WRONG: Always returns the original cached response without checking
-  // if the status has been updated. Gateway never sees "approved".
-  const existing = await store.findByPaymentId(paymentId);
-  if (existing) {
-    // Always returns the stale "undefined" response — never updates
-    res.status(200).json(existing.originalResponse);
+  // WRONG: No idempotency — every retry hits the acquirer again
+  const result = await acquirer.authorize(req.body);
+
+  res.status(200).json({
+    paymentId,
+    status: result.status,
+    authorizationId: result.authorizationId ?? null,
+    nsu: result.nsu ?? null,
+    tid: result.tid ?? null,
+    acquirer: "MyProvider",
+    code: null,
+    message: null,
+    delayToAutoSettle: 21600,
+    delayToAutoSettleAfterAntifraud: 1800,
+    delayToCancel: 21600,
+  });
+}
+```
+
+### Constraint: MUST align `delayToCancel` with payment validity (not always 7 days)
+
+For asynchronous methods, the `delayToCancel` field in the Create Payment response MUST represent how long that payment is considered valid for the shopper. It defines when the Gateway is allowed to automatically cancel payments that never reached a final status.
+
+Rules:
+- Pix: `delayToCancel` MUST be between 900 and 3600 seconds (15–60 minutes). This value MUST match the QR code validity configured on the provider.
+- BankInvoice (Boleto): `delayToCancel` MUST be computed from the configured due date / payment deadline (for example, seconds until invoice due date). It MUST NOT be hardcoded to 7 days just to "match" the Gateway's internal retry window.
+- Other async methods: `delayToCancel` MUST follow the expiry SLA defined by the provider (hours or days, as applicable). It MUST NEVER exceed the actual validity of the underlying payment from the provider's perspective.
+
+The 7‑day window is an internal Gateway safety limit for retries on `undefined` status. It does not mean every async method should use `delayToCancel = 604800`.
+
+**Why this matters**
+For Pix, using a multi‑day `delayToCancel` keeps orders stuck in "Authorizing" with expired QR codes, creating poor UX and operational noise. For Boleto, cancelling before the real due date loses sales; cancelling much later creates reconciliation risk and "zombie" orders. Misaligned `delayToCancel` breaks the consistency between the provider's notion of a valid payment and when VTEX auto‑cancels the payment.
+
+**Detection**
+If the connector always uses `delayToCancel = 604800` for any async method, or sets `delayToCancel` greater than the Pix or Boleto validity window, the agent MUST warn that `delayToCancel` is misconfigured.
+
+**Correct**
+
+(See the `computeDelayToCancel` function in the "MUST return undefined" example above.)
+
+**Wrong**
+```typescript
+async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+  const { paymentId, paymentMethod, callbackUrl } = req.body;
+
+  const isAsync = ["BankInvoice", "Pix"].includes(paymentMethod);
+
+  if (isAsync) {
+    const pending = await acquirer.initiateAsyncPayment(req.body);
+
+    await store.save(paymentId, {
+      paymentId,
+      status: "undefined",
+      callbackUrl,
+      acquirerReference: pending.reference,
+    });
+
+    res.status(200).json({
+      paymentId,
+      status: "undefined",
+      authorizationId: pending.authorizationId ?? null,
+      nsu: pending.nsu ?? null,
+      tid: pending.tid ?? null,
+      acquirer: "MyProvider",
+      code: "PENDING",
+      message: "Awaiting customer action",
+      delayToAutoSettle: 21600,
+      delayToAutoSettleAfterAntifraud: 1800,
+      // WRONG: hardcoded 7 days for every async method
+      delayToCancel: 604800,
+      paymentUrl: pending.qrCodeUrl ?? pending.boletoUrl ?? undefined,
+    });
+
     return;
   }
 
@@ -333,6 +496,7 @@ async function notifyGateway(callbackUrl: string, payload: object): Promise<void
 - **Hardcoding callback URLs** — Constructing callback URLs manually instead of using the one from the request, stripping the `X-VTEX-signature` parameter. The Gateway rejects the callback and the payment stays stuck in `undefined`.
 - **No retry logic for failed callbacks** — Calling the `callbackUrl` once and silently dropping the notification on failure. The Gateway never learns the payment was approved, and the payment sits in `undefined` until the next retry or is auto-cancelled.
 - **Returning stale status on retries** — Always returning the original `undefined` response without checking if the status was updated via callback. The Gateway never sees the `approved` status and eventually cancels the payment.
+- **Misaligned `delayToCancel`** — Using 7 days for Pix, leaving expired QR codes with orders stuck in "Authorizing". Using arbitrary values for Boleto that do not match invoice due dates.
 
 ## Review checklist
 
@@ -342,8 +506,10 @@ async function notifyGateway(callbackUrl: string, payload: object): Promise<void
 - [ ] Is `X-VTEX-signature` preserved in the `callbackUrl` when calling it?
 - [ ] Are `X-VTEX-API-AppKey` and `X-VTEX-API-AppToken` headers included in notification callbacks (non-VTEX IO)?
 - [ ] Is there retry logic with exponential backoff for failed callback calls?
-- [ ] Does the Create Payment handler return the latest status (not stale) on Gateway retries?
-- [ ] Is `delayToCancel` set to 604800 (7 days) for async methods?
+- [ ] Does the Create Payment handler check for an existing `paymentId`, avoid calling the acquirer again for retries, and return a response derived from the current stored state (status may evolve from `"undefined"` to `"approved"`/`"denied"` after callback)?
+- [ ] For Pix, is `delayToCancel` between 900 and 3600 seconds (15–60 minutes), aligned with QR code validity?
+- [ ] For BankInvoice (Boleto), does `delayToCancel` reflect the real payment deadline / due date configured in the provider?
+- [ ] For other async methods, is `delayToCancel` aligned with the provider's documented expiry SLA (and never greater than the actual payment validity)?
 
 ## Related skills
 
@@ -716,6 +882,7 @@ async function cancelPaymentHandler(req: Request, res: Response): Promise<void> 
 - [`payment-provider-protocol`](payment-payment-provider-protocol.md) — Endpoint contracts and response shapes
 - [`payment-async-flow`](payment-payment-async-flow.md) — Callback URL notification and the 7-day retry window
 - [`payment-pci-security`](payment-payment-pci-security.md) — PCI compliance and Secure Proxy
+- [`vtex-io-application-performance`](vtex-io-vtex-io-application-performance.md) — VBase write correctness (await in critical paths), per-client timeout/retry config, and caching rules for IO-based connectors
 
 ## Reference
 
@@ -1099,6 +1266,300 @@ function safePaymentLog(label: string, body: Record<string, unknown>): void {
 - [Payment Provider Protocol (Help Center)](https://help.vtex.com/en/docs/tutorials/payment-provider-protocol) — Protocol overview including PCI prerequisites and Secure Proxy requirements
 - [Payment Provider Framework](https://developers.vtex.com/docs/guides/payments-integration-payment-provider-framework) — VTEX IO framework for payment connectors (Secure Proxy mandatory for all IO apps)
 - [PCI Security Standards Council](https://www.pcisecuritystandards.org/) — Official PCI DSS requirements and compliance documentation
+
+---
+
+# Payment Provider Framework (VTEX IO)
+
+## When this skill applies
+
+Use this skill when:
+- Creating or maintaining a payment connector implemented as a VTEX IO app (not a standalone HTTP service you host yourself)
+- Wiring `@vtex/payment-provider`, `PaymentProvider`, and `PaymentProviderService` in `node/index.ts`
+- Configuring the `paymentProvider` builder, `configuration.json` (payment methods, `customFields`, feature flags)
+- Implementing `this.retry(request)` for Gateway retry semantics on IO
+- Extending `SecureExternalClient` and passing `secureProxy` on requests for card flows on IO
+- Testing via payment affiliation, workspaces, beta/stable releases, the VTEX App Store, and VTEX homologation
+
+Do not use this skill for:
+- PPP HTTP contracts, response field-by-field requirements, and the nine endpoints in the abstract — use [`payment-provider-protocol`](payment-payment-provider-protocol.md)
+- Idempotency and duplicate `paymentId` handling — use [`payment-idempotency`](payment-payment-idempotency.md)
+- Async `undefined` status, `callbackUrl` notification vs retry (IO vs non-IO) — use [`payment-async-flow`](payment-payment-async-flow.md)
+- PCI rules, logging, and token semantics beyond IO wiring — use [`payment-pci-security`](payment-payment-pci-security.md)
+
+## Decision rules
+
+- **PPF on IO**: Payment Provider Framework is the VTEX IO–based way to build payment connectors. The app uses IO infrastructure; [API routes](https://developers.vtex.com/docs/guides/payment-provider-protocol-api-overview), request/response types, and [Secure Proxy](https://developers.vtex.com/docs/guides/payments-integration-secure-proxy) are integrated per VTEX guides. Start from the example app described in [Payment Provider Framework](https://developers.vtex.com/docs/guides/payments-integration-payment-provider-framework) (clone/bootstrap as documented there).
+- **Prerequisites**: Follow [Implementation prerequisites](https://help.vtex.com/en/tutorial/payment-provider-protocol--RdsT2spdq80MMwwOeEq0m#implementation-prerequisites) in the Payment Provider Protocol article and [Integrating a new payment provider on VTEX](https://developers.vtex.com/docs/guides/integrating-a-new-payment-provider-on-vtex).
+- **Dependencies**: In the app `node` folder, add `@vtex/payment-provider` (for example `1.x` in `package.json`). Keep `@vtex/api` in `devDependencies` (for example `6.x`); linking may bump it beyond `6.x`, which is acceptable. If `@vtex/api` types break, delete `node_modules` and `yarn.lock` in the project root and in `node`, then run `yarn install -f` in both.
+- **`paymentProvider` builder**: In `manifest.json`, include `"paymentProvider": "1.x"` next to `node` so policies for Payment Gateway callbacks and PPP routes apply.
+- **`configuration.json`**: Declare `paymentMethods` so the builder can implement them without re-declaring everything on `/manifest`. Use names that match [List Payment Provider Manifest](https://developers.vtex.com/docs/api-reference/payment-provider-protocol?endpoint=get-/manifest); only invent a new name when the method is genuinely new. New methods in Admin may require a [support ticket](https://help.vtex.com/en/tutorial/opening-tickets-to-vtex-support--16yOEqpO32UQYygSmMSSAM).
+- **`PaymentProvider`**: One class method per PPP route; TypeScript enforces shapes — see [Payment Flow endpoints](https://developers.vtex.com/docs/api-reference/payment-provider-protocol#get-/manifest) in the API reference.
+- **`PaymentProviderService`**: Registers default routes `/manifest`, `/payments`, `/settlements`, `/refunds`, `/cancellations`, `/inbound`; pass extra `routes` / `clients` when needed.
+- **Overriding `/manifest`**: Only with an approved use case — [open a ticket](https://help.vtex.com/en/tutorial/opening-tickets-to-vtex-support--16yOEqpO32UQYygSmMSSAM). See **Preferred pattern** for an example route override shape.
+- **Configurable options**: Use `configuration.json` / builder options for flags such as `implementsOAuth`, `implementsSplit`, `usesProviderHeadersName`, `useAntifraud`, `usesBankInvoiceEnglishName`, `usesSecureProxy`, `requiresDocument`, `acceptSplitPartialRefund`, `usesAutoSettleOptions` (auto-settlement UI — [Custom Auto Capture](https://developers.vtex.com/docs/guides/custom-auto-capture-feature)). Set `name` and rely on auto-generated `serviceUrl` on IO unless documented otherwise.
+- **Gateway retry**: In PPF, call `this.retry(request)` where the protocol requires retry — see [Payment authorization](https://help.vtex.com/en/tutorial/payment-provider-protocol--RdsT2spdq80MMwwOeEq0m#payment-authorization) in the PPP article.
+- **Card data on IO**: Prefer `SecureExternalClient` with `secureProxy: secureProxyUrl` from Create Payment; destination must be allowlisted (AOC via [support](https://help.vtex.com/support)). Supported `Content-Type` values for Secure Proxy: `application/json` and `application/x-www-form-urlencoded` only.
+- **Checkout testing**: Account must be allowed for IO connectors ([ticket](https://help.vtex.com/en/tutorial/opening-tickets-to-vtex-support--16yOEqpO32UQYygSmMSSAM) with app name and account). Publish beta, install on `master`, wait ~1 hour, open affiliation URL, enable test mode and workspace, configure payment condition (~10 minutes), place test order; then stable + homologation.
+- **Publication**: Configure `billingOptions` per [Billing Options](https://developers.vtex.com/docs/guides/vtex-io-documentation-billing-options); submit via [Submitting your app](https://developers.vtex.com/docs/guides/vtex-io-documentation-submitting-your-app-in-the-vtex-app-store). Prepare homologation artifacts (connector app name, partner contact, production endpoint, allowed accounts, new methods/flows) per [Integrating a new payment provider on VTEX](https://developers.vtex.com/docs/guides/integrating-a-new-payment-provider-on-vtex#7-homologation-and-go-live) (SLA often ~30 days).
+- **Updates**: Ship changes in a new beta, re-test affiliations, then stable; re-homologate if required.
+
+## Hard constraints
+
+### Constraint: Declare the `paymentProvider` builder and a real connector identity in `configuration.json`
+
+IO connectors MUST include the `paymentProvider` builder in `manifest.json` and a `paymentProvider/configuration.json` with a non-placeholder `name` and accurate `paymentMethods`. Do not ship the literal placeholder `"MyConnector"` (or equivalent) as production configuration.
+
+**Why this matters**
+
+Without the builder, PPP routes and Gateway policies are not wired. A placeholder name breaks Admin, affiliations, and homologation.
+
+**Detection**
+
+If `manifest.json` lacks `paymentProvider`, or `configuration.json` still uses example placeholder names, stop and fix before publishing.
+
+**Correct**
+
+```json
+{
+  "name": "PartnerAcmeCard",
+  "paymentMethods": [
+    { "name": "Visa", "allowsSplit": "onCapture" },
+    { "name": "BankInvoice", "allowsSplit": "onAuthorize" }
+  ]
+}
+```
+
+**Wrong**
+
+```json
+{
+  "name": "MyConnector",
+  "paymentMethods": []
+}
+```
+
+### Constraint: Register PPP routes only through `PaymentProviderService` with a `PaymentProvider` implementation
+
+The service MUST wrap a class extending `PaymentProvider` from `@vtex/payment-provider` so standard PPP paths are registered. Do not hand-roll the same route surface without the package unless VTEX explicitly prescribes an alternative.
+
+**Why this matters**
+
+Missed or mismatched routes break Gateway calls and homologation; the package keeps handlers aligned with the protocol.
+
+**Detection**
+
+If `node/index.ts` exposes PPP paths manually and does not instantiate `PaymentProviderService` with the connector class, reconcile with the documented pattern.
+
+**Correct**
+
+```typescript
+import { PaymentProviderService } from "@vtex/payment-provider";
+import { YourPaymentConnector } from "./connector";
+
+export default new PaymentProviderService({
+  connector: YourPaymentConnector,
+});
+```
+
+**Wrong**
+
+```typescript
+// Ad-hoc router only — no PaymentProviderService / PaymentProvider base
+export default someCustomRouterWithoutPPPPackage;
+```
+
+### Constraint: Use `this.retry(request)` for Gateway retry on IO
+
+Where the PPP flow requires retry semantics on IO, handlers MUST invoke `this.retry(request)` as specified in the protocol — not a custom retry helper that bypasses the framework.
+
+**Why this matters**
+
+The Gateway expects framework-driven retry behavior; omitting it causes inconsistent authorization and settlement behavior.
+
+**Detection**
+
+Search payment handlers for protocol retry cases; if retries are implemented without `this.retry`, fix before release.
+
+**Correct**
+
+```typescript
+// Inside a PaymentProvider subclass method, when the protocol requires retry:
+return this.retry(request);
+```
+
+**Wrong**
+
+```typescript
+// Re-implementing gateway retry with setTimeout/fetch instead of this.retry
+await fetch(callbackUrl, { method: "POST", body: JSON.stringify(payload) });
+```
+
+### Constraint: Forward card authorization calls through Secure Proxy on IO with allowlisted destinations
+
+For card flows on IO with `usesSecureProxy` behavior, proxied HTTP calls MUST go through `SecureExternalClient` (or equivalent VTEX pattern), MUST pass `secureProxy` set to the `secureProxyUrl` from the payment request, and MUST target a VTEX-allowlisted PCI endpoint. Only `application/json` or `application/x-www-form-urlencoded` bodies are supported. If `usesSecureProxy` is false, the provider must be PCI-certified and supply AOC for `serviceUrl` per VTEX.
+
+**Why this matters**
+
+Skipping Secure Proxy or wrong content types breaks PCI scope, proxy validation, or acquirer integration — blocking homologation or exposing card data incorrectly.
+
+**Detection**
+
+Inspect client code for POSTs that include card tokens without `secureProxy` in the request config, or destinations not registered with VTEX.
+
+**Correct**
+
+```typescript
+import { SecureExternalClient, CardAuthorization } from "@vtex/payment-provider";
+import type { InstanceOptions, IOContext, RequestConfig } from "@vtex/api";
+
+export class MyPCICertifiedClient extends SecureExternalClient {
+  constructor(protected context: IOContext, options?: InstanceOptions) {
+    super("https://pci-certified.example.com", context, options);
+  }
+
+  public authorize = (cardRequest: CardAuthorization) =>
+    this.http.post(
+      "authorize",
+      {
+        holder: cardRequest.holderToken,
+        number: cardRequest.numberToken,
+        expiration: cardRequest.expiration,
+        csc: cardRequest.cscToken,
+      },
+      {
+        headers: { Authorization: "Bearer ..." },
+        secureProxy: cardRequest.secureProxyUrl,
+      } as RequestConfig
+    );
+}
+```
+
+**Wrong**
+
+```typescript
+// Direct outbound call with raw card fields and no secureProxy
+await http.post("https://acquirer.example/pay", { pan, cvv, expiry });
+```
+
+## Preferred pattern
+
+Recommended layout for a PPF IO app:
+
+```text
+/
+├── manifest.json
+├── paymentProvider/
+│   └── configuration.json
+├── node/
+│   ├── package.json
+│   ├── index.ts          # exports PaymentProviderService
+│   ├── connector.ts      # class extends PaymentProvider
+│   └── clients/
+│       └── pciClient.ts  # extends SecureExternalClient when needed
+```
+
+Install dependency:
+
+```sh
+yarn add @vtex/payment-provider
+```
+
+`manifest.json` builders excerpt:
+
+```json
+{
+  "builders": {
+    "node": "6.x",
+    "paymentProvider": "1.x"
+  }
+}
+```
+
+`PaymentProvider` subclass skeleton:
+
+```typescript
+import { PaymentProvider } from "@vtex/payment-provider";
+
+export class YourPaymentConnector extends PaymentProvider {
+  // One method per PPP route; return typed responses
+}
+```
+
+Optional **`/manifest` route override** shape (only after VTEX approval). Update `x-provider-app` when the app version changes meaningfully; omit `handler` / `headers` only if you fully implement them yourself.
+
+```json
+{
+  "memory": 256,
+  "ttl": 10,
+  "timeout": 10,
+  "minReplicas": 2,
+  "maxReplicas": 3,
+  "routes": {
+    "manifest": {
+      "path": "/_v/api/my-connector/manifest",
+      "handler": "vtex.payment-gateway@1.x/providerManifest",
+      "headers": {
+        "x-provider-app": "$appVendor.$appName@$appVersion"
+      },
+      "public": true
+    }
+  }
+}
+```
+
+**Configurable options** (reference): `name` (required), `serviceUrl` (required; auto on IO), `implementsOAuth`, `implementsSplit`, `usesProviderHeadersName`, `useAntifraud`, `usesBankInvoiceEnglishName`, `usesSecureProxy`, `requiresDocument`, `acceptSplitPartialRefund`, `usesAutoSettleOptions` — see VTEX PPF documentation for defaults and exact semantics.
+
+**`customFields`** in `configuration.json` for Admin: `type` may be `text`, `password` (not for `appKey` / `appToken`), or `select` with `options`.
+
+**Affiliation URL pattern** for testing:
+
+```text
+https://{account}.myvtex.com/admin/affiliations/connector/Vtex.PaymentGateway.Connectors.PaymentProvider.PaymentProviderConnector_{connector-name}/
+```
+
+Replace `{connector-name}` with `${vendor}-${appName}-${appMajor}` (example: `vtex-payment-provider-example-v1`).
+
+Testing flow summary: publish beta (for example `vendor.app@0.1.0-beta` — see [Making your app publicly available](https://developers.vtex.com/docs/guides/vtex-io-documentation-10-making-your-app-publicly-available#launching-a-new-version)), install on `master`, wait ~1 hour, open affiliation, under **Payment Control** enable **Enable test mode** and set **Workspace** (often `master`), add a [payment condition](https://help.vtex.com/en/tutorial/how-to-configure-payment-conditions--tutorials_455), wait ~10 minutes, place order; then [deploy stable](https://developers.vtex.com/docs/guides/vtex-io-documentation-making-your-new-app-version-publicly-available#step-6---deploying-the-app-stable-version) and complete [homologation](https://developers.vtex.com/docs/guides/integrating-a-new-payment-provider-on-vtex#7-homologation-and-go-live).
+
+Replace all example vendor names, endpoints, and credentials with values for your real app before production.
+
+## Common failure modes
+
+- Missing `paymentProvider` builder or empty/wrong `paymentMethods` so `/manifest` and Admin do not list methods correctly.
+- Type or install drift (`@vtex/api` / `@vtex/payment-provider`) without the clean reinstall path in root and `node`.
+- Skipping `this.retry(request)` and duplicating retry with ad-hoc HTTP — Gateway behavior diverges from PPP.
+- Card calls without `secureProxy`, wrong `Content-Type`, or non-allowlisted destination — Secure Proxy or PCI review fails.
+- Testing without account allowlisting, without sellable products, or without waiting for master install / payment condition propagation.
+- Overriding `/manifest` without VTEX approval or leaving stale `x-provider-app` after a major version bump.
+- Homologation ticket missing production endpoint, allowed accounts, or purchase-flow details ([Purchase Flows](https://developers.vtex.com/docs/guides/payments-integration-purchase-flows)).
+
+## Review checklist
+
+- [ ] Is the connector an IO app using `PaymentProvider` + `PaymentProviderService` (not only a standalone middleware guide)?
+- [ ] Do `manifest.json` and `paymentProvider/configuration.json` match the real connector name and supported methods?
+- [ ] Are optional manifest overrides ticket-approved and are `handler` / headers / `x-provider-app` correct?
+- [ ] Does every route implementation align with types in `@vtex/payment-provider` and with [`payment-provider-protocol`](payment-payment-provider-protocol.md) for response shapes?
+- [ ] Are Gateway retries implemented with `this.retry(request)` where required?
+- [ ] Do card flows use `SecureExternalClient` (or equivalent) with `secureProxy: secureProxyUrl` and allowlisted destinations?
+- [ ] Has beta/staging testing followed affiliation, test mode, workspace, and payment condition steps before stable?
+- [ ] Are billing, App Store submission, and homologation prerequisites documented in the internal release checklist?
+
+## Related skills
+
+- [`payment-provider-protocol`](payment-payment-provider-protocol.md) — PPP endpoints, HTTP methods, and response shapes
+- [`payment-idempotency`](payment-payment-idempotency.md) — `paymentId` / `requestId` and retries
+- [`payment-async-flow`](payment-payment-async-flow.md) — `undefined` status and `callbackUrl` (IO retry vs notification)
+- [`payment-pci-security`](payment-payment-pci-security.md) — PCI and Secure Proxy semantics beyond IO wiring
+
+## Reference
+
+- [Payment Provider Framework](https://developers.vtex.com/docs/guides/payments-integration-payment-provider-framework) — Official PPF guide (includes getting started and example app)
+- [Payment Provider Protocol API overview](https://developers.vtex.com/docs/guides/payment-provider-protocol-api-overview)
+- [Secure Proxy](https://developers.vtex.com/docs/guides/payments-integration-secure-proxy)
+- [PCI DSS compliance (payments)](https://developers.vtex.com/docs/guides/payments-integration-pci-dss-compliance)
+- [Payment Provider Protocol (Help Center)](https://help.vtex.com/en/tutorial/payment-provider-protocol--RdsT2spdq80MMwwOeEq0m)
+- [Integrating a new payment provider on VTEX](https://developers.vtex.com/docs/guides/integrating-a-new-payment-provider-on-vtex)
 
 ---
 
@@ -1522,6 +1983,7 @@ export default configRouter;
 - [`payment-idempotency`](payment-payment-idempotency.md) — Idempotency keys (`paymentId`, `requestId`) and state machine for duplicate prevention
 - [`payment-async-flow`](payment-payment-async-flow.md) — Async payment methods, `callbackUrl`, and the 7-day retry window
 - [`payment-pci-security`](payment-payment-pci-security.md) — PCI compliance, Secure Proxy, and card data handling
+- [`vtex-io-application-performance`](vtex-io-vtex-io-application-performance.md) — Per-client timeout/retry tuning, VBase correctness constraints, and structured logging for IO-based payment connectors
 
 ## Reference
 

@@ -422,6 +422,7 @@ export default configRouter;
 - [`payment-idempotency`](payment-payment-idempotency.md) — Idempotency keys (`paymentId`, `requestId`) and state machine for duplicate prevention
 - [`payment-async-flow`](payment-payment-async-flow.md) — Async payment methods, `callbackUrl`, and the 7-day retry window
 - [`payment-pci-security`](payment-payment-pci-security.md) — PCI compliance, Secure Proxy, and card data handling
+- [`vtex-io-application-performance`](vtex-io-vtex-io-application-performance.md) — Per-client timeout/retry tuning, VBase correctness constraints, and structured logging for IO-based payment connectors
 
 ## Reference
 
