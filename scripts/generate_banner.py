@@ -129,7 +129,7 @@ def _count_platforms() -> int:
 
 # All Y values are top-of-glyph (anchor="lt"), pixel-measured from the
 # original 1024x516 banner. Tune with --compare if a font change shifts them.
-TITLE_LINES   = ["VTEX", "AI Skills"]
+TITLE_LINES   = ["VTEX", "Skills"]
 TITLE_X       = 56
 TITLE_Y       = 72
 TITLE_SIZE    = 90
