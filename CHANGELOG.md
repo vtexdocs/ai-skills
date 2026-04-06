@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.3](https://github.com/vtex/skills/compare/v1.4.2...v1.4.3) (2026-04-06)
+
+
+### Bug Fixes
+
+* **ci:** merge release asset upload into release-please workflow ([a23f6e9](https://github.com/vtex/skills/commit/a23f6e907dd09601890b231f88d0b4431dea24e8))
+* **ci:** merge release asset upload into release-please workflow ([341e40e](https://github.com/vtex/skills/commit/341e40e2f81b4e7fb94cda28a23dd572e1a09825))
+
 ## [1.4.2](https://github.com/vtex/skills/compare/v1.4.1...v1.4.2) (2026-04-06)
 
 
