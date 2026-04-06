@@ -16,8 +16,8 @@
   <img src="https://img.shields.io/badge/skills-42-F71963" alt="42 skills">
   <img src="https://img.shields.io/badge/tracks-6-blue" alt="6 tracks">
   <img src="https://img.shields.io/badge/platforms-6-green" alt="6 platforms">
-  <img src="https://img.shields.io/github/license/vtexdocs/ai-skills" alt="License">
-  <img src="https://img.shields.io/github/actions/workflow/status/vtexdocs/ai-skills/generate-exports.yml?label=exports" alt="Build">
+  <img src="https://img.shields.io/github/license/vtex/skills" alt="License">
+  <img src="https://img.shields.io/github/actions/workflow/status/vtex/skills/generate-exports.yml?label=exports" alt="Build">
 </p>
 
 ---
@@ -29,7 +29,7 @@ Pick your platform and run one command. No clone needed.
 ### Install all skills with npx (Cursor, Claude Code, Codex, OpenCode, and 38+ agents)
 
 ```bash
-npx skills add vtexdocs/ai-skills
+npx skills add vtex/skills
 ```
 
 This uses the [open skills CLI](https://github.com/vercel-labs/skills) to install skills into whichever AI agents you have configured. It auto-detects Cursor, Claude Code, Codex, OpenCode, and others. Use `--list` to preview available skills before installing, or `--all` to install everything non-interactively.
@@ -37,7 +37,7 @@ This uses the [open skills CLI](https://github.com/vercel-labs/skills) to instal
 ### AGENTS.md (Recommended — works with Cursor, Copilot, Codex, Windsurf, Amp, Devin, and more)
 
 ```bash
-curl -sL https://github.com/vtexdocs/ai-skills/releases/latest/download/agents-md.tar.gz | tar xz -C your-project/
+curl -sL https://github.com/vtex/skills/releases/latest/download/agents-md.tar.gz | tar xz -C your-project/
 ```
 
 This places a root `AGENTS.md` with links to per-track files in subdirectories. Most AI coding tools discover and follow these instructions automatically.
@@ -46,7 +46,7 @@ This places a root `AGENTS.md` with links to per-track files in subdirectories. 
 
 ```bash
 mkdir -p your-project/.cursor/rules
-curl -sL https://github.com/vtexdocs/ai-skills/releases/latest/download/cursor-rules.tar.gz | tar xz -C your-project/.cursor/rules/
+curl -sL https://github.com/vtex/skills/releases/latest/download/cursor-rules.tar.gz | tar xz -C your-project/.cursor/rules/
 ```
 
 Each `.mdc` file includes glob patterns that auto-attach the rule when you open matching files. Per-track composites (e.g., `faststore-all.mdc`) are also available.
@@ -55,7 +55,7 @@ Each `.mdc` file includes glob patterns that auto-attach the rule when you open 
 
 ```bash
 mkdir -p your-project/.github
-curl -sL https://github.com/vtexdocs/ai-skills/releases/latest/download/copilot-instructions.tar.gz | tar xz -C your-project/.github/
+curl -sL https://github.com/vtex/skills/releases/latest/download/copilot-instructions.tar.gz | tar xz -C your-project/.github/
 ```
 
 Per-track files are available in `exports/copilot/` if you only need a subset.
@@ -67,7 +67,7 @@ Upload files from [`exports/claude/`](exports/claude/) as project knowledge in y
 ### OpenCode
 
 ```bash
-curl -sL https://github.com/vtexdocs/ai-skills/releases/latest/download/opencode-skills.tar.gz | tar xz -C ~/.config/opencode/skills/
+curl -sL https://github.com/vtex/skills/releases/latest/download/opencode-skills.tar.gz | tar xz -C ~/.config/opencode/skills/
 ```
 
 Each skill becomes a directory with a `SKILL.md` file. OpenCode discovers them automatically and makes them available as loadable skills in your sessions.
@@ -76,8 +76,8 @@ Each skill becomes a directory with a `SKILL.md` file. OpenCode discovers them a
 <summary>Alternative: clone the repo and copy locally</summary>
 
 ```bash
-git clone https://github.com/vtexdocs/ai-skills.git
-cd ai-skills
+git clone https://github.com/vtex/skills.git
+cd skills
 
 # AGENTS.md
 cp -r exports/agents-md/. /path/to/your-project/

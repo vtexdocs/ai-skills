@@ -5,10 +5,10 @@
   "description": "42 AI agent skills for VTEX platform development — Architecture, FastStore, Payment, VTEX IO, Marketplace, and Headless Frontend.",
   "author": {
     "name": "VTEX",
-    "url": "https://github.com/vtexdocs"
+    "url": "https://github.com/vtex"
   },
-  "homepage": "https://github.com/vtexdocs/ai-skills",
-  "repository": "https://github.com/vtexdocs/ai-skills",
+  "homepage": "https://github.com/vtex/skills",
+  "repository": "https://github.com/vtex/skills",
   "license": "MIT",
   "logo": "assets/logo.png",
   "keywords": [
