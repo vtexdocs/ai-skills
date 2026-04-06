@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/banner.png" alt="VTEX AI Skills" width="100%">
+  <img src="assets/banner.png" alt="VTEX Skills" width="100%">
 </p>
 
-<h1 align="center">VTEX AI Skills</h1>
+<h1 align="center">VTEX Skills</h1>
 <p align="center">
   <strong>42 AI agent skills for VTEX platform development — one source, six export formats.</strong>
 </p>
