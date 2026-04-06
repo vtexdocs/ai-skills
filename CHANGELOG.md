@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.2](https://github.com/vtex/skills/compare/v1.4.1...v1.4.2) (2026-04-06)
+
+
+### Bug Fixes
+
+* **ci:** switch release-please to GITHUB_TOKEN ([b5fdeed](https://github.com/vtex/skills/commit/b5fdeed5c44da1435aa09d5c56a374ce6e4e6024))
+* **ci:** switch release-please to GITHUB_TOKEN ([f0d50e1](https://github.com/vtex/skills/commit/f0d50e100c8bee08dfb2123a34552534ea822bac))
+* rename VTEX AI Skills to VTEX Skills ([4cdbc90](https://github.com/vtex/skills/commit/4cdbc90be61226ecf89e0eee7f289c796320dcfa))
+* rename VTEX AI Skills to VTEX Skills in banner and README ([98a75f5](https://github.com/vtex/skills/commit/98a75f5b14e4972414bfd4fe458f9a55f3a8f9b2))
+* update repo references from vtexdocs/ai-skills to vtex/skills ([b367648](https://github.com/vtex/skills/commit/b367648d1fe9a8f7e59105843cf58bd9f9bfe257))
+* update repo references from vtexdocs/ai-skills to vtex/skills ([c60c7a4](https://github.com/vtex/skills/commit/c60c7a4406c377527ec6e054260418b36bbbd3b1))
+
 ## [1.4.1](https://github.com/vtexdocs/ai-skills/compare/v1.4.0...v1.4.1) (2026-04-01)
 
 
