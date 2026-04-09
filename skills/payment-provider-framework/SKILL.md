@@ -1,3 +1,8 @@
+---
+name: payment-provider-framework
+description: "Apply when designing or implementing a Payment Connector in VTEX IO. Covers PPF implementation, TypeScript 3.9.7 builder-hub constraints and safe dependency resolutions, configuration.json schema validation, PaymentProviderService clients wiring, Secure Proxy scope (authorize-only), ExternalClient vs SecureExternalClient patterns, IOContext access, PPF response helpers, PSP integration checklist, and vtex link debugging. Use for any implementation of a Payment Connector hosted in VTEX IO."
+---
+
 # Payment Provider Framework (VTEX IO)
 
 ## When this skill applies

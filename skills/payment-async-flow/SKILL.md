@@ -1,3 +1,8 @@
+---
+name: payment-async-flow
+description: "Apply when implementing asynchronous payment methods (Boleto, Pix, bank redirects) or working with callback URLs in payment connector code. Covers undefined status response, callbackUrl notification, X-VTEX-signature validation, sync vs async handling, correct delayToCancel configuration for each async method, and redirect-based flows where inboundRequestsUrl does not support browser GET redirects (requires custom public routes)."
+---
+
 # Asynchronous Payment Flows & Callbacks
 
 ## When this skill applies

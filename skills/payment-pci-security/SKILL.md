@@ -1,3 +1,8 @@
+---
+name: payment-pci-security
+description: "Apply when handling credit card data, implementing secureProxyUrl flows, or working with payment security and proxy code. Covers PCI DSS compliance, Secure Proxy card tokenization, sensitive data handling rules, X-PROVIDER-Forward-To header usage, custom token creation, and the constraint that Secure Proxy applies only to card authorization (not post-auth operations like cancel, capture, or refund). Use for any payment connector that processes credit, debit, or co-branded card payments to prevent data breaches and PCI violations."
+---
+
 # PCI Compliance & Secure Proxy
 
 ## When this skill applies
