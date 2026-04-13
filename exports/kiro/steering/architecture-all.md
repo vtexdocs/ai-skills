@@ -181,11 +181,11 @@ Before MD for new data:
 
 - [vtex-io-service-paths-and-cdn](vtex-io-vtex-io-service-paths-and-cdn.md) — `service.json` paths, edge/CDN and session behavior.
 - [vtex-io-application-performance](vtex-io-vtex-io-application-performance.md) — LRU/VBase, AppSettings, parallel fetches, tenant keys on shared pods.
-- [vtex-io-app-structure](../../../vtex-io/skills/vtex-io-app-structure/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
+- [vtex-io-app-contract](vtex-io-vtex-io-app-contract.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
 - [vtex-io-masterdata](vtex-io-vtex-io-masterdata.md) — Master Data v2 storage-fit scrutiny, BFF, single source of truth.
 - [headless-bff-architecture](headless-headless-bff-architecture.md) — BFF and credential boundaries for headless.
 - [payment-pci-security](payment-payment-pci-security.md) — PCI and Secure Proxy constraints.
-- [faststore-data-fetching](../../../faststore/skills/faststore-data-fetching/skill.md) — GraphQL extensions and data layer.
+- [faststore-storefront](faststore-faststore-storefront.md) — GraphQL extensions and data layer.
 - [marketplace-order-hook](marketplace-marketplace-order-hook.md) — Marketplace order integration patterns.
 
 ## Reference
