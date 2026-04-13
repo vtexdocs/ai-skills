@@ -187,7 +187,7 @@ Before MD for new data:
 - [vtex-io-masterdata](vtex-io-vtex-io-masterdata.md) — Master Data v2 storage-fit scrutiny, BFF, single source of truth.
 - [headless-bff-architecture](headless-headless-bff-architecture.md) — BFF and credential boundaries for headless.
 - [payment-pci-security](payment-payment-pci-security.md) — PCI and Secure Proxy constraints.
-- [faststore-data-fetching](faststore-faststore-data-fetching.md) — GraphQL extensions and data layer.
+- [faststore-data-fetching](../../../faststore/skills/faststore-data-fetching/skill.md) — GraphQL extensions and data layer.
 - [marketplace-order-hook](marketplace-marketplace-order-hook.md) — Marketplace order integration patterns.
 
 ## Reference

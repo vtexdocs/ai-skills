@@ -1,4 +1,4 @@
-This skill provides guidance for AI agents working with VTEX Payment Connector Development. Apply these constraints and patterns when assisting developers with apply when handling credit card data, implementing secureproxyurl flows, or working with payment security and proxy code. covers pci dss compliance, secure proxy card tokenization, sensitive data handling rules, x-provider-forward-to header usage, and custom token creation. use for any payment connector that processes credit, debit, or co-branded card payments to prevent data breaches and pci violations.
+This skill provides guidance for AI agents working with VTEX Payment Connector Development. Apply these constraints and patterns when assisting developers with apply when handling credit card data, implementing secureproxyurl flows, or working with payment security and proxy code. covers pci dss compliance, secure proxy card tokenization, sensitive data handling rules, x-provider-forward-to header usage, custom token creation, and the constraint that secure proxy applies only to card authorization (not post-auth operations like cancel, capture, or refund). use for any payment connector that processes credit, debit, or co-branded card payments to prevent data breaches and pci violations.
 
 # PCI Compliance & Secure Proxy
 
@@ -20,6 +20,7 @@ Do not use this skill for:
 - If the connector is hosted in a non-PCI environment (including all VTEX IO apps), it MUST use Secure Proxy.
 - If the connector has PCI DSS certification (AOC signed by a QSA), it can call the acquirer directly with raw card data.
 - Check for `secureProxyUrl` in the Create Payment request — if present, Secure Proxy is active and MUST be used.
+- **`secureProxyUrl` is only present in the Create Payment (authorize) request.** Cancel, capture, settle, and refund operations do not carry card data and do not receive this field. Post-authorization calls go directly to the PSP API using credentials and `outbound-access` policies — this does not reduce PCI compliance because no card data is involved in those operations.
 - Card tokens (`numberToken`, `holderToken`, `cscToken`) are only valid when sent through the `secureProxyUrl` — the proxy replaces them with real data before forwarding to the acquirer.
 - Only `card.bin` (first 6 digits), `card.numberLength`, and `card.expiration` may be stored. Everything else is forbidden.
 - Card data must never appear in logs, databases, files, caches, error trackers, or APM tools — even in development.
@@ -96,6 +97,56 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
   // This request will fail: acquirer receives tokens instead of real card data
   // And the Secure Proxy was completely bypassed
+}
+```
+
+### Constraint: Secure Proxy applies ONLY to card authorization — not to post-auth operations
+
+The `secureProxyUrl` field is present **only in the Create Payment request** (card authorization). Cancel, capture (settle), and refund requests do **not** include `secureProxyUrl` because they do not involve card data — they reference the transaction by `tid`, `authorizationId`, or `paymentId`.
+
+Post-authorization calls MUST go directly to the PSP API using an `ExternalClient` with API credentials, authorized via `outbound-access` policies in `manifest.json`.
+
+**Why this matters**
+
+Attempting to route cancel/capture/refund through Secure Proxy will fail because `secureProxyUrl` is `undefined` in those requests. Architecturally, there is no PCI concern — only the authorization carries sensitive card data. Agents and developers who assume all PSP communication must go through Secure Proxy waste significant time debugging `undefined` proxy URLs.
+
+**Detection**
+
+If cancel, capture, or refund handlers reference `secureProxyUrl`, use `SecureExternalClient`, or attempt to route through Secure Proxy, STOP. Use `ExternalClient` with direct API calls for post-auth operations.
+
+**Correct — two-client architecture**
+
+```typescript
+// Authorization (Create Payment) — via Secure Proxy
+import { SecureExternalClient } from "@vtex/payment-provider";
+
+export class PspSecureClient extends SecureExternalClient {
+  public async authorize(data: object, secureProxyUrl: string) {
+    return this.http.post("/payments", data, {
+      secureProxy: secureProxyUrl,
+    } as any)
+  }
+}
+
+// Cancel, Capture, Refund — direct API calls
+import { ExternalClient } from "@vtex/api";
+
+export class PspClient extends ExternalClient {
+  public async capture(tid: string, amount: number) {
+    return this.http.post(`/payments/${tid}/capture`, { amount }, {
+      headers: { "X-API-Key": "..." },
+    })
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+// WRONG — trying to use SecureExternalClient for all operations
+async settle(request: SettlementRequest) {
+  // secureProxyUrl does not exist on SettlementRequest — this is undefined
+  await this.secureClient.capture(request.tid, request.value, request.secureProxyUrl)
 }
 ```
 
@@ -223,6 +274,15 @@ Secure Proxy data flow:
 5. Connector → Create Payment response → Gateway
 ```
 
+Post-authorization data flow (no Secure Proxy):
+
+```text
+1. Gateway → POST /payments/{id}/settlements → Connector
+2. Connector → POST acquirer API directly (tid + amount, no card data) → Acquirer
+3. Acquirer → response → Connector
+4. Connector → Settlement response → Gateway
+```
+
 Detect Secure Proxy mode:
 
 ```typescript
@@ -342,6 +402,7 @@ function safePaymentLog(label: string, body: Record<string, unknown>): void {
 ## Common failure modes
 
 - **Direct card handling in non-PCI environment** — Calling the acquirer API directly without using the Secure Proxy. The acquirer receives tokens (e.g., `#vtex#token#d799bae#number#`) instead of real card numbers and rejects the transaction. Even if raw data were available, transmitting it from a non-PCI environment is a PCI DSS violation.
+- **Using Secure Proxy for cancel/capture/refund** — These operations do not receive `secureProxyUrl` and do not carry card data. Attempting to route them through Secure Proxy fails because the URL is `undefined`. Use `ExternalClient` with direct API calls for post-auth operations.
 - **Storing full card numbers (PANs)** — Persisting the full card number in a database for "reference" or "reconciliation". A single breach of this data can result in $100K/month fines, mandatory forensic audits, and permanent loss of card processing ability.
 - **Logging card details for debugging** — Adding `console.log(req.body)` or `console.log(card)` to troubleshoot payment issues and forgetting to remove it. Card data ends up in log files, monitoring dashboards, and log aggregation services. This is a PCI violation even in development.
 - **Stripping X-PROVIDER-Forward headers** — Sending requests to the Secure Proxy without the `X-PROVIDER-Forward-To` header. The proxy does not know where to forward the request and returns an error.
@@ -349,7 +410,9 @@ function safePaymentLog(label: string, body: Record<string, unknown>): void {
 
 ## Review checklist
 
-- [ ] Does the connector use `secureProxyUrl` when it is present in the request?
+- [ ] Does the connector use `secureProxyUrl` when it is present in the Create Payment request?
+- [ ] Is `SecureExternalClient` used **only** for Create Payment (authorize), not for cancel/capture/refund?
+- [ ] Do post-auth operations (cancel, capture, refund) use `ExternalClient` with direct API calls?
 - [ ] Is `X-PROVIDER-Forward-To` set to the acquirer's API URL in Secure Proxy calls?
 - [ ] Are custom acquirer headers prefixed with `X-PROVIDER-Forward-` when going through the proxy?
 - [ ] Is only `card.bin`, `card.numberLength`, and `card.expiration` stored in the database?
@@ -360,6 +423,7 @@ function safePaymentLog(label: string, body: Record<string, unknown>): void {
 
 ## Related skills
 
+- [`payment-provider-framework`](../payment-provider-framework/skill.md) — PPF IO wiring, two-client pattern (`SecureExternalClient` + `ExternalClient`), and `outbound-access` policies
 - [`payment-provider-protocol`](../payment-provider-protocol/skill.md) — Endpoint contracts and response shapes
 - [`payment-idempotency`](../payment-idempotency/skill.md) — `paymentId`/`requestId` idempotency and state machine
 - [`payment-async-flow`](../payment-async-flow/skill.md) — Async payment methods, callbacks, and the 7-day retry window

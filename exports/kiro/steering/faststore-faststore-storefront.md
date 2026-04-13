@@ -1,11 +1,4 @@
-# AGENTS.md — FastStore Implementation & Customization
-
-These instructions guide AI agents working on VTEX FastStore Implementation & Customization tasks.
-Follow these patterns and constraints when assisting developers.
-
-## faststore-storefront
-
-> Core coding rules and workflow for developing VTEX FastStore storefronts. Use when starting any FastStore development task, writing TypeScript/React components, creating section overrides, extending the BFF, or styling. Covers all primary conventions, safety rules, and the development workflow used across every FastStore project.
+Core coding rules and workflow for developing VTEX FastStore storefronts. Use when starting any FastStore development task, writing TypeScript/React components, creating section overrides, extending the BFF, or styling. Covers all primary conventions, safety rules, and the development workflow used across every FastStore project.
 
 # FastStore Storefront — Coding Rules
 
