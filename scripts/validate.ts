@@ -50,6 +50,7 @@ interface ValidationResult {
 
 interface ValidationCheck {
   name: string;
+  severity: "hard" | "soft";
   check(skill: Skill): ValidationResult[];
 }
 
@@ -119,6 +120,7 @@ function getProseLines(content: string): Array<{ line: number; text: string }> {
 // ─── Check 1: YAML Validity ────────────────────────────────────────────────────
 const yamlValidity: ValidationCheck = {
   name: "yaml-validity",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const results: ValidationResult[] = [];
 
@@ -164,6 +166,7 @@ const yamlValidity: ValidationCheck = {
 // ─── Check 2: Description Quality ──────────────────────────────────────────────
 const descriptionQuality: ValidationCheck = {
   name: "description-quality",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const desc = skill.frontmatter.description ?? "";
     const wordCount = desc
@@ -186,6 +189,7 @@ const descriptionQuality: ValidationCheck = {
 // ─── Check 3: Required Sections ─────────────────────────────────────────────────
 const requiredSections: ValidationCheck = {
   name: "required-sections",
+  severity: "soft",
   check(skill: Skill): ValidationResult[] {
     const oldSections = [
       "Overview",
@@ -233,6 +237,7 @@ const requiredSections: ValidationCheck = {
 // ─── Check 4: Code Block Annotations ────────────────────────────────────────────
 const codeBlockAnnotations: ValidationCheck = {
   name: "code-block-annotations",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const lines = skill.content.split("\n");
     const results: ValidationResult[] = [];
@@ -267,6 +272,7 @@ const codeBlockAnnotations: ValidationCheck = {
 // ─── Check 5: No Placeholders ───────────────────────────────────────────────────
 const noPlaceholders: ValidationCheck = {
   name: "no-placeholders",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const proseLines = getProseLines(skill.content);
     const results: ValidationResult[] = [];
@@ -294,6 +300,7 @@ const noPlaceholders: ValidationCheck = {
 // ─── Check 6: Detection Patterns ────────────────────────────────────────────────
 const detectionPatterns: ValidationCheck = {
   name: "detection-patterns",
+  severity: "soft",
   check(skill: Skill): ValidationResult[] {
     const pattern = /\*\*Detection\*\*|(?:^|\s)Detection(?:\s|:|$)/m;
 
@@ -313,6 +320,7 @@ const detectionPatterns: ValidationCheck = {
 // ─── Check 7: Paired Examples ───────────────────────────────────────────────────
 const pairedExamples: ValidationCheck = {
   name: "paired-examples",
+  severity: "soft",
   check(skill: Skill): ValidationResult[] {
     const hasOldCorrect = skill.content.includes("✅");
     const hasOldIncorrect = skill.content.includes("❌");
@@ -347,6 +355,7 @@ const pairedExamples: ValidationCheck = {
 // ─── Check 8: URL Format ────────────────────────────────────────────────────────
 const urlFormat: ValidationCheck = {
   name: "url-format",
+  severity: "soft",
   check(skill: Skill): ValidationResult[] {
     const vtexUrlPattern =
       /https?:\/\/(developers\.vtex\.com|help\.vtex\.com)/;
@@ -367,6 +376,7 @@ const urlFormat: ValidationCheck = {
 // ─── Check 9: Size Bounds ───────────────────────────────────────────────────────
 const sizeBounds: ValidationCheck = {
   name: "size-bounds",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     if (skill.lineCount > 1000) {
       return [
@@ -386,6 +396,7 @@ const sizeBounds: ValidationCheck = {
 // ─── Check 10: Track Consistency ────────────────────────────────────────────────
 const trackConsistency: ValidationCheck = {
   name: "track-consistency",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const pathParts = skill.filePath.split("/");
     const dirTrack = pathParts[1];
@@ -412,6 +423,7 @@ const trackConsistency: ValidationCheck = {
 // ─── Check 11: Globs Format ─────────────────────────────────────────────────
 const globsFormat: ValidationCheck = {
   name: "globs-format",
+  severity: "hard",
   check(skill: Skill): ValidationResult[] {
     const globs = resolveField<string[]>(skill.frontmatter, "globs");
     const results: ValidationResult[] = [];
@@ -495,28 +507,45 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  console.log(`Validating ${skills.length} skill files...\n`);
+  const hardChecks = validationChecks.filter((c) => c.severity === "hard");
+  const softChecks = validationChecks.filter((c) => c.severity === "soft");
+  const totalChecks = validationChecks.length;
+
+  console.log(
+    `Validating ${skills.length} skill files (${hardChecks.length} hard, ${softChecks.length} soft checks)...\n`
+  );
 
   let totalPassed = 0;
   let totalFailed = 0;
+  let totalWarned = 0;
 
   for (const skill of skills) {
-    const failures: Array<{
+    const hardFailures: Array<{
       checkName: string;
       message: string;
       line?: number;
     }> = [];
-    const failedCheckNames = new Set<string>();
+    const softFailures: Array<{
+      checkName: string;
+      message: string;
+      line?: number;
+    }> = [];
+    const failedHardChecks = new Set<string>();
+    const failedSoftChecks = new Set<string>();
 
     for (const check of validationChecks) {
       const results = check.check(skill);
       const checkFailed = results.some((r) => !r.passed);
 
       if (checkFailed) {
-        failedCheckNames.add(check.name);
+        const bucket =
+          check.severity === "hard" ? hardFailures : softFailures;
+        const nameSet =
+          check.severity === "hard" ? failedHardChecks : failedSoftChecks;
+        nameSet.add(check.name);
         for (const result of results) {
           if (!result.passed) {
-            failures.push({
+            bucket.push({
               checkName: check.name,
               message: result.message,
               line: result.line,
@@ -526,29 +555,43 @@ async function main(): Promise<void> {
       }
     }
 
-    const totalChecks = validationChecks.length;
-    const passedChecks = totalChecks - failedCheckNames.size;
+    const passedChecks = totalChecks - failedHardChecks.size - failedSoftChecks.size;
 
-    if (failures.length === 0) {
+    if (hardFailures.length === 0 && softFailures.length === 0) {
       console.log(
         `✅ ${skill.filePath} — ${totalChecks}/${totalChecks} checks passed`
       );
       totalPassed++;
+    } else if (hardFailures.length === 0) {
+      console.log(
+        `⚠️  ${skill.filePath} — ${passedChecks}/${totalChecks} checks passed (${failedSoftChecks.size} warnings)`
+      );
+      for (const f of softFailures) {
+        const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
+        console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
+      }
+      totalWarned++;
     } else {
       console.log(
         `❌ ${skill.filePath} — ${passedChecks}/${totalChecks} checks passed`
       );
-      for (const f of failures) {
+      for (const f of hardFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   FAIL: [${f.checkName}] — ${f.message}${lineInfo}`);
+      }
+      for (const f of softFailures) {
+        const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
+        console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
       }
       totalFailed++;
     }
   }
 
-  console.log(
-    `\nSummary: ${totalPassed}/${skills.length} passed, ${totalFailed} failed`
-  );
+  const summaryParts = [`${totalPassed} passed`];
+  if (totalWarned > 0) summaryParts.push(`${totalWarned} warned`);
+  if (totalFailed > 0) summaryParts.push(`${totalFailed} failed`);
+
+  console.log(`\nSummary: ${summaryParts.join(", ")} (${skills.length} total)`);
 
   if (totalFailed > 0) {
     process.exit(1);

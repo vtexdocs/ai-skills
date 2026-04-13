@@ -1,5 +1,5 @@
 ---
-description: "Apply when implementing asynchronous payment methods (Boleto, Pix, bank redirects) or working with callback URLs in payment connector code. Covers undefined status response, callbackUrl notification, X-VTEX-signature validation, sync vs async handling, and correct delayToCancel configuration for each async method."
+description: "Apply when implementing asynchronous payment methods (Boleto, Pix, bank redirects) or working with callback URLs in payment connector code. Covers undefined status response, callbackUrl notification, X-VTEX-signature validation, sync vs async handling, correct delayToCancel configuration for each async method, and redirect-based flows where inboundRequestsUrl does not support browser GET redirects (requires custom public routes)."
 globs: "**/payment/**/*.ts","**/callback/**/*.ts"
 alwaysApply: false
 ---
@@ -13,6 +13,7 @@ Use this skill when:
 - Working with any payment method where the acquirer does not return a final status synchronously
 - Handling `callbackUrl` notification or retry flows
 - Managing the Gateway's 7-day automatic retry cycle for `undefined` status payments
+- Implementing redirect-based authentication flows (e.g., PayPal, 3DS redirects) where the user leaves the VTEX checkout and returns after completing payment on an external site
 
 Do not use this skill for:
 - PPP endpoint contracts and response shapes — use [`payment-provider-protocol`](../payment-provider-protocol/skill.md)
@@ -25,8 +26,9 @@ Do not use this skill for:
 - Common async methods: Boleto Bancário (`BankInvoice`), Pix, bank transfers, redirect-based auth.
 - Common sync methods: credit cards, debit cards with instant authorization.
 - **Without VTEX IO**: the `callbackUrl` is a notification endpoint — POST the updated status with `X-VTEX-API-AppKey`/`X-VTEX-API-AppToken` headers.
-- **With VTEX IO**: the `callbackUrl` is a retry endpoint — POST to it (no payload) to trigger the Gateway to re-call POST `/payments`.
+- **With VTEX IO**: the `callbackUrl` is a retry endpoint — POST to it (no payload) to trigger the Gateway to re-call POST `/payments`. The `callbackUrl` format is typically `https://{account}.vtexpayments.com.br/payment-provider/transactions/{txId}/payments/{paymentId}/retry`. A POST to this URL with body `{ paymentId }` makes the Gateway re-call your `authorize()` method.
 - Always preserve the `X-VTEX-signature` query parameter in the `callbackUrl` — never strip or modify it.
+- **`inboundRequestsUrl` is server-to-server only (POST)** — it does NOT support browser GET redirects. If your payment flow requires the user's browser to redirect back (e.g., PayPal, 3DS), you must create a custom public route. See the "Redirect-based flows" constraint below.
 - For asynchronous methods, `delayToCancel` MUST reflect the actual validity of the payment method, not the 7‑day internal Gateway retry window:
   - Pix: between 900 and 3600 seconds (15–60 minutes), aligned with QR code expiration.
   - BankInvoice (Boleto): aligned with the invoice due date / payment deadline configured in the provider.
@@ -244,6 +246,157 @@ async function handleAcquirerWebhook(req: Request, res: Response): Promise<void>
 }
 ```
 
+### Constraint: `inboundRequestsUrl` is server-to-server only — redirect flows need a custom public route
+
+The `inboundRequestsUrl` provided by the PPP only accepts **POST requests from servers**. Browser GET redirects (e.g., user returning from PayPal, 3DS, or any external checkout) will receive a **400 Bad Request** from this URL.
+
+For redirect-based payment flows, the connector MUST create a custom public route in the VTEX IO app to receive the browser redirect, then trigger the Gateway retry via the stored `callbackUrl`.
+
+**Why this matters**
+
+Many payment providers (PayPal, MercadoPago, bank redirects, 3DS) require the user's browser to redirect back to the merchant after completing payment. If the connector uses `inboundRequestsUrl` as the redirect target, the user sees a 400 error and the payment is never confirmed. This is a common and frustrating failure mode that is not documented in the standard PPP or PPF documentation.
+
+**Detection**
+
+If the connector uses `inboundRequestsUrl` as a `return_url` or `redirect_url` for an external payment provider that redirects the user's browser, STOP. Create a custom public route instead.
+
+**Correct — custom route for redirect callback**
+
+Step 1: Add the route in `service.json` (project root):
+
+```json
+{
+  "memory": 256,
+  "ttl": 10,
+  "timeout": 10,
+  "minReplicas": 2,
+  "maxReplicas": 10,
+  "routes": {
+    "providerCallback": {
+      "path": "/_v/my-connector/callback",
+      "public": true
+    }
+  }
+}
+```
+
+Step 2: Register the handler in `node/index.ts`:
+
+```typescript
+import { PaymentProviderService } from '@vtex/payment-provider'
+import MyConnector from './connector'
+import { Clients } from './clients'
+import { callbackHandler } from './handlers/callback'
+
+export default new PaymentProviderService({
+  connector: MyConnector,
+  clients: {
+    implementation: Clients,
+    options: { default: { retries: 2, timeout: 15000 } },
+  },
+  routes: {
+    providerCallback: callbackHandler,
+  },
+})
+```
+
+Step 3: Implement the handler that receives the browser GET, updates state, and triggers the Gateway retry:
+
+```typescript
+// node/handlers/callback.ts
+export async function callbackHandler(ctx: Context) {
+  const { paymentId, cancel } = ctx.query
+  const { vbase } = ctx.clients
+
+  // Load the stored payment record
+  const payment = await vbase.getJSON<PaymentRecord>('payments', paymentId as string)
+
+  if (!payment) {
+    ctx.status = 404
+    ctx.body = 'Payment not found'
+    return
+  }
+
+  // Update status based on user action
+  if (cancel === 'true') {
+    payment.status = 'user-cancelled'
+  } else {
+    payment.status = 'user-returned'
+  }
+  await vbase.saveJSON('payments', paymentId as string, payment)
+
+  // Trigger Gateway retry — POST to the stored callbackUrl
+  // This makes the Gateway re-call authorize(), which will read the updated status
+  await fetch(payment.callbackUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentId }),
+  })
+
+  // Redirect user back to VTEX checkout
+  const returnUrl = payment.returnUrl || `https://${ctx.vtex.account}.myvtex.com/checkout`
+  ctx.redirect(returnUrl)
+}
+```
+
+Step 4: In `authorize()`, use the custom route as the return URL for the external provider:
+
+```typescript
+// Inside the PaymentProvider subclass
+async authorize(authorization: AuthorizationRequest) {
+  const vtexCtx = (this.context as any).vtex as { account: string; workspace: string }
+  const account = vtexCtx?.account || ''
+  const workspace = vtexCtx?.workspace || 'master'
+  const workspacePrefix = workspace !== 'master' ? `${workspace}--` : ''
+  const callbackBase = `https://${workspacePrefix}${account}.myvtex.com/_v/my-connector/callback`
+
+  // Use YOUR custom route as the return URL — not inboundRequestsUrl
+  const returnUrl = `${callbackBase}?paymentId=${authorization.paymentId}`
+  const cancelUrl = `${callbackBase}?paymentId=${authorization.paymentId}&cancel=true`
+
+  // Create the payment at the external provider with these URLs
+  const externalOrder = await this.clients.psp.createOrder({
+    amount: authorization.value,
+    return_url: returnUrl,
+    cancel_url: cancelUrl,
+  })
+
+  // Store the callbackUrl and return undefined status with paymentUrl
+  await this.vbase.saveJSON('payments', authorization.paymentId, {
+    status: 'pending',
+    callbackUrl: authorization.callbackUrl,
+    returnUrl: authorization.returnUrl,
+    externalOrderId: externalOrder.id,
+  })
+
+  return {
+    paymentId: authorization.paymentId,
+    status: 'undefined',
+    paymentUrl: externalOrder.checkoutUrl,  // User is redirected here
+    // ... other required fields
+  }
+}
+```
+
+**Wrong**
+
+```typescript
+// WRONG — using inboundRequestsUrl as browser redirect target
+async authorize(authorization: AuthorizationRequest) {
+  const externalOrder = await this.clients.psp.createOrder({
+    amount: authorization.value,
+    // inboundRequestsUrl only accepts POST from servers — browser GET returns 400
+    return_url: authorization.inboundRequestsUrl,
+  })
+
+  return {
+    paymentId: authorization.paymentId,
+    status: 'undefined',
+    paymentUrl: externalOrder.checkoutUrl,
+  }
+}
+```
+
 ### Constraint: MUST be ready for repeated Create Payment calls (idempotent, but status can evolve)
 
 The connector MUST handle the Gateway calling Create Payment (POST `/payments`) with the same `paymentId` multiple times during the retry window. Each call MUST not create a new charge at the acquirer, must return a response based on the locally persisted state for that `paymentId`, and must reflect the current status (`"undefined"`, `"approved"`, or `"denied"`) which may have changed after a callback.
@@ -417,6 +570,25 @@ Data flow for VTEX IO (retry callback):
 4. Gateway → POST /payments → Connector (returns status: "approved"/"denied")
 ```
 
+Data flow for redirect-based flows on VTEX IO:
+
+```text
+1. Gateway → POST /payments → Connector (returns status: "undefined" + paymentUrl)
+2. Checkout redirects user to paymentUrl (external provider)
+3. User completes payment on external site
+4. External provider redirects user's browser to custom route (/_v/connector/callback?paymentId=...)
+5. Custom route handler updates VBase status, POSTs to callbackUrl
+6. Gateway → POST /payments → Connector (reads updated status, returns "approved"/"denied")
+7. Custom route redirects user back to VTEX checkout
+```
+
+Status evolution in VBase for redirect flows:
+
+```text
+pending → (user completes on external site) → user-returned → (authorize re-called) → approved
+pending → (user cancels on external site)   → user-cancelled → (authorize re-called) → denied
+```
+
 Classify payment methods:
 
 ```typescript
@@ -496,11 +668,14 @@ async function notifyGateway(callbackUrl: string, payload: object): Promise<void
 ## Common failure modes
 
 - **Synchronous approval of async payments** — Returning `status: "approved"` for Pix or Boleto because the QR code or slip was generated successfully. Generating a QR code is not the same as receiving payment. The order ships without money collected.
+- **Using `inboundRequestsUrl` as a browser redirect target** — The `inboundRequestsUrl` only accepts server-to-server POST. Browser GET redirects (from PayPal, 3DS, etc.) return 400 Bad Request. Create a custom public route (`/_v/{connector}/callback`) instead.
 - **Ignoring the callbackUrl** — Not storing the `callbackUrl` from the Create Payment request and relying entirely on the Gateway's automatic retries. The retry interval increases over time, causing long delays between payment and order approval. Worst case: the 7-day window expires and the payment is cancelled even though the customer paid.
 - **Hardcoding callback URLs** — Constructing callback URLs manually instead of using the one from the request, stripping the `X-VTEX-signature` parameter. The Gateway rejects the callback and the payment stays stuck in `undefined`.
 - **No retry logic for failed callbacks** — Calling the `callbackUrl` once and silently dropping the notification on failure. The Gateway never learns the payment was approved, and the payment sits in `undefined` until the next retry or is auto-cancelled.
 - **Returning stale status on retries** — Always returning the original `undefined` response without checking if the status was updated via callback. The Gateway never sees the `approved` status and eventually cancels the payment.
 - **Misaligned `delayToCancel`** — Using 7 days for Pix, leaving expired QR codes with orders stuck in "Authorizing". Using arbitrary values for Boleto that do not match invoice due dates.
+- **Missing `service.json` or route registration for custom callback** — The custom route exists in code but is not declared in `service.json` or not passed via `routes` in `PaymentProviderService`, so VTEX IO never exposes it.
+- **Wrong `this.context` access for building callback URLs** — Using `this.context.account` instead of `this.context.vtex.account` in the PPF. See the [`payment-provider-framework`](../payment-provider-framework/skill.md) skill for the correct IOContext access pattern.
 
 ## Review checklist
 
@@ -514,9 +689,13 @@ async function notifyGateway(callbackUrl: string, payload: object): Promise<void
 - [ ] For Pix, is `delayToCancel` between 900 and 3600 seconds (15–60 minutes), aligned with QR code validity?
 - [ ] For BankInvoice (Boleto), does `delayToCancel` reflect the real payment deadline / due date configured in the provider?
 - [ ] For other async methods, is `delayToCancel` aligned with the provider's documented expiry SLA (and never greater than the actual payment validity)?
+- [ ] For redirect-based flows: is a custom public route used instead of `inboundRequestsUrl`?
+- [ ] Is the custom route declared in `service.json` and registered in `PaymentProviderService` routes?
+- [ ] Does the redirect handler update state in VBase, POST to callbackUrl, and redirect the user back to checkout?
 
 ## Related skills
 
+- [`payment-provider-framework`](../payment-provider-framework/skill.md) — PPF IO wiring, `service.json`, custom routes, IOContext access, and `PaymentProviderService` configuration
 - [`payment-provider-protocol`](../payment-provider-protocol/skill.md) — Endpoint contracts and response shapes
 - [`payment-idempotency`](../payment-idempotency/skill.md) — `paymentId`/`requestId` idempotency and state machine
 - [`payment-pci-security`](../payment-pci-security/skill.md) — PCI compliance and Secure Proxy
