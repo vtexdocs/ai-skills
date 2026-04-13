@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/vtex/skills/compare/v1.5.0...v1.6.0) (2026-04-13)
+
+
+### Features
+
+* migrating faststore-storefront skill ([059e017](https://github.com/vtex/skills/commit/059e017c1343cd2e54e7258b108bc351e9cdd29b))
+* removing old unused skills that was replaced by faststore-storefront ([119a5d6](https://github.com/vtex/skills/commit/119a5d682de438860e0e78bddee3f53f7a35a9c2))
+
 ## [1.5.0](https://github.com/vtex/skills/compare/v1.4.3...v1.5.0) (2026-04-13)
 
 
