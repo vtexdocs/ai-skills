@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.7.0](https://github.com/vtex/skills/compare/v1.6.0...v1.7.0) (2026-04-13)
+
+
+### Features
+
+* **ci:** add PR validation workflow with smart generated-file detection ([860fa36](https://github.com/vtex/skills/commit/860fa360a76595db5084a03c194820daac62210a))
+* **dx:** add contribution guardrails — CI validation, pre-commit hook, and PR feedback ([a0b4f55](https://github.com/vtex/skills/commit/a0b4f55084e9d085d17cda809beba7d5aed9f60e))
+* **dx:** add pre-commit hook via husky ([0f70fd0](https://github.com/vtex/skills/commit/0f70fd009f8aedfe98e2bfd1c8e79956fdf35888))
+* **validator:** add --ci flag for GitHub Actions annotations ([bd4cf63](https://github.com/vtex/skills/commit/bd4cf639cf2a43e8747001eeb315d2235a954a19))
+* **validator:** add filename casing check ([a813e7a](https://github.com/vtex/skills/commit/a813e7a6b56bd14889c71bbbd20af09f4f53725b))
+
 ## [1.6.0](https://github.com/vtex/skills/compare/v1.5.0...v1.6.0) (2026-04-13)
 
 
