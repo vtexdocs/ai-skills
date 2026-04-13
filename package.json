@@ -4,6 +4,7 @@
   "type": "module",
   "description": "VTEX External Developer Skills - AI agent skills for VTEX platform development",
   "scripts": {
+    "prepare": "husky",
     "export": "bun run scripts/export.ts",
     "validate": "bun run scripts/validate.ts",
     "export:cursor": "bun run scripts/export.ts --platform cursor",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "fast-check": "^4.6.0",
-    "glob": "^13.0.6"
+    "glob": "^13.0.6",
+    "husky": "^9.1.7"
   }
 }

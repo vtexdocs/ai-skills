@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+echo "Running skill validation..."
+bun run validate
+exit_code=$?
+
+if [ $exit_code -ne 0 ]; then
+  echo ""
+  echo "❌ Pre-commit validation failed!"
+  echo "Fix the issues above, then try committing again."
+  echo "To skip this check: git commit --no-verify"
+fi
+
+exit $exit_code
