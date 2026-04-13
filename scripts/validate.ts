@@ -531,6 +531,77 @@ const filenameCasing: ValidationCheck = {
   },
 };
 
+// ─── Check 13: Companion Links ──────────────────────────────────────────────
+const companionLinks: ValidationCheck = {
+  name: "companion-links",
+  severity: "hard",
+  check(skill: Skill): ValidationResult[] {
+    const results: ValidationResult[] = [];
+    const skillDir = dirname(skill.filePath);
+
+    // Match all markdown links: [text](href)
+    const linkRegex = /\[([^\]]*)\]\(([^)]+)\)/g;
+    let match: RegExpExecArray | null = linkRegex.exec(skill.content);
+
+    while (match !== null) {
+      const href = match[2];
+
+      // Skip external URLs
+      if (href.startsWith("http://") || href.startsWith("https://")) {
+        match = linkRegex.exec(skill.content);
+        continue;
+      }
+      // Skip absolute paths
+      if (href.startsWith("/")) {
+        match = linkRegex.exec(skill.content);
+        continue;
+      }
+      // Skip anchor-only links
+      if (href.startsWith("#")) {
+        match = linkRegex.exec(skill.content);
+        continue;
+      }
+      // Skip mailto links
+      if (href.startsWith("mailto:")) {
+        match = linkRegex.exec(skill.content);
+        continue;
+      }
+
+      // Resolve the path relative to the skill's directory
+      const targetPath = join(skillDir, href);
+
+      try {
+        statSync(targetPath);
+      } catch {
+        // Find the line number for better error reporting
+        const lines = skill.content.split("\n");
+        let lineNum: number | undefined;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes(href)) {
+            lineNum = i + 1;
+            break;
+          }
+        }
+
+        results.push({
+          passed: false,
+          message: `Broken companion link: "${href}" does not exist`,
+          line: lineNum,
+        });
+      }
+
+      match = linkRegex.exec(skill.content);
+    }
+
+    // If no broken links found, report success
+    if (results.length === 0) {
+      results.push({ passed: true, message: "All companion links resolve" });
+    }
+
+    return results;
+  },
+};
+
 // ─── All checks ─────────────────────────────────────────────────────────────────
 const validationChecks: ValidationCheck[] = [
   yamlValidity,
@@ -545,6 +616,7 @@ const validationChecks: ValidationCheck[] = [
   trackConsistency,
   globsFormat,
   filenameCasing,
+  companionLinks,
 ];
 
 async function main(): Promise<void> {
