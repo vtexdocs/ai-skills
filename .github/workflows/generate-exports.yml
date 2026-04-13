@@ -16,7 +16,7 @@ on:
       - 'package.json'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate-and-export:
