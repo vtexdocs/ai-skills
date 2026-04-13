@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/vtex/skills/compare/v1.4.3...v1.5.0) (2026-04-13)
+
+
+### Features
+
+* **payment-skills:** field-tested fixes for TS 3.9.7, Secure Proxy scope, and redirect flows ([30947d1](https://github.com/vtex/skills/commit/30947d1a770eadbc55b145a9f05b15e4dd5c1c25))
+* **payment-skills:** incorporate field-tested fixes for TS 3.9.7, Secure Proxy scope, and redirect flows ([f7baeb4](https://github.com/vtex/skills/commit/f7baeb4b4bbaa6f92ea4b199d0241668d7cd5dd7))
+
+
+### Bug Fixes
+
+* restore YAML frontmatter (name + description) in all 3 skill files ([4e9b911](https://github.com/vtex/skills/commit/4e9b911c06449a7fdf5b4bda639c8297c6bf42e4))
+
 ## [1.4.3](https://github.com/vtex/skills/compare/v1.4.2...v1.4.3) (2026-04-06)
 
 
