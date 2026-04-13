@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.0](https://github.com/vtex/skills/compare/v1.7.0...v1.8.0) (2026-04-13)
+
+
+### Features
+
+* **export:** add companion file support with format-native references ([c51b433](https://github.com/vtex/skills/commit/c51b433c51b67d76b191f36078389edab340a59e))
+* **export:** companion files with format-native references + stale cleanup ([2a50129](https://github.com/vtex/skills/commit/2a50129ecb4603fdc12da6c5bbd705956924c966))
+* **validator:** add companion-links hard check for broken relative links ([0c0c760](https://github.com/vtex/skills/commit/0c0c7601eb3d1aab132dcddc75a0b6161ea44a00))
+
+
+### Bug Fixes
+
+* update broken skill cross-references to point to existing skills ([9eacc11](https://github.com/vtex/skills/commit/9eacc110fc869990b68a4f6c5ad1394d846f8721))
+
 ## [1.7.0](https://github.com/vtex/skills/compare/v1.6.0...v1.7.0) (2026-04-13)
 
 
