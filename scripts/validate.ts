@@ -500,6 +500,7 @@ const validationChecks: ValidationCheck[] = [
 ];
 
 async function main(): Promise<void> {
+  const ciMode = process.argv.includes("--ci");
   const skills = discoverSkills();
 
   if (skills.length === 0) {
@@ -569,6 +570,12 @@ async function main(): Promise<void> {
       for (const f of softFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::warning file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       totalWarned++;
     } else {
@@ -578,10 +585,22 @@ async function main(): Promise<void> {
       for (const f of hardFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   FAIL: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::error file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       for (const f of softFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::warning file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       totalFailed++;
     }
