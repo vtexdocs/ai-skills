@@ -1,7 +1,9 @@
 import {
+  cpSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "fs";
@@ -51,6 +53,11 @@ function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
+function cleanDir(dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+}
+
 function writeOutput(filePath: string, content: string): void {
   ensureDir(dirname(filePath));
   writeFileSync(filePath, content, "utf-8");
@@ -61,8 +68,113 @@ function skillSlug(skill: Skill): string {
   return skill.frontmatter.name;
 }
 
+function copyCompanionDirs(skill: Skill, destDir: string): void {
+  const sourceDir = dirname(skill.filePath);
+  const entries = readdirSync(sourceDir);
+
+  for (const entry of entries) {
+    // Skip the skill file itself
+    if (entry === "skill.md" || entry === "SKILL.md") continue;
+
+    const sourcePath = join(sourceDir, entry);
+    if (statSync(sourcePath).isDirectory()) {
+      const destPath = join(destDir, entry);
+      cpSync(sourcePath, destPath, { recursive: true });
+      console.log(`  ✓ ${destPath}/ (companion dir)`);
+    }
+  }
+}
+
 function normalizeDescription(desc: string): string {
   return desc.replace(/\s+/g, " ").trim();
+}
+
+// ─── Companion File Helpers ─────────────────────────────────────────────────
+
+interface CompanionFile {
+  /** Relative path from skill dir, e.g. "references/project-structure.md" */
+  relativePath: string;
+  /** Just the filename, e.g. "project-structure.md" */
+  fileName: string;
+  /** The subdirectory name, e.g. "references" or "scripts" */
+  dirName: string;
+  /** Full content of the file */
+  content: string;
+  /** Whether it's a markdown file */
+  isMarkdown: boolean;
+}
+
+function getCompanionFiles(skill: Skill): CompanionFile[] {
+  const sourceDir = dirname(skill.filePath);
+  const companions: CompanionFile[] = [];
+
+  let entries: string[];
+  try { entries = readdirSync(sourceDir); } catch { return []; }
+
+  for (const entry of entries) {
+    if (entry.toLowerCase() === "skill.md") continue;
+    const entryPath = join(sourceDir, entry);
+    try {
+      if (!statSync(entryPath).isDirectory()) continue;
+    } catch { continue; }
+
+    const files = readdirSync(entryPath).sort();
+    for (const file of files) {
+      const filePath = join(entryPath, file);
+      try {
+        if (!statSync(filePath).isFile()) continue;
+      } catch { continue; }
+
+      companions.push({
+        relativePath: join(entry, file),
+        fileName: file,
+        dirName: entry,
+        content: readFileSync(filePath, "utf-8"),
+        isMarkdown: file.endsWith(".md"),
+      });
+    }
+  }
+  return companions;
+}
+
+function rewriteCompanionLinks(
+  content: string,
+  linkMap: Record<string, string>
+): string {
+  return content.replace(
+    /\[([^\]]*)\]\(([^)]+)\)/g,
+    (match, text, href) => {
+      const newHref = linkMap[href];
+      if (newHref) return `[${text}](${newHref})`;
+      return match;
+    }
+  );
+}
+
+function companionSlug(skill: Skill, companion: CompanionFile): string {
+  const track = resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track;
+  const base = companion.fileName.replace(/\.(md|sh|ts|js)$/, '');
+  return `${track}-${skillSlug(skill)}-ref-${base}`;
+}
+
+/**
+ * Build a rewritten copy of a skill with companion links replaced.
+ * Does NOT mutate the original skill object.
+ */
+function skillWithRewrittenLinks(skill: Skill, linkMap: Record<string, string>): Skill {
+  if (Object.keys(linkMap).length === 0) return skill;
+  return { ...skill, content: rewriteCompanionLinks(skill.content, linkMap) };
+}
+
+/**
+ * Build a rewritten copy of a track with companion links replaced in all skills.
+ */
+function trackWithRewrittenSkills(track: Track, rewrittenSkillMap: Map<string, Skill>): Track {
+  if (rewrittenSkillMap.size === 0) return track;
+  return {
+    ...track,
+    skills: track.skills.map(s => rewrittenSkillMap.get(s.filePath) ?? s),
+  };
 }
 
 function resolveField<T>(fm: SkillFrontmatter, field: string): T | undefined {
@@ -440,14 +552,38 @@ const exporters: Record<string, PlatformExporter> = {
       const outDir = this.outputDir;
       ensureDir(outDir);
 
+      const rewrittenSkillMap = new Map<string, Skill>();
+
       for (const skill of skills) {
-         const fileName = `${resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track}-${skillSlug(skill)}.mdc`;
-        writeOutput(join(outDir, fileName), buildCursorMdc(skill));
+        const companions = getCompanionFiles(skill);
+        const linkMap: Record<string, string> = {};
+
+        for (const comp of companions) {
+          if (!comp.isMarkdown) continue;
+          const slug = companionSlug(skill, comp);
+          linkMap[comp.relativePath] = `@${slug}.mdc`;
+
+          const { data: compFm, content: compContent } = matter(comp.content);
+          const desc = normalizeDescription(
+            (compFm as any).description || comp.fileName
+          );
+          writeOutput(
+            join(outDir, `${slug}.mdc`),
+            `---\ndescription: "${desc}"\nglobs: \nalwaysApply: false\n---\n\n${compContent.trim()}\n`
+          );
+        }
+
+        const rewritten = skillWithRewrittenLinks(skill, linkMap);
+        rewrittenSkillMap.set(skill.filePath, rewritten);
+        const track = resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track;
+        const fileName = `${track}-${skillSlug(skill)}.mdc`;
+        writeOutput(join(outDir, fileName), buildCursorMdc(rewritten));
       }
 
       for (const track of tracks) {
+        const rewrittenTrack = trackWithRewrittenSkills(track, rewrittenSkillMap);
         const fileName = `${track.name}-all.mdc`;
-        writeOutput(join(outDir, fileName), buildCursorTrackMdc(track));
+        writeOutput(join(outDir, fileName), buildCursorTrackMdc(rewrittenTrack));
       }
     },
   },
@@ -458,14 +594,37 @@ const exporters: Record<string, PlatformExporter> = {
       const outDir = this.outputDir;
       ensureDir(outDir);
 
-      for (const track of tracks) {
-        const fileName = `${track.name}.md`;
-        writeOutput(join(outDir, fileName), buildCopilotTrackMd(track));
+      const rewrittenSkillMap = new Map<string, Skill>();
+
+      for (const skill of skills) {
+        const companions = getCompanionFiles(skill);
+        const linkMap: Record<string, string> = {};
+
+        for (const comp of companions) {
+          if (!comp.isMarkdown) continue;
+          const slug = companionSlug(skill, comp);
+          linkMap[comp.relativePath] = `${slug}.md`;
+
+          const { content: compContent } = matter(comp.content);
+          writeOutput(
+            join(outDir, `${slug}.md`),
+            compContent.trim() + "\n"
+          );
+        }
+
+        rewrittenSkillMap.set(skill.filePath, skillWithRewrittenLinks(skill, linkMap));
       }
 
+      for (const track of tracks) {
+        const rewrittenTrack = trackWithRewrittenSkills(track, rewrittenSkillMap);
+        const fileName = `${track.name}.md`;
+        writeOutput(join(outDir, fileName), buildCopilotTrackMd(rewrittenTrack));
+      }
+
+      const rewrittenTracks = tracks.map(t => trackWithRewrittenSkills(t, rewrittenSkillMap));
       writeOutput(
         join(outDir, "copilot-instructions.md"),
-        buildCopilotInstructions(tracks)
+        buildCopilotInstructions(rewrittenTracks)
       );
     },
   },
@@ -476,14 +635,34 @@ const exporters: Record<string, PlatformExporter> = {
       const outDir = this.outputDir;
       ensureDir(outDir);
 
+      const rewrittenSkillMap = new Map<string, Skill>();
+
       for (const skill of skills) {
-         const fileName = `${resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track}-${skillSlug(skill)}.md`;
-        writeOutput(join(outDir, fileName), buildClaudeSkillMd(skill));
+        const companions = getCompanionFiles(skill);
+        const linkMap: Record<string, string> = {};
+
+        for (const comp of companions) {
+          if (!comp.isMarkdown) continue;
+          const slug = companionSlug(skill, comp);
+          linkMap[comp.relativePath] = `${slug}.md`;
+
+          const { content: compContent } = matter(comp.content);
+          writeOutput(
+            join(outDir, `${slug}.md`),
+            compContent.trim() + "\n"
+          );
+        }
+
+        const rewritten = skillWithRewrittenLinks(skill, linkMap);
+        rewrittenSkillMap.set(skill.filePath, rewritten);
+        const fileName = `${resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track}-${skillSlug(skill)}.md`;
+        writeOutput(join(outDir, fileName), buildClaudeSkillMd(rewritten));
       }
 
       for (const track of tracks) {
+        const rewrittenTrack = trackWithRewrittenSkills(track, rewrittenSkillMap);
         const fileName = `${track.name}.md`;
-        writeOutput(join(outDir, fileName), buildClaudeTrackMd(track));
+        writeOutput(join(outDir, fileName), buildClaudeTrackMd(rewrittenTrack));
       }
     },
   },
@@ -494,10 +673,31 @@ const exporters: Record<string, PlatformExporter> = {
       const outDir = this.outputDir;
       ensureDir(outDir);
 
+      const rewrittenSkillMap = new Map<string, Skill>();
+
+      for (const skill of skills) {
+        const companions = getCompanionFiles(skill);
+        const linkMap: Record<string, string> = {};
+        const track = resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track;
+        const slug = skillSlug(skill);
+
+        for (const comp of companions) {
+          linkMap[comp.relativePath] = `${slug}/${comp.relativePath}`;
+        }
+
+        if (companions.length > 0) {
+          const skillDestDir = join(outDir, track, slug);
+          copyCompanionDirs(skill, skillDestDir);
+        }
+
+        rewrittenSkillMap.set(skill.filePath, skillWithRewrittenLinks(skill, linkMap));
+      }
+
       for (const track of tracks) {
+        const rewrittenTrack = trackWithRewrittenSkills(track, rewrittenSkillMap);
         writeOutput(
           join(outDir, track.name, "AGENTS.md"),
-          buildAgentsMdTrack(track)
+          buildAgentsMdTrack(rewrittenTrack)
         );
       }
 
@@ -512,10 +712,12 @@ const exporters: Record<string, PlatformExporter> = {
       ensureDir(outDir);
 
       for (const skill of skills) {
+        const skillDir = join(outDir, skillSlug(skill));
         writeOutput(
-          join(outDir, skillSlug(skill), "SKILL.md"),
+          join(skillDir, "SKILL.md"),
           buildOpenCodeSkillMd(skill)
         );
+        copyCompanionDirs(skill, skillDir);
       }
     },
   },
@@ -530,15 +732,35 @@ const exporters: Record<string, PlatformExporter> = {
 
       writeOutput(join(outDir, "POWER.md"), buildKiroPowerMd(skills, tracks));
 
+      const rewrittenSkillMap = new Map<string, Skill>();
+
       for (const skill of skills) {
+        const companions = getCompanionFiles(skill);
+        const linkMap: Record<string, string> = {};
+
+        for (const comp of companions) {
+          if (!comp.isMarkdown) continue;
+          const slug = companionSlug(skill, comp);
+          linkMap[comp.relativePath] = `${slug}.md`;
+
+          const { content: compContent } = matter(comp.content);
+          writeOutput(
+            join(steeringDir, `${slug}.md`),
+            compContent.trim() + "\n"
+          );
+        }
+
+        const rewritten = skillWithRewrittenLinks(skill, linkMap);
+        rewrittenSkillMap.set(skill.filePath, rewritten);
         const track = resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track;
         const fileName = `${track}-${skillSlug(skill)}.md`;
-        writeOutput(join(steeringDir, fileName), buildKiroSkillSteering(skill, skills));
+        writeOutput(join(steeringDir, fileName), buildKiroSkillSteering(rewritten, skills));
       }
 
       for (const track of tracks) {
+        const rewrittenTrack = trackWithRewrittenSkills(track, rewrittenSkillMap);
         const fileName = `${track.name}-all.md`;
-        writeOutput(join(steeringDir, fileName), buildKiroTrackSteering(track, skills));
+        writeOutput(join(steeringDir, fileName), buildKiroTrackSteering(rewrittenTrack, skills));
       }
     },
   },
@@ -590,6 +812,7 @@ async function main(): Promise<void> {
     const exporter = exporters[platform];
     if (exporter) {
       console.log(`Exporting to ${exporter.name}...`);
+      cleanDir(exporter.outputDir);
       await exporter.export(skills, tracks);
       console.log("");
     }

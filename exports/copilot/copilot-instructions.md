@@ -185,11 +185,11 @@ Before MD for new data:
 
 - [vtex-io-service-paths-and-cdn](../../../vtex-io/skills/vtex-io-service-paths-and-cdn/skill.md) — `service.json` paths, edge/CDN and session behavior.
 - [vtex-io-application-performance](../../../vtex-io/skills/vtex-io-application-performance/skill.md) — LRU/VBase, AppSettings, parallel fetches, tenant keys on shared pods.
-- [vtex-io-app-structure](../../../vtex-io/skills/vtex-io-app-structure/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
+- [vtex-io-app-contract](../../../vtex-io/skills/vtex-io-app-contract/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
 - [vtex-io-masterdata](../../../vtex-io/skills/vtex-io-masterdata/skill.md) — Master Data v2 storage-fit scrutiny, BFF, single source of truth.
 - [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF and credential boundaries for headless.
 - [payment-pci-security](../../../payment/skills/payment-pci-security/skill.md) — PCI and Secure Proxy constraints.
-- [faststore-data-fetching](../../../faststore/skills/faststore-data-fetching/skill.md) — GraphQL extensions and data layer.
+- [faststore-storefront](../../../faststore/skills/faststore-storefront/skill.md) — GraphQL extensions and data layer.
 - [marketplace-order-hook](../../../marketplace/skills/marketplace-order-hook/skill.md) — Marketplace order integration patterns.
 
 ## Reference
@@ -310,16 +310,16 @@ Load these on demand based on what the task requires. Do not load all of them up
 
 | File | Load when… |
 |------|-----------|
-| [references/project-structure-routes-and-config.md](references/project-structure-routes-and-config.md) | Mapping the repo: what belongs in `src/` vs generated `.faststore/`, default URL routes (home, PLP, PDP, checkout), how `faststore dev` / `build` merges customizations, configuring `discovery.config.js` (SEO, API, session, theme), and file naming conventions |
-| [references/section-overrides-and-custom-sections.md](references/section-overrides-and-custom-sections.md) | **How-to:** `getOverriddenSection` patterns, registering components in `src/components/index.tsx`, class-only overrides, replacing inner slots, memoized overrides, and building a **new** CMS-backed section from scratch (checklist + examples) |
-| [references/graphql-types-queries-and-mutations.md](references/graphql-types-queries-and-mutations.md) | **Read-only API catalog:** built-in root `Query` / `Mutation` fields, enums (e.g. `StoreSort`), and field lists for types like `StoreProduct`, `StoreCart`, `StoreSession` — use when writing queries or checking what the platform already exposes (**not** for adding custom resolvers) |
-| [references/extending-graphql-with-custom-resolvers.md](references/extending-graphql-with-custom-resolvers.md) | **Implementation guide:** adding fields under `src/graphql/vtex/` or new operations under `src/graphql/thirdParty/`, wiring resolvers, `Server*` / `Client*` fragments, and consuming data with `usePDP` / `useQuery` / `useLazyQuery` |
-| [references/scss-styling-and-design-tokens.md](references/scss-styling-and-design-tokens.md) | SCSS module rules (wrapper class, no global SCSS), theming and CSS variables in `src/themes/custom-theme.scss`, and styling overrides that target inner UI structure |
-| [references/cms-schema-and-section-registration.md](references/cms-schema-and-section-registration.md) | VTEX Headless CMS: `cms_component__*.jsonc` shape, `$componentKey` ↔ `index.tsx`, `generate-schema` / `upload-schema` workflow, scopes, and the rule that new CMS sections rely on context or BFF data (no ad-hoc props) |
-| [references/analytics-events-and-gtm.md](references/analytics-events-and-gtm.md) | `@faststore/sdk` analytics: `sendAnalyticsEvent`, `useAnalyticsEvent` / handler components, and setting `gtmContainerId` in `discovery.config.js` |
-| [references/injecting-head-scripts-and-meta-tags.md](references/injecting-head-scripts-and-meta-tags.md) | Custom `<head>` content via `src/scripts/ThirdPartyScripts.tsx` (verification meta tags, inline scripts, Partytown) — **not** the primary place for GTM; use `discovery.config.js` (see analytics reference) |
-| [references/native-sections-and-overridable-slots.md](references/native-sections-and-overridable-slots.md) | **Lookup only:** list of built-in global sections (e.g. `Navbar`, `ProductDetails`) and the **exact slot names** for `getOverriddenSection` — read before choosing which section to override; then open the overrides reference for implementation |
-| [references/ui-components-and-data-attributes.md](references/ui-components-and-data-attributes.md) | Which primitives exist in `@faststore/ui` (atoms, molecules, organisms) and the **`data-fs-*` attribute reference** for precise SCSS selectors — pair with the SCSS styling reference when composing UI |
+| [references/project-structure-routes-and-config.md](faststore-faststore-storefront-ref-project-structure-routes-and-config.md) | Mapping the repo: what belongs in `src/` vs generated `.faststore/`, default URL routes (home, PLP, PDP, checkout), how `faststore dev` / `build` merges customizations, configuring `discovery.config.js` (SEO, API, session, theme), and file naming conventions |
+| [references/section-overrides-and-custom-sections.md](faststore-faststore-storefront-ref-section-overrides-and-custom-sections.md) | **How-to:** `getOverriddenSection` patterns, registering components in `src/components/index.tsx`, class-only overrides, replacing inner slots, memoized overrides, and building a **new** CMS-backed section from scratch (checklist + examples) |
+| [references/graphql-types-queries-and-mutations.md](faststore-faststore-storefront-ref-graphql-types-queries-and-mutations.md) | **Read-only API catalog:** built-in root `Query` / `Mutation` fields, enums (e.g. `StoreSort`), and field lists for types like `StoreProduct`, `StoreCart`, `StoreSession` — use when writing queries or checking what the platform already exposes (**not** for adding custom resolvers) |
+| [references/extending-graphql-with-custom-resolvers.md](faststore-faststore-storefront-ref-extending-graphql-with-custom-resolvers.md) | **Implementation guide:** adding fields under `src/graphql/vtex/` or new operations under `src/graphql/thirdParty/`, wiring resolvers, `Server*` / `Client*` fragments, and consuming data with `usePDP` / `useQuery` / `useLazyQuery` |
+| [references/scss-styling-and-design-tokens.md](faststore-faststore-storefront-ref-scss-styling-and-design-tokens.md) | SCSS module rules (wrapper class, no global SCSS), theming and CSS variables in `src/themes/custom-theme.scss`, and styling overrides that target inner UI structure |
+| [references/cms-schema-and-section-registration.md](faststore-faststore-storefront-ref-cms-schema-and-section-registration.md) | VTEX Headless CMS: `cms_component__*.jsonc` shape, `$componentKey` ↔ `index.tsx`, `generate-schema` / `upload-schema` workflow, scopes, and the rule that new CMS sections rely on context or BFF data (no ad-hoc props) |
+| [references/analytics-events-and-gtm.md](faststore-faststore-storefront-ref-analytics-events-and-gtm.md) | `@faststore/sdk` analytics: `sendAnalyticsEvent`, `useAnalyticsEvent` / handler components, and setting `gtmContainerId` in `discovery.config.js` |
+| [references/injecting-head-scripts-and-meta-tags.md](faststore-faststore-storefront-ref-injecting-head-scripts-and-meta-tags.md) | Custom `<head>` content via `src/scripts/ThirdPartyScripts.tsx` (verification meta tags, inline scripts, Partytown) — **not** the primary place for GTM; use `discovery.config.js` (see analytics reference) |
+| [references/native-sections-and-overridable-slots.md](faststore-faststore-storefront-ref-native-sections-and-overridable-slots.md) | **Lookup only:** list of built-in global sections (e.g. `Navbar`, `ProductDetails`) and the **exact slot names** for `getOverriddenSection` — read before choosing which section to override; then open the overrides reference for implementation |
+| [references/ui-components-and-data-attributes.md](faststore-faststore-storefront-ref-ui-components-and-data-attributes.md) | Which primitives exist in `@faststore/ui` (atoms, molecules, organisms) and the **`data-fs-*` attribute reference** for precise SCSS selectors — pair with the SCSS styling reference when composing UI |
 
 ---
 
@@ -9542,7 +9542,7 @@ async function getSkuMetadataBatch(
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 
@@ -11294,7 +11294,7 @@ mutation CreateReview {
 ## Related skills
 
 - [`vtex-io-service-apps`](../vtex-io-service-apps/skill.md) — Service app fundamentals needed for all GraphQL resolvers
-- [`vtex-io-app-structure`](../vtex-io-app-structure/skill.md) — Manifest and builder configuration that GraphQL depends on
+- [`vtex-io-app-contract`](../vtex-io-app-contract/skill.md) — Manifest and builder configuration that GraphQL depends on
 - [`vtex-io-masterdata`](../vtex-io-masterdata/skill.md) — MasterData integration commonly used as a data source in resolvers
 
 ## Reference
@@ -15113,7 +15113,7 @@ Your transform sits at the **end** of whatever dependency chain it requires. Dec
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — Caching layers and parallel I/O applicable inside transforms
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix for the transform endpoint
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and middleware basics
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 

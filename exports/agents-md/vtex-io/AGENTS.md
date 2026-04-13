@@ -1082,7 +1082,7 @@ async function getSkuMetadataBatch(
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 
@@ -2858,7 +2858,7 @@ mutation CreateReview {
 ## Related skills
 
 - [`vtex-io-service-apps`](../vtex-io-service-apps/skill.md) — Service app fundamentals needed for all GraphQL resolvers
-- [`vtex-io-app-structure`](../vtex-io-app-structure/skill.md) — Manifest and builder configuration that GraphQL depends on
+- [`vtex-io-app-contract`](../vtex-io-app-contract/skill.md) — Manifest and builder configuration that GraphQL depends on
 - [`vtex-io-masterdata`](../vtex-io-masterdata/skill.md) — MasterData integration commonly used as a data source in resolvers
 
 ## Reference
@@ -6729,7 +6729,7 @@ Your transform sits at the **end** of whatever dependency chain it requires. Dec
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — Caching layers and parallel I/O applicable inside transforms
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix for the transform endpoint
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and middleware basics
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 

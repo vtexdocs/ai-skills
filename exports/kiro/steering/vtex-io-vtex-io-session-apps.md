@@ -279,7 +279,7 @@ Your transform sits at the **end** of whatever dependency chain it requires. Dec
 - [vtex-io-application-performance](vtex-io-vtex-io-application-performance.md) — Caching layers and parallel I/O applicable inside transforms
 - [vtex-io-service-paths-and-cdn](vtex-io-vtex-io-service-paths-and-cdn.md) — Route prefix for the transform endpoint
 - [vtex-io-service-apps](vtex-io-vtex-io-service-apps.md) — Service class, clients, and middleware basics
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, policies
+- [vtex-io-app-contract](vtex-io-vtex-io-app-contract.md) — Manifest, builders, policies
 
 ## Reference
 
