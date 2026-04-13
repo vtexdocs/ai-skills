@@ -4,7 +4,7 @@
 
 <h1 align="center">VTEX Skills</h1>
 <p align="center">
-  <strong>42 AI agent skills for VTEX platform development — one source, six export formats.</strong>
+  <strong>39 AI agent skills for VTEX platform development — one source, six export formats.</strong>
 </p>
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
@@ -13,7 +13,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-42-F71963" alt="42 skills">
+  <img src="https://img.shields.io/badge/skills-39-F71963" alt="39 skills">
   <img src="https://img.shields.io/badge/tracks-6-blue" alt="6 tracks">
   <img src="https://img.shields.io/badge/platforms-6-green" alt="6 platforms">
   <img src="https://img.shields.io/github/license/vtex/skills" alt="License">
@@ -111,11 +111,11 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 | Platform | Format | Auto-detection | Files |
 |---|---|---|---|
 | **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 7 |
-| **Cursor** | `.mdc` rules | ✅ Glob + description | 49 |
+| **Cursor** | `.mdc` rules | ✅ Glob + description | 45 |
 | **GitHub Copilot** | Instructions | ✅ Auto-loaded | 7 |
-| **Claude Projects** | Knowledge files | Manual upload | 49 |
-| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 43 |
-| **Kiro** | `POWER.md` + steering | ✅ Auto-discovered | 50 |
+| **Claude Projects** | Knowledge files | Manual upload | 45 |
+| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 39 |
+| **Kiro** | `POWER.md` + steering | ✅ Auto-discovered | 46 |
 
 ---
 
@@ -133,16 +133,13 @@ Cross-cutting guidance for designing and reviewing VTEX commerce solutions. Enco
 </details>
 
 <details>
-<summary><strong>Track 2: FastStore Implementation</strong> — 4 skills for storefront customization</summary>
+<summary><strong>Track 2: FastStore Implementation</strong> — 1 skill for storefront development</summary>
 
-Overrides, theming, SDK hooks, and data fetching for FastStore storefronts. Covers the override API, design token system, cart/session/search state management, and GraphQL API extensions.
+Coding rules and workflow for developing VTEX FastStore storefronts. Covers TypeScript/React conventions, section overrides, BFF extensions, SCSS styling, and CMS sync workflows.
 
 | Skill | Description |
 |---|---|
-| `faststore-overrides` | Section and component overrides using `getOverriddenSection()` |
-| `faststore-theming` | Design tokens, SCSS theming, and `[data-fs-*]` attribute targeting |
-| `faststore-state-management` | Cart, Session, Search, and Analytics SDK hooks |
-| `faststore-data-fetching` | GraphQL fragments, API extensions, and resolver patterns |
+| `faststore-storefront` | Core coding rules, conventions, and development workflow for FastStore storefronts |
 
 </details>
 
@@ -215,8 +212,8 @@ BFF architecture, Intelligent Search API, checkout proxy patterns, and caching s
 This repository is an [Open Plugin](https://open-plugins.com) — a portable, platform-agnostic skill pack that any AI coding tool can discover and install.
 
 ```
-rules/*.mdc              # 49 Cursor rules (auto-discovered)
-skills/*/SKILL.md        # 43 agent skills (auto-discovered)
+rules/*.mdc              # 45 Cursor rules (auto-discovered)
+skills/*/SKILL.md        # 39 agent skills (auto-discovered)
 .cursor-plugin/plugin.json   # Cursor plugin manifest
 .plugin/plugin.json          # Vendor-neutral plugin manifest
 ```
@@ -244,10 +241,7 @@ vtex_skills/
     faststore/
       index.md
       skills/
-        faststore-overrides/skill.md
-        faststore-theming/skill.md
-        faststore-state-management/skill.md
-        faststore-data-fetching/skill.md
+        faststore-storefront/skill.md
     headless/
       index.md
       skills/
@@ -320,19 +314,22 @@ Check all skill files for quality and correctness before exporting:
 bun run validate
 ```
 
-The validator runs 11 checks on every skill file:
+The validator runs 11 checks on every skill file, split into **hard** (must pass — block CI) and **soft** (produce warnings only):
 
-- **yaml-validity** — frontmatter parses without errors
+**Hard checks** (7):
+- **yaml-validity** — frontmatter parses without errors, has required fields (name, description, track, tags)
 - **description-quality** — description is at least 20 words
-- **required-sections** — all 6 H2 sections present in correct order
 - **code-block-annotations** — all opening code fences have a language annotation
-- **no-placeholders** — no `TBD`, `TODO`, or `[placeholder]` text in prose
-- **detection-patterns** — each constraint includes a Detection field
-- **paired-examples** — each constraint has both a CORRECT and WRONG example
-- **url-format** — all VTEX doc links use the correct domain format
+- **no-placeholders** — no `TBD`, `TODO`, or `FIXME` text in prose
 - **size-bounds** — skill files are within acceptable size limits
 - **track-consistency** — the `track` frontmatter field matches the directory
 - **globs-format** — if present, the `globs` field is a valid array of glob pattern strings
+
+**Soft checks** (4) — produce warnings but do not block CI:
+- **required-sections** — recommended H2 sections present (decision-oriented template)
+- **detection-patterns** — constraints include a Detection field
+- **paired-examples** — constraints have both a Correct and Wrong example
+- **url-format** — VTEX doc links use the correct domain format
 
 </details>
 

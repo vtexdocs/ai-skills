@@ -5,14 +5,14 @@ This file provides instructions for AI coding agents working on this repository.
 ## Quick rules
 
 1. **Source files only**: Edit skill files in `tracks/{track}/skills/{name}/skill.md`. Never edit `exports/`, `skills/`, or `rules/` — they are auto-generated and will be silently overwritten the next time `bun run export` runs.
-2. **Validate before committing**: Run `bun run validate`. All 11 checks must pass.
+2. **Validate before committing**: Run `bun run validate`. All hard checks must pass; soft checks produce warnings but do not block CI.
 3. **Regenerate exports**: Run `bun run export` after any skill change. Commit both source and generated files.
 
 ## Skill template
 
-All skills use the decision-oriented template at `_templates/skill-template.md`.
+The decision-oriented template at `_templates/skill-template.md` is the recommended structure for new skills.
 
-Required H2 sections (in order):
+Recommended H2 sections (in order):
 1. `## When this skill applies`
 2. `## Decision rules`
 3. `## Hard constraints`
@@ -22,6 +22,8 @@ Required H2 sections (in order):
 7. `## Reference`
 
 `## Related skills` is optional — add it only when it helps choose between nearby skills.
+
+Skills that use a different structure (e.g., rules-based or tutorial-style) will pass validation with warnings instead of errors. The template sections are enforced as soft checks.
 
 ## Frontmatter format
 
@@ -61,7 +63,11 @@ Only link to `developers.vtex.com` or `help.vtex.com`. Verify URLs resolve befor
 
 ## Validation checks
 
-`bun run validate` runs 11 checks: yaml-validity, description-quality, required-sections, code-block-annotations, no-placeholders, detection-patterns, paired-examples, url-format, size-bounds, track-consistency, globs-format.
+`bun run validate` runs 11 checks on every skill file. Checks are split into **hard** (must pass — block CI) and **soft** (produce warnings only):
+
+**Hard checks** (7): yaml-validity, description-quality, code-block-annotations, no-placeholders, size-bounds, track-consistency, globs-format.
+
+**Soft checks** (4): required-sections, detection-patterns, paired-examples, url-format.
 
 ## Releases and versioning
 
