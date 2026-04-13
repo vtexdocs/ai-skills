@@ -1,0 +1,8 @@
+# Line ending normalization
+* text=auto
+*.md text eol=lf
+
+# Auto-generated directories — collapsed in PR diffs
+exports/** linguist-generated=true
+skills/** linguist-generated=true
+rules/** linguist-generated=true
