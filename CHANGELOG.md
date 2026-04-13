@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.0](https://github.com/vtex/skills/compare/v1.5.0...v1.6.0) (2026-04-13)
+
+
+### Features
+
+* migrating faststore-storefront skill ([059e017](https://github.com/vtex/skills/commit/059e017c1343cd2e54e7258b108bc351e9cdd29b))
+* removing old unused skills that was replaced by faststore-storefront ([119a5d6](https://github.com/vtex/skills/commit/119a5d682de438860e0e78bddee3f53f7a35a9c2))
+
+
+### Bug Fixes
+
+* export pipeline, source corrections, and validation flexibility ([4dbe0cd](https://github.com/vtex/skills/commit/4dbe0cd65b5a2e3526989d480b3c3e36b57f5a7a))
+* **faststore:** rename SKILL.md to skill.md and add required metadata ([231c09d](https://github.com/vtex/skills/commit/231c09df03050e8e281317c7edd56e11af2c8eda))
+* grant write permissions to export workflow ([e25f603](https://github.com/vtex/skills/commit/e25f6037ea30e617167793135dbea569bcefd3e5))
+* **payment:** port skill content updates to source files in tracks/ ([6e366e6](https://github.com/vtex/skills/commit/6e366e69d5dcd20092959ade145d12d51e71dd8b))
+
 ## [1.5.0](https://github.com/vtex/skills/compare/v1.4.3...v1.5.0) (2026-04-13)
 
 
