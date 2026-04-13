@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import matter from "gray-matter";
-import { join } from "path";
+import { dirname, join } from "path";
 
 interface SkillFrontmatter {
   name: string;
@@ -484,6 +484,53 @@ const globsFormat: ValidationCheck = {
   },
 };
 
+// ─── Check 12: Filename Casing ─────────────────────────────────────────────
+const filenameCasing: ValidationCheck = {
+  name: "filename-casing",
+  severity: "hard",
+  check(skill: Skill): ValidationResult[] {
+    const skillDir = dirname(skill.filePath);
+    const results: ValidationResult[] = [];
+
+    try {
+      const files = readdirSync(skillDir);
+      const markdownFiles = files.filter((f) => f.endsWith(".md"));
+
+      // Check if skill.md exists with correct casing
+      if (markdownFiles.includes("skill.md")) {
+        results.push({ passed: true, message: `File is correctly named "skill.md"` });
+        return results;
+      }
+
+      // Check for case-insensitive matches (e.g., SKILL.md, Skill.md)
+      const wrongCasing = markdownFiles.find(
+        (f) => f.toLowerCase() === "skill.md" && f !== "skill.md"
+      );
+
+      if (wrongCasing) {
+        results.push({
+          passed: false,
+          message: `Source file must be named "skill.md" (lowercase), found "${wrongCasing}"`,
+        });
+        return results;
+      }
+
+      // If no markdown file found at all
+      results.push({
+        passed: false,
+        message: `No "skill.md" file found in directory`,
+      });
+    } catch (error) {
+      results.push({
+        passed: false,
+        message: `Could not read directory: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+
+    return results;
+  },
+};
+
 // ─── All checks ─────────────────────────────────────────────────────────────────
 const validationChecks: ValidationCheck[] = [
   yamlValidity,
@@ -497,9 +544,11 @@ const validationChecks: ValidationCheck[] = [
   sizeBounds,
   trackConsistency,
   globsFormat,
+  filenameCasing,
 ];
 
 async function main(): Promise<void> {
+  const ciMode = process.argv.includes("--ci");
   const skills = discoverSkills();
 
   if (skills.length === 0) {
@@ -569,6 +618,12 @@ async function main(): Promise<void> {
       for (const f of softFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::warning file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       totalWarned++;
     } else {
@@ -578,10 +633,22 @@ async function main(): Promise<void> {
       for (const f of hardFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   FAIL: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::error file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       for (const f of softFailures) {
         const lineInfo = f.line !== undefined ? ` (line ${f.line})` : "";
         console.log(`   WARN: [${f.checkName}] — ${f.message}${lineInfo}`);
+        if (ciMode) {
+          const lineParam = f.line !== undefined ? `,line=${f.line}` : "";
+          console.log(
+            `::warning file=${skill.filePath}${lineParam},title=${f.checkName}::${f.message}`
+          );
+        }
       }
       totalFailed++;
     }
