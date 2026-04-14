@@ -185,11 +185,11 @@ Before MD for new data:
 
 - [vtex-io-service-paths-and-cdn](../../../vtex-io/skills/vtex-io-service-paths-and-cdn/skill.md) — `service.json` paths, edge/CDN and session behavior.
 - [vtex-io-application-performance](../../../vtex-io/skills/vtex-io-application-performance/skill.md) — LRU/VBase, AppSettings, parallel fetches, tenant keys on shared pods.
-- [vtex-io-app-structure](../../../vtex-io/skills/vtex-io-app-structure/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
+- [vtex-io-app-contract](../../../vtex-io/skills/vtex-io-app-contract/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
 - [vtex-io-masterdata](../../../vtex-io/skills/vtex-io-masterdata/skill.md) — Master Data v2 storage-fit scrutiny, BFF, single source of truth.
 - [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF and credential boundaries for headless.
 - [payment-pci-security](../../../payment/skills/payment-pci-security/skill.md) — PCI and Secure Proxy constraints.
-- [faststore-data-fetching](../../../faststore/skills/faststore-data-fetching/skill.md) — GraphQL extensions and data layer.
+- [faststore-storefront](../../../faststore/skills/faststore-storefront/skill.md) — GraphQL extensions and data layer.
 - [marketplace-order-hook](../../../marketplace/skills/marketplace-order-hook/skill.md) — Marketplace order integration patterns.
 
 ## Reference
@@ -9591,7 +9591,7 @@ async function getSkuMetadataBatch(
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 
@@ -11343,7 +11343,7 @@ mutation CreateReview {
 ## Related skills
 
 - [`vtex-io-service-apps`](../vtex-io-service-apps/skill.md) — Service app fundamentals needed for all GraphQL resolvers
-- [`vtex-io-app-structure`](../vtex-io-app-structure/skill.md) — Manifest and builder configuration that GraphQL depends on
+- [`vtex-io-app-contract`](../vtex-io-app-contract/skill.md) — Manifest and builder configuration that GraphQL depends on
 - [`vtex-io-masterdata`](../vtex-io-masterdata/skill.md) — MasterData integration commonly used as a data source in resolvers
 
 ## Reference
@@ -15162,7 +15162,7 @@ Your transform sits at the **end** of whatever dependency chain it requires. Dec
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — Caching layers and parallel I/O applicable inside transforms
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix for the transform endpoint
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and middleware basics
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 

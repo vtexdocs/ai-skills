@@ -267,7 +267,7 @@ async function getSkuMetadataBatch(
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
-- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
 
 ## Reference
 

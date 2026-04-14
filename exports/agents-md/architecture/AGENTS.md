@@ -188,11 +188,11 @@ Before MD for new data:
 
 - [vtex-io-service-paths-and-cdn](../../../vtex-io/skills/vtex-io-service-paths-and-cdn/skill.md) — `service.json` paths, edge/CDN and session behavior.
 - [vtex-io-application-performance](../../../vtex-io/skills/vtex-io-application-performance/skill.md) — LRU/VBase, AppSettings, parallel fetches, tenant keys on shared pods.
-- [vtex-io-app-structure](../../../vtex-io/skills/vtex-io-app-structure/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
+- [vtex-io-app-contract](../../../vtex-io/skills/vtex-io-app-contract/skill.md) — IO manifest, builders, policies (use only after native/OOTB path is ruled out).
 - [vtex-io-masterdata](../../../vtex-io/skills/vtex-io-masterdata/skill.md) — Master Data v2 storage-fit scrutiny, BFF, single source of truth.
 - [headless-bff-architecture](../../../headless/skills/headless-bff-architecture/skill.md) — BFF and credential boundaries for headless.
 - [payment-pci-security](../../../payment/skills/payment-pci-security/skill.md) — PCI and Secure Proxy constraints.
-- [faststore-data-fetching](../../../faststore/skills/faststore-data-fetching/skill.md) — GraphQL extensions and data layer.
+- [faststore-storefront](../../../faststore/skills/faststore-storefront/skill.md) — GraphQL extensions and data layer.
 - [marketplace-order-hook](../../../marketplace/skills/marketplace-order-hook/skill.md) — Marketplace order integration patterns.
 
 ## Reference
