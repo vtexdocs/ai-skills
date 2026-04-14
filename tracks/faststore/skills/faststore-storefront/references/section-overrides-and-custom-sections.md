@@ -156,14 +156,9 @@ getOverriddenSection({
 
 When no native section fits your needs, create a section from scratch.
 
-### Checklist
+### Workflow
 
-1. **Create the component** in `src/components/sections/<Name>/` (or `src/components/<Name>/` for non-section sub-components)
-2. **Register it** in `src/components/index.tsx` with a unique key
-3. **Add a CMS schema** in `cms/faststore/components/cms_component__<sectionName>.jsonc`
-4. **Run `vtex content generate-schema cms/faststore/components cms/faststore/pages -o cms/faststore/schema.json -b vtex.faststore4`** to generate final schema file.
-5. **Run `vtex content upload-schema cms/faststore/schema.json`** to push final schema file to cms.
-6. If the section uses `@faststore/ui` components, **import their stylesheets manually** in its `.module.scss`
+Follow the **[Mandatory Workflow for New Custom Sections](./cms-schema-and-section-registration.md#mandatory-workflow-for-new-custom-sections)** in `cms-schema-and-section-registration.md` for the complete step-by-step process.
 
 ### `gql` usage restrictions
 

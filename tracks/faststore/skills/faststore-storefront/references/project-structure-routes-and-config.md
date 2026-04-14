@@ -146,6 +146,8 @@ module.exports = {
 
 ## CLI Scripts
 
+Example `package.json` scripts (many stores match this shape):
+
 ```json
 {
   "scripts": {
@@ -157,6 +159,8 @@ module.exports = {
   }
 }
 ```
+
+**Headless CMS schema:** Treat **`cms-sync` / `faststore cms-sync`** as **legacy** for **publishing or refreshing** the **Headless CMS** schema. The current flow is **`vtex content generate-schema`** and **`vtex content upload-schema`** (global **VTEX CLI**, `vtex` — not `npx vtex`). See [cms-schema-and-section-registration.md](cms-schema-and-section-registration.md) and the storefront [skill.md](../skill.md).
 
 ### What `faststore build` / `faststore dev` Does
 
@@ -174,16 +178,20 @@ module.exports = {
 
 ## Naming Conventions
 
-| What                 | Convention       | Example                                 |
-| -------------------- | ---------------- | --------------------------------------- |
-| Stylesheet filenames | kebab-case       | `custom-button.module.scss`             |
-| Component files      | PascalCase       | `CustomButton.tsx`                      |
-| Component exports    | PascalCase       | `export default CustomButton`           |
-| Function exports     | camelCase        | `export const getButtonVariants`        |
-| Constants            | UPPER_SNAKE_CASE | `const BUTTON_VARIANTS`                 |
-| Section folders      | PascalCase       | `src/components/sections/CustomButton/` |
-| GraphQL files        | camelCase        | `contactForm.graphql`                   |
-| Fragment files       | PascalCase       | `ServerProduct.ts`, `ClientProduct.ts`  |
+| What                    | Convention       | Example                                 |
+| ----------------------- | ---------------- | --------------------------------------- |
+| Stylesheet filenames    | kebab-case       | `custom-button.module.scss`             |
+| Component files         | PascalCase       | `CustomButton.tsx`                      |
+| Component exports       | PascalCase       | `export default CustomButton`           |
+| Function exports        | camelCase        | `export const getButtonVariants`        |
+| Constants               | UPPER_SNAKE_CASE | `const BUTTON_VARIANTS`                 |
+| Section folders         | PascalCase       | `src/components/sections/CustomButton/` |
+| GraphQL files           | camelCase        | `contactForm.graphql`                   |
+| Fragment files          | PascalCase       | `ServerProduct.ts`, `ClientProduct.ts`  |
+| Export key in index.tsx | PascalCase       | `CustomButton`                          |
+| $componentKey in JSONC  | PascalCase       | `CustomButton`                          |
+
+⚠️ **CRITICAL**: The $componentKey in JSONC MUST match the export key in index.tsx EXACTLY.
 
 ## Experimental Imports
 
