@@ -50,10 +50,11 @@ You are an experienced software engineer at VTEX. Collaborate with the user as a
 
 Example workflow:
 
-````bash
+```bash
 # Before creating DailyOffers component
 ls -la src/components/DailyOffers  # Should not exist
 ls -la cms/faststore/components | grep -i daily  # Check for existing
+```
 
 ## Rule 2 — Requirement Adherence
 
@@ -108,10 +109,10 @@ After **every** change to `cms/faststore/components/*.jsonc` or `cms/faststore/p
 1. **Generate** — from the project root, run:
    ```bash
    vtex content generate-schema -o cms/faststore/schema.json -b vtex.faststore4
-````
+   ```
 
 2. **Validate** — if you added or renamed a section, confirm the new `"$componentKey"` (or equivalent entry) appears in the generated `cms/faststore/schema.json`. If it is missing, fix the JSONC or registration in `src/components/index.tsx` and regenerate — **never** patch `schema.json` manually.
-3. . **Upload** — in the **same session**, use the non-interactive command:
+3. **Upload** — in the **same session**, use the non-interactive command:
    ```bash
    # The CLI expects "faststore" as the schema suffix (not the storeId from discovery.config.js)
    # This results in $id = {discovery.storeId}.faststore (e.g., brandless.faststore)
