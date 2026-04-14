@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO="vtex/skills"
+REPO_PATH="skills"
+
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <owner/repo> <path-in-repo> [destination] [folder-name]
+Usage: $(basename "$0") [destination] [folder-name]
 
-Clones a GitHub repository and copies a specific folder to a local destination.
+Installs a skill from ${REPO} (${REPO_PATH}/) to a local destination.
 When <destination> is omitted, prompts you to choose between Claude and Cursor.
-When <folder-name> is omitted, lists available folders at <path-in-repo> and
-lets you pick one interactively.
+When <folder-name> is omitted, lists available skills and lets you pick one
+interactively.
 
 Arguments:
-  owner/repo      GitHub repository (e.g. vtex/faststore)
-  path-in-repo    Path inside the repo to look for folders (use "." for root)
   destination     (Optional) A path or a keyword: "claude" (~/.claude/skills),
                   "cursor" (~/.cursor/skills). If omitted, you choose
                   interactively
-  folder-name     (Optional) Folder to copy; if omitted, you choose interactively
+  folder-name     (Optional) Skill to install; if omitted, you choose interactively
 
 Requirements:
   - git
 
 Examples:
-  $(basename "$0") vtex/faststore packages
-  $(basename "$0") vtex/faststore packages cursor
-  $(basename "$0") vtex/faststore packages claude
-  $(basename "$0") vtex/faststore packages /tmp
-  $(basename "$0") vtex/faststore packages /tmp ui
+  $(basename "$0")
+  $(basename "$0") cursor
+  $(basename "$0") claude
+  $(basename "$0") cursor faststore-storefront
+  $(basename "$0") /tmp faststore-storefront
 EOF
   exit 1
 }
@@ -153,13 +154,13 @@ pick_destination() {
 }
 
 main() {
-  (( $# < 2 )) && usage
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+  fi
   check_deps
 
-  local repo="$1"
-  local repo_path="$2"
-  local dest="${3:-}"
-  local folder="${4:-}"
+  local dest="${1:-}"
+  local folder="${2:-}"
 
   if [[ -z "$dest" ]]; then
     dest="$(pick_destination)"
@@ -167,7 +168,7 @@ main() {
     dest="$(resolve_destination "$dest")"
   fi
 
-  copy_folder "$repo" "$repo_path" "$folder" "$dest"
+  copy_folder "$REPO" "$REPO_PATH" "$folder" "$dest"
 }
 
 tmp_dir="$(mktemp -d)"
