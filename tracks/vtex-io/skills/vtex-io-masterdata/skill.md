@@ -357,10 +357,10 @@ Entities used for application **logging**, **caching** (IO app state, query resu
 
 ```typescript
 // Logs: use structured logger
-ctx.vtex.logger.info({ action: 'priceUpdate', skuId, newPrice })
+ctx.vtex.logger.info({ action: "priceUpdate", skuId, newPrice });
 
 // Cache: use VBase
-await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
+await ctx.clients.vbase.saveJSON("my-cache", cacheKey, data);
 ```
 
 **Wrong**
@@ -368,9 +368,13 @@ await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
 ```typescript
 // Using MD as a log store — creates millions of documents
 await ctx.clients.masterdata.createDocument({
-  dataEntity: 'appLogs',
-  fields: { level: 'info', message: `Price updated for ${skuId}`, timestamp: new Date() },
-})
+  dataEntity: "appLogs",
+  fields: {
+    level: "info",
+    message: `Price updated for ${skuId}`,
+    timestamp: new Date(),
+  },
+});
 ```
 
 ### Constraint: Do not create a parallel source of truth in Master Data without justification

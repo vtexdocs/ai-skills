@@ -535,12 +535,14 @@ This skill provides guidance for AI agents working with VTEX Payment Connector D
 ## When this skill applies
 
 Use this skill when:
+
 - Implementing any PPP endpoint handler that processes payments, cancellations, captures, or refunds
 - Ensuring repeated Gateway calls with the same identifiers produce identical results without re-processing
 - Building a payment state machine to prevent invalid transitions (e.g., capturing a cancelled payment)
 - Handling the Gateway's 7-day retry window for `undefined` status payments
 
 Do not use this skill for:
+
 - PPP endpoint response shapes and HTTP methods — use [`payment-provider-protocol`](../payment-provider-protocol/skill.md)
 - Async callback URL notification logic — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -567,8 +569,12 @@ The VTEX Gateway retries Create Payment requests with `undefined` status for up 
 If the Create Payment handler does not check for an existing `paymentId` before processing, STOP. The handler must query the data store for the `paymentId` first.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // Check for existing payment — idempotency guard
@@ -604,8 +610,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // No idempotency check — every call hits the acquirer
@@ -640,8 +650,12 @@ The Gateway uses the response fields (`authorizationId`, `tid`, `nsu`, `status`)
 If the handler creates a new database record or generates new identifiers when it finds an existing `paymentId`, STOP. The handler must return the previously stored response verbatim.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -656,8 +670,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -667,7 +685,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     const newTid = generateNewTid();
     res.status(200).json({
       ...existing.response,
-      tid: newTid,  // Different from original — breaks reconciliation
+      tid: newTid, // Different from original — breaks reconciliation
       nsu: generateNewNsu(),
     });
     return;
@@ -688,8 +706,12 @@ Returning `approved` for an async method tells the Gateway the payment is confir
 If the Create Payment handler returns `status: "approved"` or `status: "denied"` for an asynchronous payment method (Boleto, Pix, bank transfer, redirect-based), STOP. Async methods must return `"undefined"` and use callbacks.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   const isAsyncMethod = ["BankInvoice", "Pix"].includes(paymentMethod);
@@ -705,7 +727,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
     res.status(200).json({
       paymentId,
-      status: "undefined",  // Correct for async
+      status: "undefined", // Correct for async
       authorizationId: pending.authorizationId ?? null,
       nsu: pending.nsu ?? null,
       tid: pending.tid ?? null,
@@ -714,7 +736,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
       message: "Awaiting customer payment",
       delayToAutoSettle: 21600,
       delayToAutoSettleAfterAntifraud: 1800,
-      delayToCancel: 604800,  // 7 days for async
+      delayToCancel: 604800, // 7 days for async
       paymentUrl: pending.paymentUrl,
     });
     return;
@@ -726,8 +748,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod } = req.body;
 
   // WRONG: Approving a Pix payment synchronously
@@ -736,7 +762,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
   res.status(200).json({
     paymentId,
-    status: "approved",  // WRONG — Pix is async, should be "undefined"
+    status: "approved", // WRONG — Pix is async, should be "undefined"
     authorizationId: result.authorizationId ?? null,
     nsu: null,
     tid: null,
@@ -757,7 +783,13 @@ Payment state store with idempotency support:
 ```typescript
 interface PaymentRecord {
   paymentId: string;
-  status: "undefined" | "approved" | "denied" | "cancelled" | "settled" | "refunded";
+  status:
+    | "undefined"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | "settled"
+    | "refunded";
   response: Record<string, unknown>;
   callbackUrl?: string;
   createdAt: Date;
@@ -778,7 +810,10 @@ Idempotent Create Payment with state machine:
 ```typescript
 const store = new PaymentStore();
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   // Idempotency check
@@ -808,8 +843,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
   };
 
   await store.save(paymentId, {
-    paymentId, status, response, callbackUrl,
-    createdAt: new Date(), updatedAt: new Date(),
+    paymentId,
+    status,
+    response,
+    callbackUrl,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
   res.status(200).json(response);
@@ -819,7 +858,10 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 Idempotent Cancel with `requestId` guard and state validation:
 
 ```typescript
-async function cancelPaymentHandler(req: Request, res: Response): Promise<void> {
+async function cancelPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.params;
   const { requestId } = req.body;
 
@@ -854,7 +896,11 @@ async function cancelPaymentHandler(req: Request, res: Response): Promise<void> 
 
   await store.updateStatus(paymentId, "cancelled");
   await store.saveOperation(requestId, {
-    requestId, paymentId, operation: "cancel", response, createdAt: new Date(),
+    requestId,
+    paymentId,
+    operation: "cancel",
+    response,
+    createdAt: new Date(),
   });
 
   res.status(200).json(response);
@@ -1576,11 +1622,13 @@ This skill provides guidance for AI agents working with VTEX Payment Connector D
 ## When this skill applies
 
 Use this skill when:
+
 - Building a new payment connector middleware that integrates a PSP with the VTEX Payment Gateway
 - Implementing, debugging, or extending any of the 9 PPP endpoints
 - Preparing a connector for VTEX Payment Provider Test Suite homologation
 
 Do not use this skill for:
+
 - Idempotency and duplicate prevention logic — use [`payment-idempotency`](../payment-idempotency/skill.md)
 - Async payment flows and callback URLs — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy card handling — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -1607,6 +1655,7 @@ The VTEX Payment Provider Test Suite validates every endpoint during homologatio
 If the connector router/handler file does not define handlers for all 6 payment-flow paths, STOP and add the missing endpoints before proceeding.
 
 **Correct**
+
 ```typescript
 import { Router } from "express";
 
@@ -1618,12 +1667,16 @@ router.post("/payments", createPaymentHandler);
 router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
 router.post("/payments/:paymentId/settlements", capturePaymentHandler);
 router.post("/payments/:paymentId/refunds", refundPaymentHandler);
-router.post("/payments/:paymentId/inbound-request/:action", inboundRequestHandler);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  inboundRequestHandler,
+);
 
 export default router;
 ```
 
 **Wrong**
+
 ```typescript
 import { Router } from "express";
 
@@ -1649,6 +1702,7 @@ The Gateway parses these fields programmatically. Missing fields cause deseriali
 If a response object is missing any of the required fields for its endpoint, STOP and add the missing fields.
 
 **Correct**
+
 ```typescript
 interface CreatePaymentResponse {
   paymentId: string;
@@ -1665,8 +1719,12 @@ interface CreatePaymentResponse {
   paymentUrl?: string;
 }
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
-  const { paymentId, value, currency, paymentMethod, card, callbackUrl } = req.body;
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { paymentId, value, currency, paymentMethod, card, callbackUrl } =
+    req.body;
 
   const result = await processPaymentWithAcquirer(req.body);
 
@@ -1679,9 +1737,9 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     acquirer: "MyAcquirer",
     code: result.code ?? null,
     message: result.message ?? null,
-    delayToAutoSettle: 21600,    // 6 hours in seconds
+    delayToAutoSettle: 21600, // 6 hours in seconds
     delayToAutoSettleAfterAntifraud: 1800, // 30 minutes in seconds
-    delayToCancel: 21600,         // 6 hours in seconds
+    delayToCancel: 21600, // 6 hours in seconds
   };
 
   res.status(200).json(response);
@@ -1689,9 +1747,13 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
 // Missing required fields — Gateway will reject this response
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const result = await processPaymentWithAcquirer(req.body);
 
   // Missing: authorizationId, nsu, tid, acquirer, code, message,
@@ -1714,6 +1776,7 @@ The Gateway reads the manifest to determine which payment methods are available.
 If the manifest handler returns an empty `paymentMethods` array or hardcodes methods the provider does not actually support, STOP and fix the manifest.
 
 **Correct**
+
 ```typescript
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
   const manifest = {
@@ -1731,6 +1794,7 @@ async function manifestHandler(_req: Request, res: Response): Promise<void> {
 ```
 
 **Wrong**
+
 ```typescript
 // Empty manifest — no payment methods will appear in the Admin
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
@@ -1873,62 +1937,74 @@ router.post("/payments", async (req: Request, res: Response) => {
   res.status(200).json(response);
 });
 
-router.post("/payments/:paymentId/cancellations", async (req: Request, res: Response) => {
-  const { paymentId } = req.params;
-  const { requestId } = req.body;
-  const result = await cancelWithAcquirer(paymentId);
+router.post(
+  "/payments/:paymentId/cancellations",
+  async (req: Request, res: Response) => {
+    const { paymentId } = req.params;
+    const { requestId } = req.body;
+    const result = await cancelWithAcquirer(paymentId);
 
-  res.status(200).json({
-    paymentId,
-    cancellationId: result.cancellationId ?? null,
-    code: result.code ?? null,
-    message: result.message ?? "Successfully cancelled",
-    requestId,
-  });
-});
+    res.status(200).json({
+      paymentId,
+      cancellationId: result.cancellationId ?? null,
+      code: result.code ?? null,
+      message: result.message ?? "Successfully cancelled",
+      requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/settlements", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await captureWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/settlements",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await captureWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    settleId: result.settleId ?? null,
-    value: result.capturedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      settleId: result.settleId ?? null,
+      value: result.capturedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/refunds", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await refundWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/refunds",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await refundWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    refundId: result.refundId ?? null,
-    value: result.refundedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      refundId: result.refundId ?? null,
+      value: result.refundedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/inbound-request/:action", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await handleInbound(body);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await handleInbound(body);
 
-  res.status(200).json({
-    requestId: body.requestId,
-    paymentId: body.paymentId,
-    responseData: {
-      statusCode: 200,
-      contentType: "application/json",
-      content: JSON.stringify(result),
-    },
-  });
-});
+    res.status(200).json({
+      requestId: body.requestId,
+      paymentId: body.paymentId,
+      responseData: {
+        statusCode: 200,
+        contentType: "application/json",
+        content: JSON.stringify(result),
+      },
+    });
+  },
+);
 
 export default router;
 ```
@@ -1941,29 +2017,40 @@ import { Router, Request, Response } from "express";
 const configRouter = Router();
 
 // 1. POST /authorization/token
-configRouter.post("/authorization/token", async (req: Request, res: Response) => {
-  const { applicationId, returnUrl } = req.body;
-  const token = await generateAuthorizationToken(applicationId, returnUrl);
-  res.status(200).json({ applicationId, token });
-});
+configRouter.post(
+  "/authorization/token",
+  async (req: Request, res: Response) => {
+    const { applicationId, returnUrl } = req.body;
+    const token = await generateAuthorizationToken(applicationId, returnUrl);
+    res.status(200).json({ applicationId, token });
+  },
+);
 
 // 2. GET /authorization/redirect
-configRouter.get("/authorization/redirect", async (req: Request, res: Response) => {
-  const { token } = req.query;
-  const providerLoginUrl = buildProviderLoginUrl(token as string);
-  res.redirect(302, providerLoginUrl);
-});
+configRouter.get(
+  "/authorization/redirect",
+  async (req: Request, res: Response) => {
+    const { token } = req.query;
+    const providerLoginUrl = buildProviderLoginUrl(token as string);
+    res.redirect(302, providerLoginUrl);
+  },
+);
 
 // 3. GET /authorization/credentials
-configRouter.get("/authorization/credentials", async (req: Request, res: Response) => {
-  const { authorizationCode } = req.query;
-  const credentials = await exchangeCodeForCredentials(authorizationCode as string);
-  res.status(200).json({
-    applicationId: "vtex",
-    appKey: credentials.appKey,
-    appToken: credentials.appToken,
-  });
-});
+configRouter.get(
+  "/authorization/credentials",
+  async (req: Request, res: Response) => {
+    const { authorizationCode } = req.query;
+    const credentials = await exchangeCodeForCredentials(
+      authorizationCode as string,
+    );
+    res.status(200).json({
+      applicationId: "vtex",
+      appKey: credentials.appKey,
+      appToken: credentials.appToken,
+    });
+  },
+);
 
 export default configRouter;
 ```

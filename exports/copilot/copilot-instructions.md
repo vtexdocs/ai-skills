@@ -7360,12 +7360,14 @@ async function notifyGateway(callbackUrl: string, payload: object): Promise<void
 ## When this skill applies
 
 Use this skill when:
+
 - Implementing any PPP endpoint handler that processes payments, cancellations, captures, or refunds
 - Ensuring repeated Gateway calls with the same identifiers produce identical results without re-processing
 - Building a payment state machine to prevent invalid transitions (e.g., capturing a cancelled payment)
 - Handling the Gateway's 7-day retry window for `undefined` status payments
 
 Do not use this skill for:
+
 - PPP endpoint response shapes and HTTP methods — use [`payment-provider-protocol`](../payment-provider-protocol/skill.md)
 - Async callback URL notification logic — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -7392,8 +7394,12 @@ The VTEX Gateway retries Create Payment requests with `undefined` status for up 
 If the Create Payment handler does not check for an existing `paymentId` before processing, STOP. The handler must query the data store for the `paymentId` first.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // Check for existing payment — idempotency guard
@@ -7429,8 +7435,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // No idempotency check — every call hits the acquirer
@@ -7465,8 +7475,12 @@ The Gateway uses the response fields (`authorizationId`, `tid`, `nsu`, `status`)
 If the handler creates a new database record or generates new identifiers when it finds an existing `paymentId`, STOP. The handler must return the previously stored response verbatim.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -7481,8 +7495,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -7492,7 +7510,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     const newTid = generateNewTid();
     res.status(200).json({
       ...existing.response,
-      tid: newTid,  // Different from original — breaks reconciliation
+      tid: newTid, // Different from original — breaks reconciliation
       nsu: generateNewNsu(),
     });
     return;
@@ -7513,8 +7531,12 @@ Returning `approved` for an async method tells the Gateway the payment is confir
 If the Create Payment handler returns `status: "approved"` or `status: "denied"` for an asynchronous payment method (Boleto, Pix, bank transfer, redirect-based), STOP. Async methods must return `"undefined"` and use callbacks.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   const isAsyncMethod = ["BankInvoice", "Pix"].includes(paymentMethod);
@@ -7530,7 +7552,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
     res.status(200).json({
       paymentId,
-      status: "undefined",  // Correct for async
+      status: "undefined", // Correct for async
       authorizationId: pending.authorizationId ?? null,
       nsu: pending.nsu ?? null,
       tid: pending.tid ?? null,
@@ -7539,7 +7561,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
       message: "Awaiting customer payment",
       delayToAutoSettle: 21600,
       delayToAutoSettleAfterAntifraud: 1800,
-      delayToCancel: 604800,  // 7 days for async
+      delayToCancel: 604800, // 7 days for async
       paymentUrl: pending.paymentUrl,
     });
     return;
@@ -7551,8 +7573,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod } = req.body;
 
   // WRONG: Approving a Pix payment synchronously
@@ -7561,7 +7587,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
   res.status(200).json({
     paymentId,
-    status: "approved",  // WRONG — Pix is async, should be "undefined"
+    status: "approved", // WRONG — Pix is async, should be "undefined"
     authorizationId: result.authorizationId ?? null,
     nsu: null,
     tid: null,
@@ -7582,7 +7608,13 @@ Payment state store with idempotency support:
 ```typescript
 interface PaymentRecord {
   paymentId: string;
-  status: "undefined" | "approved" | "denied" | "cancelled" | "settled" | "refunded";
+  status:
+    | "undefined"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | "settled"
+    | "refunded";
   response: Record<string, unknown>;
   callbackUrl?: string;
   createdAt: Date;
@@ -7603,7 +7635,10 @@ Idempotent Create Payment with state machine:
 ```typescript
 const store = new PaymentStore();
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   // Idempotency check
@@ -7633,8 +7668,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
   };
 
   await store.save(paymentId, {
-    paymentId, status, response, callbackUrl,
-    createdAt: new Date(), updatedAt: new Date(),
+    paymentId,
+    status,
+    response,
+    callbackUrl,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
   res.status(200).json(response);
@@ -7644,7 +7683,10 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 Idempotent Cancel with `requestId` guard and state validation:
 
 ```typescript
-async function cancelPaymentHandler(req: Request, res: Response): Promise<void> {
+async function cancelPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.params;
   const { requestId } = req.body;
 
@@ -7679,7 +7721,11 @@ async function cancelPaymentHandler(req: Request, res: Response): Promise<void> 
 
   await store.updateStatus(paymentId, "cancelled");
   await store.saveOperation(requestId, {
-    requestId, paymentId, operation: "cancel", response, createdAt: new Date(),
+    requestId,
+    paymentId,
+    operation: "cancel",
+    response,
+    createdAt: new Date(),
   });
 
   res.status(200).json(response);
@@ -8395,11 +8441,13 @@ Replace all example vendor names, endpoints, and credentials with values for you
 ## When this skill applies
 
 Use this skill when:
+
 - Building a new payment connector middleware that integrates a PSP with the VTEX Payment Gateway
 - Implementing, debugging, or extending any of the 9 PPP endpoints
 - Preparing a connector for VTEX Payment Provider Test Suite homologation
 
 Do not use this skill for:
+
 - Idempotency and duplicate prevention logic — use [`payment-idempotency`](../payment-idempotency/skill.md)
 - Async payment flows and callback URLs — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy card handling — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -8426,6 +8474,7 @@ The VTEX Payment Provider Test Suite validates every endpoint during homologatio
 If the connector router/handler file does not define handlers for all 6 payment-flow paths, STOP and add the missing endpoints before proceeding.
 
 **Correct**
+
 ```typescript
 import { Router } from "express";
 
@@ -8437,12 +8486,16 @@ router.post("/payments", createPaymentHandler);
 router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
 router.post("/payments/:paymentId/settlements", capturePaymentHandler);
 router.post("/payments/:paymentId/refunds", refundPaymentHandler);
-router.post("/payments/:paymentId/inbound-request/:action", inboundRequestHandler);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  inboundRequestHandler,
+);
 
 export default router;
 ```
 
 **Wrong**
+
 ```typescript
 import { Router } from "express";
 
@@ -8468,6 +8521,7 @@ The Gateway parses these fields programmatically. Missing fields cause deseriali
 If a response object is missing any of the required fields for its endpoint, STOP and add the missing fields.
 
 **Correct**
+
 ```typescript
 interface CreatePaymentResponse {
   paymentId: string;
@@ -8484,8 +8538,12 @@ interface CreatePaymentResponse {
   paymentUrl?: string;
 }
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
-  const { paymentId, value, currency, paymentMethod, card, callbackUrl } = req.body;
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { paymentId, value, currency, paymentMethod, card, callbackUrl } =
+    req.body;
 
   const result = await processPaymentWithAcquirer(req.body);
 
@@ -8498,9 +8556,9 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     acquirer: "MyAcquirer",
     code: result.code ?? null,
     message: result.message ?? null,
-    delayToAutoSettle: 21600,    // 6 hours in seconds
+    delayToAutoSettle: 21600, // 6 hours in seconds
     delayToAutoSettleAfterAntifraud: 1800, // 30 minutes in seconds
-    delayToCancel: 21600,         // 6 hours in seconds
+    delayToCancel: 21600, // 6 hours in seconds
   };
 
   res.status(200).json(response);
@@ -8508,9 +8566,13 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
 // Missing required fields — Gateway will reject this response
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const result = await processPaymentWithAcquirer(req.body);
 
   // Missing: authorizationId, nsu, tid, acquirer, code, message,
@@ -8533,6 +8595,7 @@ The Gateway reads the manifest to determine which payment methods are available.
 If the manifest handler returns an empty `paymentMethods` array or hardcodes methods the provider does not actually support, STOP and fix the manifest.
 
 **Correct**
+
 ```typescript
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
   const manifest = {
@@ -8550,6 +8613,7 @@ async function manifestHandler(_req: Request, res: Response): Promise<void> {
 ```
 
 **Wrong**
+
 ```typescript
 // Empty manifest — no payment methods will appear in the Admin
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
@@ -8692,62 +8756,74 @@ router.post("/payments", async (req: Request, res: Response) => {
   res.status(200).json(response);
 });
 
-router.post("/payments/:paymentId/cancellations", async (req: Request, res: Response) => {
-  const { paymentId } = req.params;
-  const { requestId } = req.body;
-  const result = await cancelWithAcquirer(paymentId);
+router.post(
+  "/payments/:paymentId/cancellations",
+  async (req: Request, res: Response) => {
+    const { paymentId } = req.params;
+    const { requestId } = req.body;
+    const result = await cancelWithAcquirer(paymentId);
 
-  res.status(200).json({
-    paymentId,
-    cancellationId: result.cancellationId ?? null,
-    code: result.code ?? null,
-    message: result.message ?? "Successfully cancelled",
-    requestId,
-  });
-});
+    res.status(200).json({
+      paymentId,
+      cancellationId: result.cancellationId ?? null,
+      code: result.code ?? null,
+      message: result.message ?? "Successfully cancelled",
+      requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/settlements", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await captureWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/settlements",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await captureWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    settleId: result.settleId ?? null,
-    value: result.capturedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      settleId: result.settleId ?? null,
+      value: result.capturedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/refunds", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await refundWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/refunds",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await refundWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    refundId: result.refundId ?? null,
-    value: result.refundedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      refundId: result.refundId ?? null,
+      value: result.refundedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/inbound-request/:action", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await handleInbound(body);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await handleInbound(body);
 
-  res.status(200).json({
-    requestId: body.requestId,
-    paymentId: body.paymentId,
-    responseData: {
-      statusCode: 200,
-      contentType: "application/json",
-      content: JSON.stringify(result),
-    },
-  });
-});
+    res.status(200).json({
+      requestId: body.requestId,
+      paymentId: body.paymentId,
+      responseData: {
+        statusCode: 200,
+        contentType: "application/json",
+        content: JSON.stringify(result),
+      },
+    });
+  },
+);
 
 export default router;
 ```
@@ -8760,29 +8836,40 @@ import { Router, Request, Response } from "express";
 const configRouter = Router();
 
 // 1. POST /authorization/token
-configRouter.post("/authorization/token", async (req: Request, res: Response) => {
-  const { applicationId, returnUrl } = req.body;
-  const token = await generateAuthorizationToken(applicationId, returnUrl);
-  res.status(200).json({ applicationId, token });
-});
+configRouter.post(
+  "/authorization/token",
+  async (req: Request, res: Response) => {
+    const { applicationId, returnUrl } = req.body;
+    const token = await generateAuthorizationToken(applicationId, returnUrl);
+    res.status(200).json({ applicationId, token });
+  },
+);
 
 // 2. GET /authorization/redirect
-configRouter.get("/authorization/redirect", async (req: Request, res: Response) => {
-  const { token } = req.query;
-  const providerLoginUrl = buildProviderLoginUrl(token as string);
-  res.redirect(302, providerLoginUrl);
-});
+configRouter.get(
+  "/authorization/redirect",
+  async (req: Request, res: Response) => {
+    const { token } = req.query;
+    const providerLoginUrl = buildProviderLoginUrl(token as string);
+    res.redirect(302, providerLoginUrl);
+  },
+);
 
 // 3. GET /authorization/credentials
-configRouter.get("/authorization/credentials", async (req: Request, res: Response) => {
-  const { authorizationCode } = req.query;
-  const credentials = await exchangeCodeForCredentials(authorizationCode as string);
-  res.status(200).json({
-    applicationId: "vtex",
-    appKey: credentials.appKey,
-    appToken: credentials.appToken,
-  });
-});
+configRouter.get(
+  "/authorization/credentials",
+  async (req: Request, res: Response) => {
+    const { authorizationCode } = req.query;
+    const credentials = await exchangeCodeForCredentials(
+      authorizationCode as string,
+    );
+    res.status(200).json({
+      applicationId: "vtex",
+      appKey: credentials.appKey,
+      appToken: credentials.appToken,
+    });
+  },
+);
 
 export default configRouter;
 ```
@@ -9099,7 +9186,7 @@ Do not use this skill for:
 - **Parallel requests** — When resolvers need **independent** upstream calls, run them **in parallel**; combine only when outputs depend on each other.
 - **Timeouts on every outbound call** — Every `ctx.clients` call and external HTTP request **must** have an explicit **timeout**. Use `@vtex/api` client options (`timeout`, `retries`, `exponentialTimeoutCoefficient`) to tune per-client behavior. Unbounded waits are the top cause of cascading failures in distributed systems.
 - **Graceful degradation** — When an upstream is slow or down, **fail open** where the business allows (return cached/default data, skip optional enrichment) rather than blocking the response. Consider **circuit breaker** patterns for chronically failing dependencies.
-- **Never cache real-time transactional state** — **Order forms**, **cart simulations**, **payment responses**, **full session state**, and **commitment pricing** must never be served from cache. They reflect live, mutable state that changes on every interaction. Caching these creates stale prices, phantom inventory, or duplicate charges.
+- **Be deliberate with transactional data caching** — **Payment responses** and **active transaction state** must **never** be cached. For other transactional data (**order forms**, **cart simulations**, **session state**), the default is no cache, but **short-lived** caches (TTL < 5 min) can be acceptable when the consumer tolerates brief staleness. Confirm the use case explicitly before caching—long TTLs on transactional data create stale prices, phantom inventory, or inconsistent state.
 - **Resolver chain deduplication** — When a resolver chain calls the **same** client method **multiple times** (e.g. `getCostCenter` in the resolver and again inside a helper), **deduplicate**: call once, pass the result through, or stash in `ctx.state`. Serial waterfalls of 7+ calls that could be 3 parallel + 1 sequential are the top performance sink.
 - **Phased `Promise.all`** — Group independent calls into **parallel phases**. Phase 1: `Promise.all([getOrderForm(), getCostCenter(), getSession()])`. Phase 2 (depends on Phase 1): `getSkuMetadata()`. Phase 3 (depends on Phase 2): `generatePrice()`. Never `await` six calls sequentially when only two depend on each other.
 - **Batch mutations** — When setting multiple values (e.g. `setManualPrice` per cart item), use `Promise.all` instead of a sequential loop. Each `await` in a loop adds a full round-trip.
@@ -9117,11 +9204,11 @@ Do not use this skill for:
 - **`timeout`** — Maximum seconds before the platform kills a request. Set based on the longest expected operation; do not leave at the default if your resolver calls slow upstreams.
 - **`memory`** — MB per worker. Increase if LRU caches or large payloads cause OOM; monitor actual usage before over-provisioning.
 - **`workers`** — Concurrent request handlers per replica. More workers handle more concurrent requests but each shares the memory budget and in-process LRU.
-- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling. For payment-critical or high-throughput apps, set `minReplicas >= 2` so cold starts don't hit production traffic.
+- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling under load. Note: **all pods scale to zero** when the app receives no requests for the duration of its `ttl` (max 60 minutes). `minReplicas` only governs the floor while traffic exists—it does **not** keep pods alive indefinitely. Design for cold starts: first request after idle spins up a new pod, so keep LRU warm-up cost low and avoid relying on in-memory state surviving idle periods.
 
 ### Tenancy and in-memory caches
 
-IO runs **per app version per shard**, with pods **shared across accounts**: every request is still resolved in **`{account, workspace}`** context. **VBase**, app buckets, and related platform stores **partition data** by account/workspace. **In-process** LRU/module `Map` **does not**—you must **key** explicitly with **`ctx.vtex.account`** and **`ctx.vtex.workspace`** (plus entity id) so **two** consecutive requests for **different** accounts on the **same pod** cannot read each other’s entries.
+Pods **can** be shared across accounts, but **every request is always scoped** to a specific **`{account, workspace}`** by the platform—`ctx.vtex.account` and `ctx.vtex.workspace` are set by the runtime, not by the developer. All platform APIs (**VBase**, app buckets, Master Data, etc.) **automatically partition data** by account/workspace, so their responses are tenant-safe by design. The **only** risk is **in-process** state: LRU caches, module-level `Map`s, or global variables that **you** manage—these are **not** partitioned by the platform and must be **keyed** explicitly with **`ctx.vtex.account`** and **`ctx.vtex.workspace`** (plus entity id) so **two** consecutive requests for **different** accounts on the **same pod** cannot read each other’s entries.
 
 ## Hard constraints
 
@@ -9148,52 +9235,66 @@ function cacheKey(ctx: Context, subjectId: string) {
 
 When VBase serves as an **idempotency store** (e.g. payment connectors storing transaction state) or a **data-integrity store**, writes **must** be **awaited**. Fire-and-forget writes risk silent failure: a successful upstream operation (e.g. a charge) whose VBase record is lost causes a **duplicate** on the next retry.
 
-**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization, the connector cannot find the previous result and sends **another** payment request—causing a **duplicate charge**.
+For **payment connectors**, the first line of defense is the **acquirer/gateway idempotency feature**: pass the **VTEX `paymentId`** as the idempotency key to the external payment provider (e.g. via an `Idempotency-Key` HTTP header). This ensures the provider itself rejects duplicate charges even if VBase state is lost. VBase remains essential for local state tracking and for returning the correct response to VTEX Gateway retries, but the external idempotency key prevents the worst outcome (double charge) at the provider level.
 
-**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution.
+**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization and the acquirer has no idempotency key, the connector sends **another** payment request—causing a **duplicate charge**. With the acquirer idempotency key in place, the provider rejects the duplicate; without it, VBase is the only safeguard.
 
-**Correct** — Await the write; accept the latency cost for correctness.
+**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution. Also check whether the external payment call includes an idempotency key header.
+
+**Correct** — Use acquirer idempotency key **and** await VBase writes.
 
 ```typescript
-// Critical path: await guarantees the idempotency record is persisted
+// Pass VTEX paymentId as idempotency key to the acquirer
+const response = await ctx.clients.paymentProvider.authorize(paymentData, {
+  headers: { 'Idempotency-Key': authorization.paymentId },
+})
+
+// Await VBase write for local state tracking
 await ctx.clients.vbase.saveJSON<Transaction>('transactions', paymentId, transactionData)
 return Authorizations.approve(authorization, { ... })
 ```
 
-**Wrong** — Fire-and-forget in a payment flow.
+**Wrong** — No acquirer idempotency key and fire-and-forget VBase write.
 
 ```typescript
-// No await — if this fails silently, the next retry creates a duplicate charge
+// No idempotency key to the acquirer + no await on VBase
+const response = await ctx.clients.paymentProvider.authorize(paymentData)
 ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
 return Authorizations.approve(authorization, { ... })
 ```
 
-### Constraint: Do not cache real-time transactional data
+### Constraint: Be deliberate when caching transactional or near-real-time data
 
-**Order forms**, **cart simulation responses**, **payment statuses**, **full session state**, and **commitment prices** must **never** be served from LRU, VBase, or any cache layer. They reflect live mutable state.
+**Payment statuses** and **active transaction state** must **never** be cached—they are strictly real-time. For other transactional data like **order forms**, **cart simulations**, and **session state**, the default is **no cache**, but **short-lived caches** (e.g. 1–5 minutes) can be acceptable when the use case tolerates brief staleness. This is a **case-by-case** decision: explicitly confirm that the consumer can handle stale data for the chosen TTL before caching.
 
-**Why this matters** — Serving a cached order form shows phantom items, stale prices, or wrong quantities. Caching payment responses could return a previous transaction's status for a different payment. Caching cart simulations returns stale availability and pricing.
+**Why this matters** — Serving a cached order form may show phantom items or stale prices. Caching payment responses could return a previous transaction's status. However, for read-heavy scenarios where the same data is requested repeatedly within seconds (e.g. a product listing page fetching simulation data for multiple components), a short-lived cache can dramatically reduce load on upstream APIs without meaningful user impact.
 
-**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching. Or a resolver that caches the result of `checkout.orderForm()`.
+**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching **without** an explicit TTL decision or justification. Long TTLs (>5 min) on transactional data are almost always wrong. Any cache on payment responses or active transaction state is wrong.
 
-**Correct** — Always call the live API for transactional data; cache **reference data** (org, cost center, config, seller lists) around it.
+**Correct** — Separate reference data (always cache) from transactional data (default no cache, short TTL only with explicit justification).
 
 ```typescript
 // Reference data: cached (changes rarely)
 const costCenter = await getCostCenterCached(ctx, costCenterId)
 const sellerList = await getSellerListCached(ctx)
 
-// Transactional data: always live
+// Transactional data: default live, but short cache is acceptable if justified
 const orderForm = await ctx.clients.checkout.orderForm()
 const simulation = await ctx.clients.checkout.simulation(payload)
+
+// Acceptable: short-lived cache for a read-heavy page (e.g. simulation results
+// reused across multiple components within the same page render, TTL < 60s)
+// Only after confirming staleness is acceptable for this specific consumer.
 ```
 
-**Wrong** — Caching the order form or cart simulation.
+**Wrong** — Long-lived cache on transactional data, or any cache on payment state.
 
 ```typescript
-const cacheKey = `orderForm:${orderFormId}`
-const cached = orderFormCache.get(cacheKey)
-if (cached) return cached // Stale cart state served to user
+// Never cache payment responses or transaction status
+const paymentCache = lru({ max: 1000, ttl: 300_000 })
+
+// Avoid: long TTL on order form without explicit justification
+const orderFormCache = lru({ max: 500, ttl: 600_000 }) // 10 min is too long
 ```
 
 ### Constraint: Do not block the purchase path on slow or unbounded cache refresh
@@ -9221,62 +9322,62 @@ if (cached) return cached // Stale cart state served to user
 
 ```typescript
 // BEFORE: 7 sequential awaits, 2 duplicate calls
-const settings = await getAppSettings(ctx)          // 1
-const session = await getSessions(ctx)               // 2
-const costCenter = await getCostCenter(ctx, ccId)    // 3
-const orderForm = await getOrderForm(ctx)            // 4
-const skus = await getSkuById(ctx, skuIds)           // 5
-const price = await generatePrice(ctx, costCenter)   // 6 (calls getCostCenter AGAIN + getSession AGAIN)
+const settings = await getAppSettings(ctx); // 1
+const session = await getSessions(ctx); // 2
+const costCenter = await getCostCenter(ctx, ccId); // 3
+const orderForm = await getOrderForm(ctx); // 4
+const skus = await getSkuById(ctx, skuIds); // 5
+const price = await generatePrice(ctx, costCenter); // 6 (calls getCostCenter AGAIN + getSession AGAIN)
 for (const item of items) {
-  await setManualPrice(ctx, item)                    // 7, 8, 9... (sequential loop)
+  await setManualPrice(ctx, item); // 7, 8, 9... (sequential loop)
 }
 
 // AFTER: 3 phases, no duplicates, parallel mutations
-const settings = await getAppSettings(ctx)
+const settings = await getAppSettings(ctx);
 const [session, costCenter, orderForm] = await Promise.all([
   getSessions(ctx),
   getCostCenter(ctx, ccId),
   getOrderForm(ctx),
-])
-const skus = await getSkuMetadataBatch(ctx, skuIds)  // per-entity VBase cache
-const price = await generatePrice(ctx, costCenter, session)  // reuse, no re-fetch
-await Promise.all(items.map(item => setManualPrice(ctx, item)))
+]);
+const skus = await getSkuMetadataBatch(ctx, skuIds); // per-entity VBase cache
+const price = await generatePrice(ctx, costCenter, session); // reuse, no re-fetch
+await Promise.all(items.map((item) => setManualPrice(ctx, item)));
 ```
 
 ### Per-entity VBase caching
 
 ```typescript
 interface SkuMetadata {
-  skuId: string
-  mappedSku: string | null
-  isSpecialItem: boolean
+  skuId: string;
+  mappedSku: string | null;
+  isSpecialItem: boolean;
 }
 
 async function getSkuMetadataBatch(
   ctx: Context,
   skuIds: string[],
 ): Promise<Map<string, SkuMetadata>> {
-  const { vbase, search } = ctx.clients
-  const results = new Map<string, SkuMetadata>()
+  const { vbase, search } = ctx.clients;
+  const results = new Map<string, SkuMetadata>();
 
   // Phase 1: check VBase for each SKU in parallel
   const lookups = await Promise.allSettled(
-    skuIds.map(id => vbase.getJSON<SkuMetadata>('sku-metadata', `sku:${id}`))
-  )
+    skuIds.map((id) => vbase.getJSON<SkuMetadata>("sku-metadata", `sku:${id}`)),
+  );
 
-  const missing: string[] = []
+  const missing: string[] = [];
   lookups.forEach((result, i) => {
-    if (result.status === 'fulfilled' && result.value) {
-      results.set(skuIds[i], result.value)
+    if (result.status === "fulfilled" && result.value) {
+      results.set(skuIds[i], result.value);
     } else {
-      missing.push(skuIds[i])
+      missing.push(skuIds[i]);
     }
-  })
+  });
 
-  if (missing.length === 0) return results
+  if (missing.length === 0) return results;
 
   // Phase 2: fetch only missing SKUs from API
-  const products = await search.getSkuById(missing)
+  const products = await search.getSkuById(missing);
 
   // Phase 3: cache ALL sibling SKUs (prewarm)
   for (const product of products) {
@@ -9285,14 +9386,16 @@ async function getSkuMetadataBatch(
         skuId: sku.itemId,
         mappedSku: extractMapping(sku),
         isSpecialItem: checkSpecial(sku),
-      }
-      results.set(sku.itemId, metadata)
+      };
+      results.set(sku.itemId, metadata);
       // Fire-and-forget for prewarming (not idempotency-critical)
-      vbase.saveJSON('sku-metadata', `sku:${sku.itemId}`, metadata).catch(() => {})
+      vbase
+        .saveJSON("sku-metadata", `sku:${sku.itemId}`, metadata)
+        .catch(() => {});
     }
   }
 
-  return results
+  return results;
 }
 ```
 
@@ -9304,7 +9407,7 @@ async function getSkuMetadataBatch(
 - **Serial awaits** — Three **independent** Janus calls **awaited** one after another; total latency = sum of all instead of max.
 - **Duplicate calls in resolver chains** — `getCostCenter` called in the resolver and again inside a helper; `getSession` called twice in the same flow. Each duplicate adds a full round-trip.
 - **Blob VBase keys** — Keying VBase by `sortedCartSkuIds` means adding 1 item to a cart of 10 requires a full re-fetch instead of 1 lookup.
-- **Caching transactional data** — Order forms, cart simulations, payment responses served from cache; stale prices, phantom items, or duplicate charges.
+- **Long-lived cache on transactional data** — Order forms or cart simulations cached with long TTLs without explicit justification; payment responses or transaction state cached at all.
 - **Fire-and-forget writes in critical paths** — Unawaited VBase writes for idempotency stores; silent failure causes duplicates on retry.
 - **No explicit timeouts** — Relying on default or infinite timeouts for upstream calls; one slow dependency stalls the whole request chain.
 - **Global mutable singletons** — Module-level mutable objects (e.g. token cache metadata) modified by concurrent requests cause race conditions and incorrect behavior.
@@ -9323,7 +9426,7 @@ async function getSkuMetadataBatch(
 - [ ] Does every outbound call have an explicit **timeout** (via `@vtex/api` client options or equivalent)?
 - [ ] For unreliable upstreams, is there a **degradation** path (cached fallback, skip, circuit breaker)?
 - [ ] Are VBase writes **awaited** in financial or idempotency-critical paths?
-- [ ] Is **transactional data** (order form, cart sim, payment) always fetched live, never from cache?
+- [ ] Is **payment/transaction state** always fetched live? For other transactional data (order form, cart sim), is any cache **short-lived** with explicit justification?
 - [ ] Are VBase keys **per-entity** (not blob) for high-cardinality data like SKUs?
 - [ ] Are `service.json` resource limits (`timeout`, `memory`, `workers`, `replicas`) tuned for the workload?
 - [ ] Is logging done via `ctx.vtex.logger` (not `console.log`) with sensitive data redacted?
@@ -10416,10 +10519,10 @@ Entities used for application **logging**, **caching** (IO app state, query resu
 
 ```typescript
 // Logs: use structured logger
-ctx.vtex.logger.info({ action: 'priceUpdate', skuId, newPrice })
+ctx.vtex.logger.info({ action: "priceUpdate", skuId, newPrice });
 
 // Cache: use VBase
-await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
+await ctx.clients.vbase.saveJSON("my-cache", cacheKey, data);
 ```
 
 **Wrong**
@@ -10427,9 +10530,13 @@ await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
 ```typescript
 // Using MD as a log store — creates millions of documents
 await ctx.clients.masterdata.createDocument({
-  dataEntity: 'appLogs',
-  fields: { level: 'info', message: `Price updated for ${skuId}`, timestamp: new Date() },
-})
+  dataEntity: "appLogs",
+  fields: {
+    level: "info",
+    message: `Price updated for ${skuId}`,
+    timestamp: new Date(),
+  },
+});
 ```
 
 ### Constraint: Do not create a parallel source of truth in Master Data without justification
@@ -12064,7 +12171,13 @@ Your session transform must output **only** fields that come from **your** compu
 {
   "my-session-app": {
     "output": {
-      "myapp": ["costcenter", "organization", "postalCode", "priceTable", "storeNumber"]
+      "myapp": [
+        "costcenter",
+        "organization",
+        "postalCode",
+        "priceTable",
+        "storeNumber"
+      ]
     }
   }
 }
@@ -12118,11 +12231,11 @@ Storefront components and middleware must read session data from the **authorita
 ```typescript
 // Read from the authoritative namespace
 const { data } = useSessionItems([
-  'myapp.storeNumber',
-  'myapp.priceTable',
-  'storefront-permissions.costcenter',
-  'storefront-permissions.organization',
-])
+  "myapp.storeNumber",
+  "myapp.priceTable",
+  "storefront-permissions.costcenter",
+  "storefront-permissions.organization",
+]);
 ```
 
 **Wrong**
@@ -12130,10 +12243,10 @@ const { data } = useSessionItems([
 ```typescript
 // Reading from public as if it were the source of truth
 const { data } = useSessionItems([
-  'public.storeNumber',
-  'public.organization',
-  'public.costCenter',
-])
+  "public.storeNumber",
+  "public.organization",
+  "public.costCenter",
+]);
 ```
 
 ## Preferred pattern
@@ -12146,7 +12259,11 @@ Declare your transform's input dependencies and output fields:
 {
   "my-session-app": {
     "input": {
-      "storefront-permissions": ["costcenter", "organization", "costCenterAddressId"]
+      "storefront-permissions": [
+        "costcenter",
+        "organization",
+        "costCenterAddressId"
+      ]
     },
     "output": {
       "myapp": ["storeNumber", "priceTable"]
@@ -12160,22 +12277,22 @@ Declare your transform's input dependencies and output fields:
 ```typescript
 // node/handlers/transform.ts
 export async function transform(ctx: Context) {
-  const { costcenter, organization } = parseSfpInputs(ctx.request.body)
+  const { costcenter, organization } = parseSfpInputs(ctx.request.body);
 
   if (!costcenter) {
-    ctx.body = { myapp: {} }
-    return
+    ctx.body = { myapp: {} };
+    return;
   }
 
-  const costCenterData = await getCostCenterCached(ctx, costcenter)
-  const pricing = await resolvePricing(ctx, costCenterData)
+  const costCenterData = await getCostCenterCached(ctx, costcenter);
+  const pricing = await resolvePricing(ctx, costCenterData);
 
   ctx.body = {
     myapp: {
       storeNumber: pricing.storeNumber,
       priceTable: pricing.priceTable,
     },
-  }
+  };
 }
 ```
 
@@ -12183,25 +12300,28 @@ export async function transform(ctx: Context) {
 
 ```typescript
 // Two-layer cache: LRU (sub-ms) -> VBase (persistent, SWR) -> API
-const costCenterLRU = new LRU<string, CostCenterData>({ max: 1000, ttl: 600_000 })
+const costCenterLRU = new LRU<string, CostCenterData>({
+  max: 1000,
+  ttl: 600_000,
+});
 
 async function getCostCenterCached(ctx: Context, costCenterId: string) {
-  const { account, workspace } = ctx.vtex
-  const key = `${account}:${workspace}:${costCenterId}`
+  const { account, workspace } = ctx.vtex;
+  const key = `${account}:${workspace}:${costCenterId}`;
 
-  const lruHit = costCenterLRU.get(key)
-  if (lruHit) return lruHit
+  const lruHit = costCenterLRU.get(key);
+  if (lruHit) return lruHit;
 
   const result = await staleFromVBaseWhileRevalidate(
     ctx.clients.vbase,
-    'cost-centers',
+    "cost-centers",
     costCenterId,
     () => fetchCostCenterFromAPI(ctx, costCenterId),
-    { ttlMs: 1_800_000 }
-  )
+    { ttlMs: 1_800_000 },
+  );
 
-  costCenterLRU.set(key, result)
-  return result
+  costCenterLRU.set(key, result);
+  return result;
 }
 ```
 
