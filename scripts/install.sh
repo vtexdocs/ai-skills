@@ -73,6 +73,7 @@ pick_folder() {
     exit 1
   fi
 
+  clear
   echo "Available folders:" >&2
   for i in "${!folders[@]}"; do
     printf "  %d) %s\n" $((i + 1)) "${folders[$i]}" >&2
@@ -138,6 +139,7 @@ resolve_destination() {
 }
 
 pick_destination() {
+  clear
   echo "Where do you want to install?" >&2
   echo "  1) Claude (~/.claude/skills)" >&2
   echo "  2) Cursor (~/.cursor/skills)" >&2
