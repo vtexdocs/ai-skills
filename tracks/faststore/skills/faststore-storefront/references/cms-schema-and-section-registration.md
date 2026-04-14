@@ -29,6 +29,24 @@ To edit **content** in existing sections, use the Store Admin at:
 2. After every change to `cms/faststore/components/*.jsonc` or `cms/faststore/pages/*.jsonc`, you **must** run **`vtex content generate-schema`** and **`vtex content upload-schema`** in the same working session (see [End-to-end agent workflow](#end-to-end-agent-workflow)). **Do not** use `yarn cms-sync`, `faststore cms-sync`, or other legacy `cms-sync` flows to publish Headless CMS schema — use **`vtex content`** only.
 3. Every file inside the folder `cms/faststore/components/` should follow this name pattern and extension: `cms_component__<name>.jsonc`
 4. Follow the conventions of the native components in `node_modules/@faststore/core/cms/faststore/components/` — see [Native Component Pattern Reference](#native-component-pattern-reference) for the full style guide
+5. **Every custom section MUST use the `section` class as its first CSS class** on the root `<section>` element. This class provides the standard FastStore section spacing, padding, and responsive behavior. Always place it before any component-specific classes.
+6. **Every custom section MUST have an inner `<div className="layout__content">` wrapper** immediately inside the `<section>` element. This wrapper constrains the content to the store's max-width grid and centers it. Without it, content will stretch edge-to-edge and break the store layout.
+
+   **Correct section structure:**
+   ```tsx
+   <section className={`section ${styles.mySection}`}>
+     <div className="layout__content">
+       {/* Section content goes here */}
+     </div>
+   </section>
+   ```
+
+   **Wrong — missing `section` class and `layout__content` wrapper:**
+   ```tsx
+   <section className={styles.mySection}>
+     {/* Content renders without standard spacing and full-bleed */}
+   </section>
+   ```
 
 ## Native Component Pattern Reference
 
@@ -197,6 +215,8 @@ Follow this EXACT sequence. Do NOT skip steps.
 
 - [ ] Create folder: `mkdir -p src/components/sections/<Name>` (or `src/components/<Name>/` for non-section sub-components)
 - [ ] Create React component at `src/components/sections/<Name>/<Name>.tsx` with TypeScript interfaces
+  - The root element MUST be `<section className={\`section ${styles.mySection}\`}>` — `section` class always comes first
+  - Immediately inside the `<section>`, add `<div className="layout__content">` to wrap all content
 - [ ] Create styles at `src/components/sections/<Name>/<name>.module.scss`
   - Wrap all styles in a single class
   - Import as CSS module in the component

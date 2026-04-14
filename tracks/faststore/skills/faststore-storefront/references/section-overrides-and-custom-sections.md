@@ -174,14 +174,21 @@ The `gql` tag from `@faststore/core/api` is **only** for:
 Custom sections on PLP/Search pages that depend on client-side data (facets, full product details) must handle the loading state gracefully:
 
 ```tsx
+import styles from "./my-section.module.scss";
+
 export default function MySection() {
   const context = usePage<PLPContext | SearchPageContext>();
   const clientData = (context as any)?.data?.search?.facets;
 
-  // Client data not yet available — render nothing or a skeleton
   if (!clientData) return null;
 
-  return <section>...</section>;
+  return (
+    <section className={`section ${styles.mySection}`}>
+      <div className="layout__content">
+        {/* Section content */}
+      </div>
+    </section>
+  );
 }
 ```
 
@@ -229,36 +236,38 @@ export const ContactForm = () => {
   );
 
   return (
-    <section className={styles.contactForm}>
-      <form onSubmit={onSubmit}>
-        <UIInputField
-          id="name"
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <UIInputField
-          id="email"
-          label="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <UIInputField
-          id="subject"
-          label="Subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
-        <UITextArea
-          id="message"
-          placeholder="Write here your message."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-        <UIButton type="submit" variant="primary">
-          Send
-        </UIButton>
-      </form>
+    <section className={`section ${styles.contactForm}`}>
+      <div className="layout__content">
+        <form onSubmit={onSubmit}>
+          <UIInputField
+            id="name"
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <UIInputField
+            id="email"
+            label="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <UIInputField
+            id="subject"
+            label="Subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+          <UITextArea
+            id="message"
+            placeholder="Write here your message."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <UIButton type="submit" variant="primary">
+            Send
+          </UIButton>
+        </form>
+      </div>
     </section>
   );
 };
