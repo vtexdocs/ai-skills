@@ -83,7 +83,10 @@ ls -la cms/faststore/components | grep -i daily  # Check for existing
 - All styling must use **SCSS** syntax in `.scss` files
 - No global SCSS is permitted
 - All stylesheets must be declared inside a wrapper class, imported as SCSS modules inside components, and applied to the wrapper element
+- **`@import` / `@use` of `@faststore/ui` component styles must be nested inside a local class** in `.module.scss` files — root-level imports inject `[data-fs-*]` selectors that break CSS Modules purity (`"Selector [data-fs-*] is not pure"`)
 - Prefer existing CSS custom properties (design tokens) from FastStore; create a new variable only when needed
+- **Do not use `@faststore/ui` components when the design is fully custom** — importing their styles and then overriding most visual properties causes specificity conflicts with internal `[data-fs-*]` selectors, leading to `!important` escalation. Use native HTML elements with custom SCSS instead. Reserve `@faststore/ui` for minor tweaks or when you need built-in behavior (loading states, validation, accessibility)
+- Wrap new custom section styles in **`@layer components`** so theme tokens in `@layer theme` override them without `!important` — matching the cascade order of native sections
 
 ### Prerequisite: VTEX CLI (global)
 
@@ -107,7 +110,8 @@ After **every** change to `cms/faststore/components/*.jsonc` or `cms/faststore/p
    ```bash
    # The CLI expects "faststore" as the schema suffix (not the storeId from discovery.config.js)
    # This results in $id = {discovery.storeId}.faststore (e.g., brandless.faststore)
-   expect -c "spawn vtex content upload-schema cms/faststore/schema.json; expect \"store ID\"; send \"faststore\\r\"; expect -re \"uploaded|confirm\"; send \"y\\r\"; expect -re \"Are you sure|confirm\"; send \"y\\r\"; expect eof" 2>&1
+   # Single quotes prevent Tcl from interpreting $id and other $ tokens in CLI output
+   expect -c 'spawn vtex content upload-schema cms/faststore/schema.json; expect "store ID"; send "faststore\r"; expect -re "uploaded|confirm"; send "y\r"; expect -re "Are you sure|confirm"; send "y\r"; expect eof' 2>&1
    ```
 4. **Report** — state clearly whether upload succeeded. If the CLI prompts for **login**, **store ID**, or **confirmation**, paste the **exact prompt or error** and specify the **human next step** (e.g. run `vtex login`, confirm the account matches `discovery.config.js` → `api.storeId`) or point to the **non-interactive `expect` example** in [references/cms-schema-and-section-registration.md](references/cms-schema-and-section-registration.md).
 

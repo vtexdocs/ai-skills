@@ -346,19 +346,22 @@ When uploading schema in an automated workflow, ALWAYS use `expect` to handle pr
 export STORE_ID=$(node -e "console.log(require('./discovery.config.js').api.storeId)")
 
 # Run upload with expect to auto-answer prompts
-expect -c "
+# IMPORTANT: use single quotes so Tcl does not misinterpret $ tokens
+# (e.g. $id) that appear in CLI output. $env(STORE_ID) is Tcl syntax
+# evaluated by the Tcl interpreter, not by bash.
+expect -c '
   spawn vtex content upload-schema cms/faststore/schema.json
-  expect \"store ID\"
-  send \"\$env(STORE_ID)\\r\"
-  expect -re \"uploaded|confirm\"
-  send \"y\\r\"
-  expect -re \"Are you sure|confirm\"
-  send \"y\\r\"
+  expect "store ID"
+  send "$env(STORE_ID)\r"
+  expect -re "uploaded|confirm"
+  send "y\r"
+  expect -re "Are you sure|confirm"
+  send "y\r"
   expect eof
-" 2>&1
+' 2>&1
 ```
 
-Alternative: wrap `expect -c` in **double quotes** in bash so `${STORE_ID}` is expanded before `expect` runs — useful if `$env(...)` behaves differently in your Tcl version.
+**Never use double quotes** around the `expect -c` argument — CLI output often contains `$id` and other `$`-prefixed tokens that Tcl interprets as variable references inside double-quoted strings, causing `can't read "id": no such variable` errors. Single quotes pass the script literally to Tcl, where `$env(STORE_ID)` is evaluated correctly by the Tcl interpreter.
 
 **Agents must** report the **exact** prompt or error if login, workspace, store ID, or confirmation blocks upload, and tell the human the next step (`vtex login`, correct account, etc.).
 
