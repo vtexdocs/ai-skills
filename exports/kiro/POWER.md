@@ -43,6 +43,10 @@ em `steering/` fornecem orientação contextual baseada nos globs dos skills.
 - **payment-provider-framework**: Apply when designing or implementing a Payment Connector in VTEX IO. Covers PPF implementation, TypeScript 3.9.7 builder-hub constraints and safe dependency resolutions, configuration.json schema validation, PaymentProviderService clients wiring, Secure Proxy scope (authorize-only), ExternalClient vs SecureExternalClient patterns, IOContext access, PPF response helpers, PSP integration checklist, and vtex link debugging. Use for any implementation of a Payment Connector hosted in VTEX IO.
 - **payment-provider-protocol**: Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or working with payment/connector endpoint files. Covers all nine required endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request, Create Auth Token, Provider Auth Redirect, and Get Credentials. Use for building or debugging any payment connector that integrates with the VTEX Payment Gateway.
 
+### sales-app
+
+- **sales-app-extensibility**: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 6-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, and secure API integration patterns.
+
 ### Custom VTEX IO Apps
 
 - **vtex-io-admin-react**: Apply when building VTEX IO admin-facing React interfaces under the admin builder. Covers VTEX Styleguide and Shoreline usage, admin page composition, data-heavy admin interactions, and keeping administrative interfaces consistent with the VTEX Admin environment. Use for settings pages, moderation tools, dashboards, or operational UIs inside VTEX Admin.
