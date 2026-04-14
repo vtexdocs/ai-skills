@@ -98,8 +98,10 @@ import { AlertSection, getOverriddenSection } from "@faststore/core";
 import { Image_unstable as Image } from "@faststore/core/experimental";
 import styles from "./alert-with-image.module.scss";
 
-interface AlertWithImageProps
-  extends Omit<React.ComponentProps<typeof AlertSection>, "icon"> {
+interface AlertWithImageProps extends Omit<
+  React.ComponentProps<typeof AlertSection>,
+  "icon"
+> {
   src: string;
   alt: string;
 }
@@ -120,17 +122,16 @@ export default function AlertWithImage(props: AlertWithImageProps) {
           },
         },
       }),
-    [] // Empty deps — override structure is static
+    [], // Empty deps — override structure is static
   );
 
   return <OverriddenAlert {...otherProps} icon="" />;
 }
 
-
 // <project_root>/src/components/index.tsx
 export default {
-  AlertSection: AlertWithImage
-}
+  AlertSection: AlertWithImage,
+};
 ```
 
 ## `getOverriddenSection` API
@@ -163,6 +164,33 @@ When no native section fits your needs, create a section from scratch.
 4. **Run `vtex content generate-schema cms/faststore/components cms/faststore/pages -o cms/faststore/schema.json -b vtex.faststore4`** to generate final schema file.
 5. **Run `vtex content upload-schema cms/faststore/schema.json`** to push final schema file to cms.
 6. If the section uses `@faststore/ui` components, **import their stylesheets manually** in its `.module.scss`
+
+### `gql` usage restrictions
+
+The `gql` tag from `@faststore/core/api` is **only** for:
+
+- Third-party mutations/queries defined in `src/graphql/thirdParty/`
+- Fragment extensions in `src/fragments/`
+
+**Do NOT** use `gql` inside custom section components for standalone queries against the built-in `search`, `product`, or `collection` root queries. This breaks the FastStore CLI GraphQL optimization step. Instead, read data from page context hooks (`usePage()`, `usePLP()`, `usePDP()`).
+
+### Handling client-side data loading
+
+Custom sections on PLP/Search pages that depend on client-side data (facets, full product details) must handle the loading state gracefully:
+
+```tsx
+export default function MySection() {
+  const context = usePage<PLPContext | SearchPageContext>();
+  const clientData = (context as any)?.data?.search?.facets;
+
+  // Client data not yet available — render nothing or a skeleton
+  if (!clientData) return null;
+
+  return <section>...</section>;
+}
+```
+
+This is expected behavior: the section renders once with server-only data (no facets), then re-renders after `useProductGalleryQuery` completes and the `PageProvider` context updates with the merged data.
 
 ### Example: ContactForm Section
 
@@ -202,17 +230,39 @@ export const ContactForm = () => {
       event.preventDefault();
       submitContactForm({ data: { name, email, subject, message } });
     },
-    [submitContactForm, name, email, subject, message]
+    [submitContactForm, name, email, subject, message],
   );
 
   return (
     <section className={styles.contactForm}>
       <form onSubmit={onSubmit}>
-        <UIInputField id="name" label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <UIInputField id="email" label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <UIInputField id="subject" label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <UITextArea id="message" placeholder="Write here your message." value={message} onChange={(e) => setMessage(e.target.value)} />
-        <UIButton type="submit" variant="primary">Send</UIButton>
+        <UIInputField
+          id="name"
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <UIInputField
+          id="email"
+          label="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <UIInputField
+          id="subject"
+          label="Subject"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+        />
+        <UITextArea
+          id="message"
+          placeholder="Write here your message."
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        <UIButton type="submit" variant="primary">
+          Send
+        </UIButton>
       </form>
     </section>
   );
@@ -240,3 +290,28 @@ export default {
 ```
 
 See [native-sections-and-overridable-slots](native-sections-and-overridable-slots.md) for the full list of sections and their overridable slot names.
+
+## Debugging Custom Sections
+
+### Reading framework source code
+
+When hooks or context don't behave as expected, **read the framework source code** to understand the actual implementation:
+
+**Source location**: `node_modules/@faststore/core/src/` and `node_modules/@faststore/sdk/src/`
+
+**Key files to investigate**:
+
+- `src/sdk/overrides/PageProvider.tsx` — page context types and `usePage()` implementation
+- `src/components/templates/ProductListingPage/ProductListing.tsx` — PLP data merging (how `useProductGalleryQuery` merges into context)
+- `src/components/templates/ProductDetailsPage/ProductDetailsPage.tsx` — PDP data merging
+- `src/sdk/product/useProductGalleryQuery.ts` — client-side search query (facets source)
+
+**Important**: The `.faststore/` folder is generated and should not be edited, but `node_modules/@faststore/*/src/` is readable and is the **ground truth** for API behavior when documentation is unclear or incomplete.
+
+### Debugging checklist
+
+When a custom section doesn't work as expected:
+
+1. **Before writing code that consumes data from hooks or context**, read the source file of the hook in `node_modules/@faststore/core/src/` or `node_modules/@faststore/sdk/src/` to confirm the actual return type and API
+2. **Never assume runtime data shapes from GraphQL schema alone** — GraphQL responses may include `__typename` instead of enum fields, may omit fields not in the selection set, or may restructure data through resolvers
+3. **Check both server and client render phases** — data available on server may differ from data after client hydration (see [architecture.md](architecture.md) "Server vs Client Data Split")
