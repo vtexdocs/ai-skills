@@ -120,12 +120,12 @@ return Authorizations.approve(authorization, { ... })
 
 ```typescript
 // Reference data: cached (changes rarely)
-const costCenter = await getCostCenterCached(ctx, costCenterId)
-const sellerList = await getSellerListCached(ctx)
+const costCenter = await getCostCenterCached(ctx, costCenterId);
+const sellerList = await getSellerListCached(ctx);
 
 // Transactional data: default live, but short cache is acceptable if justified
-const orderForm = await ctx.clients.checkout.orderForm()
-const simulation = await ctx.clients.checkout.simulation(payload)
+const orderForm = await ctx.clients.checkout.orderForm();
+const simulation = await ctx.clients.checkout.simulation(payload);
 
 // Acceptable: short-lived cache for a read-heavy page (e.g. simulation results
 // reused across multiple components within the same page render, TTL < 60s)
@@ -136,10 +136,10 @@ const simulation = await ctx.clients.checkout.simulation(payload)
 
 ```typescript
 // Never cache payment responses or transaction status
-const paymentCache = lru({ max: 1000, ttl: 300_000 })
+const paymentCache = lru({ max: 1000, ttl: 300_000 });
 
 // Avoid: long TTL on order form without explicit justification
-const orderFormCache = lru({ max: 500, ttl: 600_000 }) // 10 min is too long
+const orderFormCache = lru({ max: 500, ttl: 600_000 }); // 10 min is too long
 ```
 
 ### Constraint: Do not block the purchase path on slow or unbounded cache refresh

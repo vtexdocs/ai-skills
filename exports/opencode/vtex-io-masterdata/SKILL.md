@@ -67,6 +67,42 @@ When importing, exporting, or migrating large datasets:
 - Use `searchDocuments` for bounded result sets (known small size, max page size 100). Use `scrollDocuments` for large/unbounded result sets.
 - The `masterdata` builder creates a new schema per app version. Clean up unused schemas to avoid the 60-schema-per-entity hard limit.
 
+### `v-indexed`, `v-cache`, `v-default-fields`, and `v-security`
+
+These are **VTEX-specific extensions** to standard JSON Schema. They control how Master Data v2 indexes, caches, and secures your data:
+
+- **`v-indexed`** — Array of field names that Master Data will index. **Only** indexed fields can be used in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets. Index **only** what you actually filter or sort on—over-indexing increases write latency and storage cost because every index must be updated on every document write.
+- **`v-cache`** — Boolean (default `true`). When `true`, Master Data caches GET responses for individual documents. Set to **`false`** when your entity has **high write frequency** and consumers need **fresh reads** immediately after writes (e.g. real-time counters, session-like state). For most entities that are read-heavy and write-infrequently, **leave the default** (`true`).
+- **`v-default-fields`** — Array of field names returned when the caller does **not** specify a `fields` parameter. Keep this list **minimal**—return only the fields most consumers need by default to reduce payload size.
+- **`v-security`** — Object controlling **public** (unauthenticated) access to fields. Use `publicRead`, `publicWrite`, and `publicFilter` arrays to expose specific fields without auth. Set `allowGetAll` to `false` unless you explicitly need unauthenticated list access.
+- **`v-triggers`** — Array of trigger configurations for automated actions on document changes. See the triggers section below.
+- **`v-canonicalto`** — URL pointing to another schema in the same entity for **schema inheritance**.
+
+```json
+{
+  "properties": {
+    "email": { "type": "string", "format": "email" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "internalNotes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "createdAt"],
+  "v-default-fields": ["email", "status", "score", "createdAt"],
+  "v-cache": true,
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "score"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**When to index**: fields used in `where` clauses, sort expressions, or frequently filtered in search. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
+
+**When to disable cache** (`v-cache: false`): entities with high write throughput where stale reads are unacceptable (e.g. real-time configuration flags, live counters). **When to keep cache** (`v-cache: true` or omit): standard entities with read-heavy access patterns (reviews, wishlists, product extensions).
+
 MasterDataClient methods:
 
 | Method                              | Description                                          |

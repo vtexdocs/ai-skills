@@ -7,11 +7,13 @@ Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or work
 ## When this skill applies
 
 Use this skill when:
+
 - Building a new payment connector middleware that integrates a PSP with the VTEX Payment Gateway
 - Implementing, debugging, or extending any of the 9 PPP endpoints
 - Preparing a connector for VTEX Payment Provider Test Suite homologation
 
 Do not use this skill for:
+
 - Idempotency and duplicate prevention logic — use [`payment-idempotency`](payment-payment-idempotency.md)
 - Async payment flows and callback URLs — use [`payment-async-flow`](payment-payment-async-flow.md)
 - PCI compliance and Secure Proxy card handling — use [`payment-pci-security`](payment-payment-pci-security.md)
@@ -38,6 +40,7 @@ The VTEX Payment Provider Test Suite validates every endpoint during homologatio
 If the connector router/handler file does not define handlers for all 6 payment-flow paths, STOP and add the missing endpoints before proceeding.
 
 **Correct**
+
 ```typescript
 import { Router } from "express";
 
@@ -49,12 +52,16 @@ router.post("/payments", createPaymentHandler);
 router.post("/payments/:paymentId/cancellations", cancelPaymentHandler);
 router.post("/payments/:paymentId/settlements", capturePaymentHandler);
 router.post("/payments/:paymentId/refunds", refundPaymentHandler);
-router.post("/payments/:paymentId/inbound-request/:action", inboundRequestHandler);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  inboundRequestHandler,
+);
 
 export default router;
 ```
 
 **Wrong**
+
 ```typescript
 import { Router } from "express";
 
@@ -80,6 +87,7 @@ The Gateway parses these fields programmatically. Missing fields cause deseriali
 If a response object is missing any of the required fields for its endpoint, STOP and add the missing fields.
 
 **Correct**
+
 ```typescript
 interface CreatePaymentResponse {
   paymentId: string;
@@ -96,8 +104,12 @@ interface CreatePaymentResponse {
   paymentUrl?: string;
 }
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
-  const { paymentId, value, currency, paymentMethod, card, callbackUrl } = req.body;
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { paymentId, value, currency, paymentMethod, card, callbackUrl } =
+    req.body;
 
   const result = await processPaymentWithAcquirer(req.body);
 
@@ -110,9 +122,9 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     acquirer: "MyAcquirer",
     code: result.code ?? null,
     message: result.message ?? null,
-    delayToAutoSettle: 21600,    // 6 hours in seconds
+    delayToAutoSettle: 21600, // 6 hours in seconds
     delayToAutoSettleAfterAntifraud: 1800, // 30 minutes in seconds
-    delayToCancel: 21600,         // 6 hours in seconds
+    delayToCancel: 21600, // 6 hours in seconds
   };
 
   res.status(200).json(response);
@@ -120,9 +132,13 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
 // Missing required fields — Gateway will reject this response
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const result = await processPaymentWithAcquirer(req.body);
 
   // Missing: authorizationId, nsu, tid, acquirer, code, message,
@@ -145,6 +161,7 @@ The Gateway reads the manifest to determine which payment methods are available.
 If the manifest handler returns an empty `paymentMethods` array or hardcodes methods the provider does not actually support, STOP and fix the manifest.
 
 **Correct**
+
 ```typescript
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
   const manifest = {
@@ -162,6 +179,7 @@ async function manifestHandler(_req: Request, res: Response): Promise<void> {
 ```
 
 **Wrong**
+
 ```typescript
 // Empty manifest — no payment methods will appear in the Admin
 async function manifestHandler(_req: Request, res: Response): Promise<void> {
@@ -304,62 +322,74 @@ router.post("/payments", async (req: Request, res: Response) => {
   res.status(200).json(response);
 });
 
-router.post("/payments/:paymentId/cancellations", async (req: Request, res: Response) => {
-  const { paymentId } = req.params;
-  const { requestId } = req.body;
-  const result = await cancelWithAcquirer(paymentId);
+router.post(
+  "/payments/:paymentId/cancellations",
+  async (req: Request, res: Response) => {
+    const { paymentId } = req.params;
+    const { requestId } = req.body;
+    const result = await cancelWithAcquirer(paymentId);
 
-  res.status(200).json({
-    paymentId,
-    cancellationId: result.cancellationId ?? null,
-    code: result.code ?? null,
-    message: result.message ?? "Successfully cancelled",
-    requestId,
-  });
-});
+    res.status(200).json({
+      paymentId,
+      cancellationId: result.cancellationId ?? null,
+      code: result.code ?? null,
+      message: result.message ?? "Successfully cancelled",
+      requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/settlements", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await captureWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/settlements",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await captureWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    settleId: result.settleId ?? null,
-    value: result.capturedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      settleId: result.settleId ?? null,
+      value: result.capturedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/refunds", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await refundWithAcquirer(body.paymentId, body.value);
+router.post(
+  "/payments/:paymentId/refunds",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await refundWithAcquirer(body.paymentId, body.value);
 
-  res.status(200).json({
-    paymentId: body.paymentId,
-    refundId: result.refundId ?? null,
-    value: result.refundedValue ?? body.value,
-    code: result.code ?? null,
-    message: result.message ?? null,
-    requestId: body.requestId,
-  });
-});
+    res.status(200).json({
+      paymentId: body.paymentId,
+      refundId: result.refundId ?? null,
+      value: result.refundedValue ?? body.value,
+      code: result.code ?? null,
+      message: result.message ?? null,
+      requestId: body.requestId,
+    });
+  },
+);
 
-router.post("/payments/:paymentId/inbound-request/:action", async (req: Request, res: Response) => {
-  const body = req.body;
-  const result = await handleInbound(body);
+router.post(
+  "/payments/:paymentId/inbound-request/:action",
+  async (req: Request, res: Response) => {
+    const body = req.body;
+    const result = await handleInbound(body);
 
-  res.status(200).json({
-    requestId: body.requestId,
-    paymentId: body.paymentId,
-    responseData: {
-      statusCode: 200,
-      contentType: "application/json",
-      content: JSON.stringify(result),
-    },
-  });
-});
+    res.status(200).json({
+      requestId: body.requestId,
+      paymentId: body.paymentId,
+      responseData: {
+        statusCode: 200,
+        contentType: "application/json",
+        content: JSON.stringify(result),
+      },
+    });
+  },
+);
 
 export default router;
 ```
@@ -372,29 +402,40 @@ import { Router, Request, Response } from "express";
 const configRouter = Router();
 
 // 1. POST /authorization/token
-configRouter.post("/authorization/token", async (req: Request, res: Response) => {
-  const { applicationId, returnUrl } = req.body;
-  const token = await generateAuthorizationToken(applicationId, returnUrl);
-  res.status(200).json({ applicationId, token });
-});
+configRouter.post(
+  "/authorization/token",
+  async (req: Request, res: Response) => {
+    const { applicationId, returnUrl } = req.body;
+    const token = await generateAuthorizationToken(applicationId, returnUrl);
+    res.status(200).json({ applicationId, token });
+  },
+);
 
 // 2. GET /authorization/redirect
-configRouter.get("/authorization/redirect", async (req: Request, res: Response) => {
-  const { token } = req.query;
-  const providerLoginUrl = buildProviderLoginUrl(token as string);
-  res.redirect(302, providerLoginUrl);
-});
+configRouter.get(
+  "/authorization/redirect",
+  async (req: Request, res: Response) => {
+    const { token } = req.query;
+    const providerLoginUrl = buildProviderLoginUrl(token as string);
+    res.redirect(302, providerLoginUrl);
+  },
+);
 
 // 3. GET /authorization/credentials
-configRouter.get("/authorization/credentials", async (req: Request, res: Response) => {
-  const { authorizationCode } = req.query;
-  const credentials = await exchangeCodeForCredentials(authorizationCode as string);
-  res.status(200).json({
-    applicationId: "vtex",
-    appKey: credentials.appKey,
-    appToken: credentials.appToken,
-  });
-});
+configRouter.get(
+  "/authorization/credentials",
+  async (req: Request, res: Response) => {
+    const { authorizationCode } = req.query;
+    const credentials = await exchangeCodeForCredentials(
+      authorizationCode as string,
+    );
+    res.status(200).json({
+      applicationId: "vtex",
+      appKey: credentials.appKey,
+      appToken: credentials.appToken,
+    });
+  },
+);
 
 export default configRouter;
 ```

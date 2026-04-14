@@ -6825,6 +6825,295 @@ async function proactiveRateManagement(
 
 ---
 
+# Master Data Storage & Schema Design
+
+# Master Data storage strategy
+
+## When this skill applies
+
+Use this skill **before creating any new Master Data entity** or when auditing existing usage. It helps you answer:
+
+- Is Master Data the **right** storage for this data, or would Catalog, OMS, VBase, or an external database serve better?
+- How should I design the **JSON Schema** for performance and security?
+- Which fields should I **index** (`v-indexed`), and which should I **not**?
+- Should I enable or disable **caching** (`v-cache`)?
+- Do I need **triggers** (`v-triggers`), or is an event-driven IO approach better?
+- How do I plan for **capacity** and **lifecycle** of schemas and documents?
+
+Do not use this skill for:
+
+- VTEX IO app integration patterns (MasterDataClient, `masterdata` builder, CRUD in code) — use `vtex-io-masterdata`
+- Performance patterns for IO services (LRU, VBase caching layers) — use `vtex-io-application-performance`
+
+## Decision rules
+
+### When to use Master Data
+
+Master Data is a good fit when **all** of the following are true:
+
+1. **Document-oriented access** — Your data is naturally key-value or document-shaped (JSON documents with variable schemas). You query by indexed fields and retrieve full or partial documents.
+2. **Platform-integrated** — You benefit from VTEX-native features: `v-triggers` for automated workflows, `v-security` for per-field public access, `v-indexed` for search/filter, and the `masterdata` builder for schema-as-code.
+3. **Moderate volume** — Your entity will hold thousands to low millions of documents. MD handles this well with proper indexing.
+4. **Not on the purchase critical path** — MD is not optimized for sub-10ms latency. Synchronous MD reads in checkout/cart/payment flows risk conversion if MD is slow.
+5. **No better native fit** — The data doesn't belong in Catalog (product/SKU attributes), OMS (order data), CL/AD (customer profiles/addresses), or VBase (app-specific cache/state).
+
+### When NOT to use Master Data
+
+| Data type                          | Better storage                                     | Why                                                        |
+| ---------------------------------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| Product attributes, specifications | **Catalog** (specifications, unstructured specs)   | Native indexing, search integration, catalog APIs          |
+| Order data, order history          | **OMS** (via OMS APIs + BFF cache)                 | Single source of truth; duplicating to MD creates drift    |
+| Customer profiles, addresses       | **CL/AD native entities**                          | Platform-managed, already indexed and cached               |
+| App-specific cache or temp state   | **VBase**                                          | Designed for per-app ephemeral storage, no schema overhead |
+| Application logs, debug traces     | **`ctx.vtex.logger`**                              | Structured logging infrastructure, not a database          |
+| High-throughput time-series data   | **External database** (SQL, NoSQL, time-series DB) | MD is not designed for millions of writes/day              |
+| Relational data with joins         | **External SQL database**                          | MD has no join support; denormalize or use a relational DB |
+| Data requiring strong consistency  | **External database**                              | MD is eventually consistent for indexed fields             |
+
+### Schema design principles
+
+- **One entity per concept** — Don't mix unrelated data in a single entity. Each entity should represent a clear business concept (e.g. `reviews`, `wishlists`, `legacyOrders`).
+- **Index what you query** — Only fields in `v-indexed` can be used in `where` clauses. But **don't over-index**: each indexed field increases write latency and storage because the index is updated on every document change.
+- **Minimal `v-default-fields`** — Return only the fields most consumers need by default. Large default payloads waste bandwidth.
+- **`v-cache` matches the workload** — Leave `true` (default) for read-heavy entities. Set to `false` for entities with high write frequency where consumers need immediate consistency after writes.
+- **`v-security` is explicit** — Set `allowGetAll: false` unless unauthenticated list access is intentional. Use `publicRead`, `publicWrite`, `publicFilter` only for fields that must be accessible without authentication.
+
+## Hard constraints
+
+### Constraint: Index only fields used in where clauses or sort expressions
+
+Every field in `v-indexed` creates a secondary index that is updated on **every** document write. Indexing fields that are never queried wastes write throughput and storage.
+
+**Why this matters** — Over-indexing a high-write entity (e.g. indexing 15 fields when only 3 are queried) can double or triple write latency. On entities with millions of documents, unnecessary indexes also increase storage costs.
+
+**Detection** — Compare `v-indexed` fields with actual `where` clauses in the codebase. Any indexed field not referenced in a `where` or sort is likely unnecessary.
+
+**Correct** — Index only the fields you filter or sort on.
+
+```json
+{
+  "properties": {
+    "email": { "type": "string" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "notes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "createdAt"]
+}
+```
+
+**Wrong** — Indexing every field "just in case."
+
+```json
+{
+  "properties": {
+    "email": { "type": "string" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "notes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "score", "notes", "createdAt"]
+}
+```
+
+### Constraint: Do not expose sensitive fields via v-security publicRead
+
+The `v-security.publicRead` array makes fields accessible **without any authentication**. Never include PII (email, phone, addresses), internal IDs, or business-sensitive data in this list.
+
+**Why this matters** — Public fields are accessible to anyone with the entity name and a document ID or search query. Exposing PII violates data protection regulations and creates security vulnerabilities.
+
+**Detection** — Check `v-security.publicRead` and `publicFilter` for fields containing user data, internal references, or anything that should require authentication.
+
+**Correct** — Expose only non-sensitive, display-oriented fields.
+
+```json
+{
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "displayName", "rating"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**Wrong** — Exposing PII and internal fields publicly.
+
+```json
+{
+  "v-security": {
+    "allowGetAll": true,
+    "publicRead": ["email", "phone", "cpf", "internalScore", "organizationId"],
+    "publicWrite": ["email"],
+    "publicFilter": ["email", "phone"]
+  }
+}
+```
+
+### Constraint: Respect the 60-schema-per-entity limit
+
+Master Data v2 entities have a hard limit of **60 schemas**. The `masterdata` builder creates a **new schema per app version** linked or installed. Once the limit is reached, new versions fail to deploy.
+
+**Why this matters** — During active development with frequent `vtex link` cycles, schemas accumulate quickly. Hitting the limit blocks deployment until old schemas are manually deleted.
+
+**Detection** — Apps with many link/publish cycles. Check schema count via `GET /api/dataentities/{entity}/schemas`.
+
+**Correct** — Periodically clean up unused schemas. Automate cleanup in CI/CD.
+
+```bash
+# List schemas to identify stale ones
+curl "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/schemas" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+
+# Delete unused schemas
+curl -X DELETE "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/schemas/{old-schema}" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+```
+
+**Wrong** — Never cleaning up schemas during development until the limit blocks deployment.
+
+## Preferred pattern
+
+### Complete schema example with all VTEX extensions
+
+```json
+{
+  "$schema": "http://json-schema.org/schema#",
+  "title": "product-review-v1",
+  "type": "object",
+  "properties": {
+    "productId": { "type": "string" },
+    "author": { "type": "string" },
+    "email": { "type": "string", "format": "email" },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "title": { "type": "string", "maxLength": 200 },
+    "text": { "type": "string", "maxLength": 5000 },
+    "approved": { "type": "boolean" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["productId", "rating", "title", "text"],
+  "v-indexed": ["productId", "approved", "rating", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
+  "v-cache": true,
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": [
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "approved"
+    ],
+    "publicWrite": [],
+    "publicFilter": ["productId", "approved", "rating"]
+  },
+  "v-triggers": [
+    {
+      "name": "notify-moderator",
+      "active": true,
+      "condition": "approved=false",
+      "action": {
+        "type": "email",
+        "provider": "default",
+        "subject": "New review pending moderation",
+        "to": ["moderator@mystore.com"],
+        "body": "Review for product {{productId}} by {{author}}: {{title}}"
+      },
+      "retry": {
+        "times": 3,
+        "delay": { "addMinutes": 5 }
+      }
+    }
+  ]
+}
+```
+
+### Triggers: when to use and when not to
+
+**Use triggers when:**
+
+- You need email notifications on document changes (e.g. moderation alerts)
+- You need to call an external webhook when a document meets a condition
+- The action is simple, fire-and-forget, and doesn't need complex error handling
+
+**Do NOT use triggers when:**
+
+- You need complex orchestration, retries with backoff, or error recovery — use IO events instead
+- You need sub-second response to changes — triggers have built-in delay
+- The action modifies other MD entities in a chain — risk of cascading trigger loops
+- You need conditional logic more complex than a `where`-style filter
+
+### Document counting without full fetch
+
+Use the `REST-Content-Range` header to get document counts efficiently:
+
+```bash
+# Count documents without fetching them
+curl "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/search?_fields=id" \
+  -H "REST-Range: resources=0-0" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+# Response header: REST-Content-Range: resources 0-0/12345
+# The number after "/" is the total document count
+```
+
+### Search vs Scroll
+
+| Use               | When                                                 | Max page size      |
+| ----------------- | ---------------------------------------------------- | ------------------ |
+| `searchDocuments` | Bounded result sets, UI pagination, known small size | 100 per page       |
+| `scrollDocuments` | Large exports, bulk operations, unbounded iteration  | Configurable batch |
+
+## Common failure modes
+
+- **Over-indexing** — Indexing 10+ fields on a high-write entity. Every write updates all indexes, increasing latency and storage.
+- **Missing indexes** — Querying on non-indexed fields triggers full scans. Works in dev with 100 docs, times out in production with 100k.
+- **`v-cache: false` by default** — Disabling cache on read-heavy entities forces every GET to hit the database. Only disable for high-write entities.
+- **`allowGetAll: true` with PII** — Unauthenticated users can list all documents including sensitive data.
+- **Schema accumulation** — 60 schemas from development cycles blocks production deployments.
+- **Trigger chains** — Trigger A modifies entity B, which has a trigger that modifies entity A — infinite loop.
+- **MD as a log store** — Entities growing unboundedly with traffic volume. Use `ctx.vtex.logger` instead.
+- **MD on critical path** — Synchronous MD read in checkout with no timeout or fallback.
+
+## Review checklist
+
+- [ ] Has a **storage fit review** been done? (MD vs Catalog vs OMS vs VBase vs external DB)
+- [ ] Are **only queried fields** in `v-indexed`? No unnecessary indexes?
+- [ ] Is `v-cache` set appropriately for the entity's read/write ratio?
+- [ ] Does `v-security` restrict public access to non-sensitive fields only?
+- [ ] Is `allowGetAll` set to `false` unless explicitly needed?
+- [ ] Are triggers simple and non-chaining? No risk of trigger loops?
+- [ ] Is there a **schema cleanup** strategy for the 60-schema limit?
+- [ ] Is the entity **off** the purchase critical path (checkout, cart, payment)?
+- [ ] For large datasets (100k+ docs), is `scrollDocuments` used instead of paginated search?
+- [ ] Are `v-default-fields` minimal (not returning everything by default)?
+
+## Related skills
+
+- [vtex-io-masterdata](../../vtex-io/skills/vtex-io-masterdata/skill.md) — IO app integration: MasterDataClient, `masterdata` builder, CRUD patterns
+- [vtex-io-application-performance](../../vtex-io/skills/vtex-io-application-performance/skill.md) — Caching layers and BFF patterns when exposing MD data
+- [architecture-well-architected-commerce](../../architecture/skills/architecture-well-architected-commerce/skill.md) — Cross-cutting storage and architecture principles
+
+## Reference
+
+- [Working with JSON Schemas in Master Data v2](https://developers.vtex.com/docs/guides/working-with-json-schemas-in-master-data-v2) — v-indexed, v-cache, v-security, v-triggers configuration
+- [Master Data v2 Basics](https://developers.vtex.com/docs/guides/master-data-v2-basics) — Core concepts and data model
+- [Master Data Schema Lifecycle](https://developers.vtex.com/docs/guides/master-data-schema-lifecycle) — Schema versioning and the 60-schema limit
+- [Setting Up Triggers on Master Data v2](https://developers.vtex.com/docs/guides/setting-up-triggers-on-master-data-v2) — Trigger configuration and patterns
+- [Master Data v2 API Reference](https://developers.vtex.com/docs/api-reference/master-data-api-v2#overview) — Complete API specification
+- [Master Data v2 Document Saving Flow](https://developers.vtex.com/docs/guides/master-data-v2-document-saving-flow) — Validation, indexing, and trigger execution order
+
+---
+
 # Payment Connector Development
 
 # Asynchronous Payment Flows & Callbacks
@@ -9275,12 +9564,12 @@ return Authorizations.approve(authorization, { ... })
 
 ```typescript
 // Reference data: cached (changes rarely)
-const costCenter = await getCostCenterCached(ctx, costCenterId)
-const sellerList = await getSellerListCached(ctx)
+const costCenter = await getCostCenterCached(ctx, costCenterId);
+const sellerList = await getSellerListCached(ctx);
 
 // Transactional data: default live, but short cache is acceptable if justified
-const orderForm = await ctx.clients.checkout.orderForm()
-const simulation = await ctx.clients.checkout.simulation(payload)
+const orderForm = await ctx.clients.checkout.orderForm();
+const simulation = await ctx.clients.checkout.simulation(payload);
 
 // Acceptable: short-lived cache for a read-heavy page (e.g. simulation results
 // reused across multiple components within the same page render, TTL < 60s)
@@ -9291,10 +9580,10 @@ const simulation = await ctx.clients.checkout.simulation(payload)
 
 ```typescript
 // Never cache payment responses or transaction status
-const paymentCache = lru({ max: 1000, ttl: 300_000 })
+const paymentCache = lru({ max: 1000, ttl: 300_000 });
 
 // Avoid: long TTL on order form without explicit justification
-const orderFormCache = lru({ max: 500, ttl: 600_000 }) // 10 min is too long
+const orderFormCache = lru({ max: 500, ttl: 600_000 }); // 10 min is too long
 ```
 
 ### Constraint: Do not block the purchase path on slow or unbounded cache refresh
@@ -10272,6 +10561,42 @@ When importing, exporting, or migrating large datasets:
 - Use `searchDocuments` for bounded result sets (known small size, max page size 100). Use `scrollDocuments` for large/unbounded result sets.
 - The `masterdata` builder creates a new schema per app version. Clean up unused schemas to avoid the 60-schema-per-entity hard limit.
 
+### `v-indexed`, `v-cache`, `v-default-fields`, and `v-security`
+
+These are **VTEX-specific extensions** to standard JSON Schema. They control how Master Data v2 indexes, caches, and secures your data:
+
+- **`v-indexed`** — Array of field names that Master Data will index. **Only** indexed fields can be used in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets. Index **only** what you actually filter or sort on—over-indexing increases write latency and storage cost because every index must be updated on every document write.
+- **`v-cache`** — Boolean (default `true`). When `true`, Master Data caches GET responses for individual documents. Set to **`false`** when your entity has **high write frequency** and consumers need **fresh reads** immediately after writes (e.g. real-time counters, session-like state). For most entities that are read-heavy and write-infrequently, **leave the default** (`true`).
+- **`v-default-fields`** — Array of field names returned when the caller does **not** specify a `fields` parameter. Keep this list **minimal**—return only the fields most consumers need by default to reduce payload size.
+- **`v-security`** — Object controlling **public** (unauthenticated) access to fields. Use `publicRead`, `publicWrite`, and `publicFilter` arrays to expose specific fields without auth. Set `allowGetAll` to `false` unless you explicitly need unauthenticated list access.
+- **`v-triggers`** — Array of trigger configurations for automated actions on document changes. See the triggers section below.
+- **`v-canonicalto`** — URL pointing to another schema in the same entity for **schema inheritance**.
+
+```json
+{
+  "properties": {
+    "email": { "type": "string", "format": "email" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "internalNotes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "createdAt"],
+  "v-default-fields": ["email", "status", "score", "createdAt"],
+  "v-cache": true,
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "score"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**When to index**: fields used in `where` clauses, sort expressions, or frequently filtered in search. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
+
+**When to disable cache** (`v-cache: false`): entities with high write throughput where stale reads are unacceptable (e.g. real-time configuration flags, live counters). **When to keep cache** (`v-cache: true` or omit): standard entities with read-heavy access patterns (reviews, wishlists, product extensions).
+
 MasterDataClient methods:
 
 | Method                              | Description                                          |
@@ -10843,6 +11168,259 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 
 ---
 
+# VTEX IO access control (RBAC)
+
+## When this skill applies
+
+Use this skill when you need to **control who can access** your VTEX IO app's routes and resources:
+
+- Deciding between **role-based** (`policies.json`) and **resource-based** (`service.json` policies) access control
+- Securing **REST endpoints** so only specific apps, users, or API keys can call them
+- Setting up **GraphQL authorization** with the `@auth` directive
+- Understanding **VRN** (VTEX Resource Name) syntax for declaring principals
+- Debugging **403 Forbidden** errors caused by missing or misconfigured policies
+
+Do not use this skill for:
+
+- General service architecture (use `vtex-io-service-apps`)
+- PCI compliance and payment security (use `payment-pci-security`)
+- Route prefix and CDN behavior (use `vtex-io-service-paths-and-cdn`)
+
+## Decision rules
+
+### Role-based vs resource-based policies
+
+| | Role-based (`policies.json`) | Resource-based (`service.json` policies) |
+| --- | --- | --- |
+| **Who can call?** | Only other IO apps (by themselves or on behalf of other apps) | Apps, users, and integrations (API keys) |
+| **API types** | GraphQL and REST | REST only |
+| **How callers get access** | Must declare required policies in their `manifest.json` | No policy declaration needed; just call with auth token |
+| **Where configured** | `policies.json` in app root | `policies` array inside route definition in `service.json` |
+| **Use when** | Exposing GraphQL endpoints; exposing REST endpoints for app-to-app only | Controlling access for users, API keys, or specific apps to REST endpoints |
+
+### Choosing the right approach
+
+- **GraphQL endpoints** → Use **role-based** policies (`policies.json`) **and/or** the **`@auth` directive** in the schema for user-level authorization.
+- **REST endpoint called only by other IO apps** → Use **role-based** policies (`policies.json`). Consuming apps must declare the policy in their `manifest.json`.
+- **REST endpoint called by users or API keys** → Use **resource-based** policies in `service.json`. Set the route as `"public": false` and define principals.
+- **Public REST endpoint (no auth)** → Set `"public": true` in `service.json`. No policies needed, but be aware this means **anyone** can call it.
+
+### VRN syntax
+
+VRNs (VTEX Resource Names) identify resources and principals:
+
+```text
+vrn:{service}:{region}:{account}:{workspace}:{path}
+```
+
+- **Apps**: `vrn:apps:*:*:*:app/{vendor}.{app-name}@{version}`
+- **Users**: `vrn:vtex.vtex-id:*:*:*:user/{email}`
+- **API keys**: `vrn:vtex.vtex-id:*:*:*:user/vtexappkey-{account}-{hash}`
+- **Wildcards**: `*` matches any value in a segment. `app/*` matches all apps. `user/*@gmail.com` matches all Gmail users.
+
+## Hard constraints
+
+### Constraint: Use resource-based policies when users or API keys need access
+
+Role-based policies only work for **app-to-app** communication. If users (admin or storefront) or integrations (API keys) need to call your endpoint, you **must** use resource-based policies in `service.json` with the route set to `"public": false`.
+
+**Why this matters** — Setting up a role-based policy for a route that users or API keys call results in 403 Forbidden for those callers, because role-based policies don't evaluate user/integration tokens.
+
+**Detection** — A private route that should be callable by admin users or external integrations, but only has `policies.json` configuration and no `policies` array in `service.json`.
+
+**Correct** — Resource-based policy in `service.json` for user/integration access.
+
+```json
+{
+  "routes": {
+    "orders": {
+      "path": "/_v/private/my-app/orders",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["get", "post"],
+          "principals": [
+            "vrn:vtex.vtex-id:*:*:*:user/*@mycompany.com",
+            "vrn:apps:*:*:*:app/partner.integration-app@*"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+**Wrong** — Only `policies.json` for a route that users need.
+
+```json
+// policies.json — this only covers app-to-app, not users
+[{
+  "name": "access-orders",
+  "statements": [{
+    "effect": "allow",
+    "actions": ["get"],
+    "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
+  }]
+}]
+// Users calling this route still get 403
+```
+
+### Constraint: Deny policies take precedence over allow policies
+
+When resource-based policies have overlapping principals between an `allow` and a `deny` rule, the **deny** always wins. Be careful with wildcards in allow rules that intersect with specific deny rules.
+
+**Why this matters** — A broad `allow` for `app/*` combined with a specific `deny` for `app/vendor.bad-app@*` correctly blocks `bad-app`. But the reverse—a broad `deny` with a specific `allow`—blocks everything including what you wanted to allow.
+
+**Detection** — Multiple policy entries for the same route with conflicting effects and overlapping principals.
+
+**Correct** — Allow broadly, deny specifically.
+
+```json
+{
+  "policies": [
+    {
+      "effect": "allow",
+      "actions": ["post"],
+      "principals": ["vrn:apps:*:*:*:app/*"]
+    },
+    {
+      "effect": "deny",
+      "actions": ["post"],
+      "principals": ["vrn:apps:*:*:*:app/untrusted.app@*"]
+    }
+  ]
+}
+```
+
+**Wrong** — Deny broadly, try to allow specifically (the allow is overridden).
+
+```json
+{
+  "policies": [
+    {
+      "effect": "deny",
+      "actions": ["post"],
+      "principals": ["vrn:apps:*:*:*:app/*"]
+    },
+    {
+      "effect": "allow",
+      "actions": ["post"],
+      "principals": ["vrn:apps:*:*:*:app/trusted.app@*"]
+    }
+  ]
+}
+```
+
+## Preferred pattern
+
+### Role-based policy (`policies.json`)
+
+```json
+[
+  {
+    "name": "resolve-graphql",
+    "description": "Allows apps to resolve GraphQL requests",
+    "statements": [
+      {
+        "effect": "allow",
+        "actions": ["post"],
+        "resources": [
+          "vrn:vtex.store-graphql:{{region}}:{{account}}:{{workspace}}:/_v/graphql"
+        ]
+      }
+    ]
+  }
+]
+```
+
+The consuming app declares the policy in its `manifest.json`:
+
+```json
+{
+  "policies": [
+    {
+      "name": "resolve-graphql"
+    }
+  ]
+}
+```
+
+### Resource-based policy for mixed access
+
+```json
+{
+  "routes": {
+    "webhook": {
+      "path": "/_v/private/my-app/webhook",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["post"],
+          "principals": [
+            "vrn:apps:*:*:*:app/vtex.orders-broadcast@*",
+            "vrn:vtex.vtex-id:*:*:*:user/vtexappkey-myaccount-*"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+### GraphQL `@auth` directive
+
+For GraphQL endpoints, use the `@auth` directive for user-level authorization:
+
+```graphql
+type Query {
+  orders: [Order] @auth(productCode: "10", resourceCode: "list-orders")
+  adminSettings: Settings @auth(productCode: "10", resourceCode: "admin-settings")
+}
+
+type Mutation {
+  updateSettings(input: SettingsInput!): Settings @auth(productCode: "10", resourceCode: "admin-settings")
+}
+```
+
+The `@auth` directive checks the caller's License Manager role for the specified `productCode` and `resourceCode`.
+
+## Common failure modes
+
+- **403 for users on role-based routes** — Route only has `policies.json`; users and API keys get 403 because role-based policies don't apply to them.
+- **Overly broad `public: true`** — Route set to public when it should be private. Anyone can call it without auth.
+- **Missing policy in consumer manifest** — App tries to call a role-based protected route but didn't declare the policy in its `manifest.json`. Results in 403.
+- **VRN typo** — Misspelled vendor, app name, or principal format in VRN. Silently fails to match, resulting in 403.
+- **Wildcard in deny** — Broad deny with `app/*` blocks all apps including trusted ones. Deny takes precedence.
+- **No `@auth` on GraphQL mutations** — Mutations that modify data accessible without role checks.
+
+## Review checklist
+
+- [ ] Is the access control type (role-based vs resource-based) correct for the callers (apps vs users/integrations)?
+- [ ] Are private routes set to `"public": false` with appropriate policies?
+- [ ] Are VRNs correctly formatted for the principal type (apps, users, API keys)?
+- [ ] Do consuming apps declare required role-based policies in their `manifest.json`?
+- [ ] Are deny rules used carefully (they override allow rules for intersecting principals)?
+- [ ] Do GraphQL mutations have `@auth` directives with correct `productCode` and `resourceCode`?
+- [ ] Are wildcard principals scoped as narrowly as possible?
+
+## Related skills
+
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and route configuration
+- [vtex-io-app-structure](../vtex-io-app-structure/skill.md) — Manifest, builders, and policy declarations
+- [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL schema and `@auth` directive details
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix patterns
+
+## Reference
+
+- [Controlling Access to App Resources](https://developers.vtex.com/docs/guides/controlling-access-to-app-resources) — Role-based and resource-based policies, VRN syntax, principal types
+- [App Authentication Using Auth Tokens](https://developers.vtex.com/docs/guides/app-authentication-using-auth-tokens) — Auth token types for app-to-app and user-to-app communication
+- [GraphQL Authorization in IO Apps](https://developers.vtex.com/docs/guides/graphql-authorization-in-io-apps) — @auth directive usage
+- [VTEX IO VRN](https://developers.vtex.com/docs/guides/vtex-io-documentation-vrn) — VTEX Resource Name format and examples
+
+---
+
 # Frontend React Components & Hooks
 
 ## When this skill applies
@@ -11270,6 +11848,163 @@ Using the component in a Store Framework theme:
 - [Store Framework](https://developers.vtex.com/docs/guides/store-framework) — Overview of the block-based storefront system
 - [Using Components](https://developers.vtex.com/docs/guides/store-framework-using-components) — How to use native and custom components in themes
 - [VTEX Styleguide](https://styleguide.vtex.com/) — Official component library for VTEX Admin UIs
+
+---
+
+# VTEX IO rootPath for multi-binding stores
+
+## When this skill applies
+
+Use this skill when building VTEX IO apps that must work in stores with **multi-binding** configurations—typically **cross-border** stores where multiple bindings share a single domain with **path prefixes** (e.g. `store.com/us/`, `store.com/br/`, `store.com/mx/`).
+
+- Your app generates **URLs** (links, redirects, API endpoints, canonical URLs) that must include the binding's path prefix
+- Your app loads **assets** (images, scripts, stylesheets) that break when the store uses a sub-path binding
+- Your **backend routes** need to construct URLs for sitemaps, canonical links, or cross-binding references
+- You're debugging **404s** or **wrong links** that only appear in multi-binding stores but work fine in single-binding
+
+Do not use this skill for:
+
+- Single-binding stores with a dedicated domain per locale (no path prefix needed)
+- General IO backend patterns (use `vtex-io-service-apps`)
+- CDN/edge caching configuration (use `vtex-io-service-paths-and-cdn`)
+
+## Decision rules
+
+- **Single-domain multi-binding** (e.g. `store.com/us/`, `store.com/br/`) → `rootPath` is **required**. Every generated URL must be prefixed with the binding's root path.
+- **Multi-domain single-binding** (e.g. `store.us`, `store.com.br`) → `rootPath` is typically **empty** or `/`. URLs work without prefixing, but code should still handle `rootPath` gracefully (use it if non-empty, skip if empty).
+- **Backend (Node)** → Extract `rootPath` from the `x-vtex-root-path` request header. Sanitize: if the value is exactly `"/"`, treat it as empty string `""` to avoid double slashes.
+- **Frontend (React)** → Use `useRuntime().rootPath` from `vtex.render-runtime` to get the current binding's path prefix in components.
+- **Always prefix, never hardcode** — Never hardcode a path prefix like `/us/`. Always use the runtime-provided `rootPath` so the same code works across all bindings.
+
+## Hard constraints
+
+### Constraint: Always use rootPath when constructing URLs in multi-binding stores
+
+Every URL your app generates—links, redirects, API endpoints, canonical URLs, sitemap entries—must include the `rootPath` prefix when the store uses path-based bindings.
+
+**Why this matters** — Without `rootPath`, a link to `/my-account/orders` in the `/br/` binding points to the wrong binding (or 404s). Sitemaps with unprefixed URLs break SEO by pointing search engines to the wrong locale. Redirects without the prefix send users to the default binding instead of their current one.
+
+**Detection** — URLs constructed as string literals (e.g. `/${slug}`) without prepending `rootPath`. Or `navigate()` calls that omit the `rootPath` prefix.
+
+**Correct** — Prepend rootPath to all generated paths.
+
+```typescript
+// Backend: extract from header
+const rawRootPath = ctx.get('x-vtex-root-path') || ''
+const rootPath = rawRootPath === '/' ? '' : rawRootPath
+
+const canonicalUrl = `https://${host}${rootPath}/product/${slug}`
+const sitemapEntry = `${rootPath}/${categoryPath}`
+```
+
+```tsx
+// Frontend: use runtime hook
+import { useRuntime } from 'vtex.render-runtime'
+
+const MyLink = ({ slug }: { slug: string }) => {
+  const { rootPath } = useRuntime()
+  return <a href={`${rootPath}/product/${slug}`}>View product</a>
+}
+```
+
+**Wrong** — Hardcoded paths without rootPath.
+
+```typescript
+// Backend: missing rootPath — breaks in multi-binding
+const canonicalUrl = `https://${host}/product/${slug}`
+
+// Frontend: hardcoded path
+const MyLink = ({ slug }: { slug: string }) => {
+  return <a href={`/product/${slug}`}>View product</a>
+}
+```
+
+### Constraint: Sanitize rootPath to avoid double slashes
+
+When `rootPath` is `"/"` (single-binding or default binding), using it directly produces double slashes in URLs (e.g. `//product/shoes`). Normalize: if `rootPath === "/"`, treat it as `""`.
+
+**Why this matters** — Double slashes in URLs cause redirect loops, broken canonical URLs, and SEO penalties. Some CDN layers treat `//path` differently from `/path`.
+
+**Detection** — URL construction that concatenates `rootPath + "/" + path` without checking for `rootPath === "/"`.
+
+**Correct**
+
+```typescript
+const rootPath = (ctx.get('x-vtex-root-path') || '') === '/' ? '' : (ctx.get('x-vtex-root-path') || '')
+const url = `${rootPath}/${path}`
+```
+
+**Wrong**
+
+```typescript
+const rootPath = ctx.get('x-vtex-root-path') || '/'
+const url = `${rootPath}/${path}` // Produces "//path" for default binding
+```
+
+## Preferred pattern
+
+### Backend middleware for rootPath
+
+```typescript
+// node/middlewares/rootPath.ts
+export async function withRootPath(ctx: Context, next: () => Promise<void>) {
+  const raw = ctx.get('x-vtex-root-path') || ''
+  ctx.state.rootPath = raw === '/' ? '' : raw
+  await next()
+}
+```
+
+### Frontend utility
+
+```tsx
+import { useRuntime } from 'vtex.render-runtime'
+
+function usePrefixedPath(path: string): string {
+  const { rootPath = '' } = useRuntime()
+  const prefix = rootPath === '/' ? '' : rootPath
+  return `${prefix}${path.startsWith('/') ? path : `/${path}`}`
+}
+```
+
+### Binding-aware API calls from frontend
+
+```tsx
+const { rootPath, binding } = useRuntime()
+// binding.id — current binding ID
+// binding.canonicalBaseAddress — e.g. "store.com/br"
+// rootPath — e.g. "/br"
+
+// When calling backend APIs, the platform handles rootPath automatically
+// for IO-internal calls. For external URLs or custom redirects, prefix manually.
+```
+
+## Common failure modes
+
+- **Links break in multi-binding** — Navigation links constructed without `rootPath` send users to the wrong binding or 404.
+- **Sitemap has wrong URLs** — Sitemap generator omits `rootPath`, causing search engines to index unprefixed URLs that resolve to the default binding.
+- **Double slashes** — `rootPath === "/"` concatenated with `/path` produces `//path`. Normalize to empty string.
+- **Hardcoded locale paths** — Using `/us/` or `/br/` instead of dynamic `rootPath`. Breaks when bindings are reconfigured.
+- **Backend ignores header** — Node service constructs URLs without reading `x-vtex-root-path`, producing wrong canonicals in multi-binding.
+
+## Review checklist
+
+- [ ] Does the app read `rootPath` from `x-vtex-root-path` header (backend) or `useRuntime()` (frontend)?
+- [ ] Are **all** generated URLs (links, redirects, canonicals, sitemaps) prefixed with `rootPath`?
+- [ ] Is `rootPath === "/"` normalized to `""` to avoid double slashes?
+- [ ] Are there **no** hardcoded locale path prefixes (e.g. `/us/`, `/br/`)?
+- [ ] Does the app work correctly in both single-binding and multi-binding stores?
+
+## Related skills
+
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefixes and CDN behavior
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Backend middleware patterns
+- [vtex-io-react-apps](../vtex-io-react-apps/skill.md) — Frontend component patterns
+
+## Reference
+
+- [Cross-Border Store Content Internationalization](https://developers.vtex.com/docs/guides/cross-border-custom-urls-1) — Multi-binding setup for cross-border stores
+- [Service Path Patterns](https://developers.vtex.com/docs/guides/service-path-patterns) — Public, segment, and private path prefixes
+- [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
 
 ---
 

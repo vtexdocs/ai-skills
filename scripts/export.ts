@@ -114,7 +114,9 @@ function organizeByTrack(skills: Skill[]): Track[] {
   const trackMap = new Map<string, Skill[]>();
 
   for (const skill of skills) {
-    const trackName = resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track;
+    const trackName =
+      resolveField<string>(skill.frontmatter, "track") ??
+      skill.frontmatter.track;
     if (!trackMap.has(trackName)) {
       trackMap.set(trackName, []);
     }
@@ -125,9 +127,7 @@ function organizeByTrack(skills: Skill[]): Track[] {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, skills]) => ({
       name,
-      skills: skills.sort((a, b) =>
-        skillSlug(a).localeCompare(skillSlug(b))
-      ),
+      skills: skills.sort((a, b) => skillSlug(a).localeCompare(skillSlug(b))),
     }));
 }
 
@@ -135,7 +135,7 @@ function organizeByTrack(skills: Skill[]): Track[] {
 
 function buildCursorMdc(skill: Skill): string {
   const desc = normalizeDescription(skill.frontmatter.description);
-  const globs = resolveField<string[]>(skill.frontmatter, 'globs');
+  const globs = resolveField<string[]>(skill.frontmatter, "globs");
   const globsLine =
     globs && globs.length > 0 ? globs.map((g) => `"${g}"`).join(",") : "";
   return `---
@@ -157,7 +157,7 @@ function buildCursorTrackMdc(track: Track): string {
   // Collect all unique globs from skills in this track
   const allGlobs = new Set<string>();
   for (const skill of track.skills) {
-    const skillGlobs = resolveField<string[]>(skill.frontmatter, 'globs');
+    const skillGlobs = resolveField<string[]>(skill.frontmatter, "globs");
     if (skillGlobs) {
       for (const g of skillGlobs) {
         allGlobs.add(g);
@@ -171,9 +171,7 @@ function buildCursorTrackMdc(track: Track): string {
           .join(",")
       : "";
 
-  const body = track.skills
-    .map((s) => s.content.trim())
-    .join("\n\n---\n\n");
+  const body = track.skills.map((s) => s.content.trim()).join("\n\n---\n\n");
 
   return `---
 description: "${trackDesc}"
@@ -221,7 +219,9 @@ ${sections.join("\n\n---\n\n")}
 
 function buildClaudeSkillMd(skill: Skill): string {
   const desc = normalizeDescription(skill.frontmatter.description);
-   const trackTitle = formatTrackTitle(resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track);
+  const trackTitle = formatTrackTitle(
+    resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track,
+  );
 
   return `This skill provides guidance for AI agents working with VTEX ${trackTitle}. Apply these constraints and patterns when assisting developers with ${desc.toLowerCase().endsWith(".") ? desc.toLowerCase() : desc.toLowerCase() + "."}
 
@@ -273,7 +273,7 @@ function buildAgentsMdRoot(tracks: Track[]): string {
       const skillList = track.skills
         .map(
           (s) =>
-            `  - **${s.frontmatter.name}**: ${normalizeDescription(s.frontmatter.description)}`
+            `  - **${s.frontmatter.name}**: ${normalizeDescription(s.frontmatter.description)}`,
         )
         .join("\n");
       return `## ${trackTitle}
@@ -318,11 +318,16 @@ function formatTrackTitle(trackName: string): string {
     "vtex-io": "Custom VTEX IO Apps",
     marketplace: "Marketplace Integration",
     headless: "Headless Front-End Development",
+    masterdata: "Master Data Storage & Schema Design",
   };
   return titles[trackName] || trackName;
 }
 
-export function rewriteSkillLinks(content: string, currentSkill: Skill, allSkills: Skill[]): string {
+export function rewriteSkillLinks(
+  content: string,
+  currentSkill: Skill,
+  allSkills: Skill[],
+): string {
   const linkRegex = /\[([^\]]+)\]\(([^)]*\/skill\.md)\)/g;
 
   return content.replace(linkRegex, (match, text, href) => {
@@ -335,17 +340,18 @@ export function rewriteSkillLinks(content: string, currentSkill: Skill, allSkill
 
     // Find the referenced skill in allSkills
     const referencedSkill = allSkills.find(
-      (s) => s.frontmatter.name === referencedSkillName
+      (s) => s.frontmatter.name === referencedSkillName,
     );
 
     if (!referencedSkill) return match;
 
-    const track = resolveField<string>(referencedSkill.frontmatter, "track") ?? referencedSkill.frontmatter.track;
+    const track =
+      resolveField<string>(referencedSkill.frontmatter, "track") ??
+      referencedSkill.frontmatter.track;
     const newHref = `${track}-${referencedSkillName}.md`;
     return `[${text}](${newHref})`;
   });
 }
-
 
 // ─── Kiro Power Exporter ────────────────────────────────────────────────────
 
@@ -375,8 +381,12 @@ export function buildKiroPowerMd(skills: Skill[], tracks: Track[]): string {
   lines.push("---");
   lines.push('name: "vtex-platform"');
   lines.push('displayName: "VTEX Platform"');
-  lines.push('description: "Complete guide for building on the VTEX ecommerce platform. Covers FastStore storefronts, headless architecture (BFF, checkout, search, caching), VTEX IO app development, marketplace integrations, and payment provider protocol."');
-  lines.push('keywords: ["vtex", "faststore", "ecommerce", "storefront", "headless-cms", "headless", "checkout", "payment", "marketplace", "vtex-io", "graphql", "bff", "intelligent-search", "pci", "cart", "session", "catalog", "order", "fulfillment", "masterdata"]');
+  lines.push(
+    'description: "Complete guide for building on the VTEX ecommerce platform. Covers FastStore storefronts, headless architecture (BFF, checkout, search, caching), VTEX IO app development, marketplace integrations, and payment provider protocol."',
+  );
+  lines.push(
+    'keywords: ["vtex", "faststore", "ecommerce", "storefront", "headless-cms", "headless", "checkout", "payment", "marketplace", "vtex-io", "graphql", "bff", "intelligent-search", "pci", "cart", "session", "catalog", "order", "fulfillment", "masterdata"]',
+  );
   lines.push('author: "Community"');
   lines.push("---");
   lines.push("");
@@ -384,10 +394,10 @@ export function buildKiroPowerMd(skills: Skill[], tracks: Track[]): string {
   lines.push("# VTEX Skills — Kiro Power");
   lines.push("");
   lines.push(
-    "Kiro Power com skills de desenvolvimento VTEX. Os arquivos de steering"
+    "Kiro Power com skills de desenvolvimento VTEX. Os arquivos de steering",
   );
   lines.push(
-    "em `steering/` fornecem orientação contextual baseada nos globs dos skills."
+    "em `steering/` fornecem orientação contextual baseada nos globs dos skills.",
   );
   lines.push("");
   lines.push("## Tracks");
@@ -429,7 +439,6 @@ export function buildKiroTrackSteering(track: Track, skills: Skill[]): string {
   return parts.join("\n\n") + "\n";
 }
 
-
 // ─── Platform Exporters ─────────────────────────────────────────────────────
 
 const exporters: Record<string, PlatformExporter> = {
@@ -441,7 +450,7 @@ const exporters: Record<string, PlatformExporter> = {
       ensureDir(outDir);
 
       for (const skill of skills) {
-         const fileName = `${resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track}-${skillSlug(skill)}.mdc`;
+        const fileName = `${resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track}-${skillSlug(skill)}.mdc`;
         writeOutput(join(outDir, fileName), buildCursorMdc(skill));
       }
 
@@ -465,7 +474,7 @@ const exporters: Record<string, PlatformExporter> = {
 
       writeOutput(
         join(outDir, "copilot-instructions.md"),
-        buildCopilotInstructions(tracks)
+        buildCopilotInstructions(tracks),
       );
     },
   },
@@ -477,7 +486,7 @@ const exporters: Record<string, PlatformExporter> = {
       ensureDir(outDir);
 
       for (const skill of skills) {
-         const fileName = `${resolveField<string>(skill.frontmatter, 'track') ?? skill.frontmatter.track}-${skillSlug(skill)}.md`;
+        const fileName = `${resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track}-${skillSlug(skill)}.md`;
         writeOutput(join(outDir, fileName), buildClaudeSkillMd(skill));
       }
 
@@ -497,7 +506,7 @@ const exporters: Record<string, PlatformExporter> = {
       for (const track of tracks) {
         writeOutput(
           join(outDir, track.name, "AGENTS.md"),
-          buildAgentsMdTrack(track)
+          buildAgentsMdTrack(track),
         );
       }
 
@@ -514,7 +523,7 @@ const exporters: Record<string, PlatformExporter> = {
       for (const skill of skills) {
         writeOutput(
           join(outDir, skillSlug(skill), "SKILL.md"),
-          buildOpenCodeSkillMd(skill)
+          buildOpenCodeSkillMd(skill),
         );
       }
     },
@@ -531,14 +540,22 @@ const exporters: Record<string, PlatformExporter> = {
       writeOutput(join(outDir, "POWER.md"), buildKiroPowerMd(skills, tracks));
 
       for (const skill of skills) {
-        const track = resolveField<string>(skill.frontmatter, "track") ?? skill.frontmatter.track;
+        const track =
+          resolveField<string>(skill.frontmatter, "track") ??
+          skill.frontmatter.track;
         const fileName = `${track}-${skillSlug(skill)}.md`;
-        writeOutput(join(steeringDir, fileName), buildKiroSkillSteering(skill, skills));
+        writeOutput(
+          join(steeringDir, fileName),
+          buildKiroSkillSteering(skill, skills),
+        );
       }
 
       for (const track of tracks) {
         const fileName = `${track.name}-all.md`;
-        writeOutput(join(steeringDir, fileName), buildKiroTrackSteering(track, skills));
+        writeOutput(
+          join(steeringDir, fileName),
+          buildKiroTrackSteering(track, skills),
+        );
       }
     },
   },
@@ -583,7 +600,7 @@ async function main(): Promise<void> {
   console.log(`Found ${skills.length} skills.`);
   const tracks = organizeByTrack(skills);
   console.log(
-    `Organized into ${tracks.length} tracks: ${tracks.map((t) => t.name).join(", ")}\n`
+    `Organized into ${tracks.length} tracks: ${tracks.map((t) => t.name).join(", ")}\n`,
   );
 
   for (const platform of platforms) {
@@ -604,7 +621,9 @@ async function main(): Promise<void> {
       encoding: "utf-8",
     });
     if (result.status !== 0) {
-      console.warn("Banner generation failed (python3/cairosvg not available). Skipping.");
+      console.warn(
+        "Banner generation failed (python3/cairosvg not available). Skipping.",
+      );
     }
   }
 
