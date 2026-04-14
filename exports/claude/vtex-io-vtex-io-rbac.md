@@ -22,13 +22,13 @@ Do not use this skill for:
 
 ### Role-based vs resource-based policies
 
-| | Role-based (`policies.json`) | Resource-based (`service.json` policies) |
-| --- | --- | --- |
-| **Who can call?** | Only other IO apps (by themselves or on behalf of other apps) | Apps, users, and integrations (API keys) |
-| **API types** | GraphQL and REST | REST only |
-| **How callers get access** | Must declare required policies in their `manifest.json` | No policy declaration needed; just call with auth token |
-| **Where configured** | `policies.json` in app root | `policies` array inside route definition in `service.json` |
-| **Use when** | Exposing GraphQL endpoints; exposing REST endpoints for app-to-app only | Controlling access for users, API keys, or specific apps to REST endpoints |
+|                            | Role-based (`policies.json`)                                            | Resource-based (`service.json` policies)                                   |
+| -------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Who can call?**          | Only other IO apps (by themselves or on behalf of other apps)           | Apps, users, and integrations (API keys)                                   |
+| **API types**              | GraphQL and REST                                                        | REST only                                                                  |
+| **How callers get access** | Must declare required policies in their `manifest.json`                 | No policy declaration needed; just call with auth token                    |
+| **Where configured**       | `policies.json` in app root                                             | `policies` array inside route definition in `service.json`                 |
+| **Use when**               | Exposing GraphQL endpoints; exposing REST endpoints for app-to-app only | Controlling access for users, API keys, or specific apps to REST endpoints |
 
 ### Choosing the right approach
 
@@ -87,14 +87,18 @@ Role-based policies only work for **app-to-app** communication. If users (admin 
 
 ```json
 // policies.json — this only covers app-to-app, not users
-[{
-  "name": "access-orders",
-  "statements": [{
-    "effect": "allow",
-    "actions": ["get"],
-    "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
-  }]
-}]
+[
+  {
+    "name": "access-orders",
+    "statements": [
+      {
+        "effect": "allow",
+        "actions": ["get"],
+        "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
+      }
+    ]
+  }
+]
 // Users calling this route still get 403
 ```
 
@@ -208,11 +212,13 @@ For GraphQL endpoints, use the `@auth` directive for user-level authorization:
 ```graphql
 type Query {
   orders: [Order] @auth(productCode: "10", resourceCode: "list-orders")
-  adminSettings: Settings @auth(productCode: "10", resourceCode: "admin-settings")
+  adminSettings: Settings
+    @auth(productCode: "10", resourceCode: "admin-settings")
 }
 
 type Mutation {
-  updateSettings(input: SettingsInput!): Settings @auth(productCode: "10", resourceCode: "admin-settings")
+  updateSettings(input: SettingsInput!): Settings
+    @auth(productCode: "10", resourceCode: "admin-settings")
 }
 ```
 
