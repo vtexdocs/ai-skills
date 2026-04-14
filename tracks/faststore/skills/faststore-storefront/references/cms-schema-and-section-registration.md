@@ -216,6 +216,8 @@ Follow this EXACT sequence. Do NOT skip steps.
 - [ ] Generate: `vtex content generate-schema -o cms/faststore/schema.json -b vtex.faststore4`
 - [ ] Verify: `grep -A 5 '"<ComponentName>"' cms/faststore/schema.json` (search for the `$componentKey` string)
   - If it does not appear, fix JSONC or registration — **do not** edit `schema.json` manually
+- [ ] **Account check** (before upload): read `api.storeId` from `discovery.config.js` and run `vtex whoami` — confirm both match. If they differ, ask the user to run `vtex login <correct-account>` and **stop**.
+- [ ] **Ask the user**: _"The schema will be uploaded to account **`<store-id>`**. Do you want to proceed?"_ — wait for confirmation before continuing.
 - [ ] Upload: `vtex content upload-schema cms/faststore/schema.json` (**required** — without upload, the CMS editor will not see new or updated section definitions)
 - [ ] Confirm upload success message
 
@@ -283,9 +285,41 @@ vtex content upload-schema cms/faststore/schema.json
 
 The store ID you enter at prompts should match `api.storeId` in `discovery.config.js`.
 
-### Non-interactive upload (automatic - ALWAYS USE THIS)
+### Pre-upload account verification (MANDATORY)
 
-When uploading schema in an automated workflow, ALWAYS use `expect` to handle prompts automatically:
+**Before every `upload-schema` execution**, the agent **must** verify that the currently logged-in VTEX account matches the project's target store. Uploading to the wrong account overwrites CMS schema in the wrong store — **this is not reversible without manual intervention**.
+
+**Steps:**
+
+1. **Read the expected store ID** from the project config:
+
+```bash
+node -e "console.log(require('./discovery.config.js').api.storeId)"
+```
+
+2. **Read the currently logged-in account** from the VTEX CLI:
+
+```bash
+vtex whoami
+```
+
+The output includes the account name (e.g. `Logged into account: mystore`). Extract the account name.
+
+3. **Compare** the two values. If they **do not match**, stop immediately and tell the user:
+
+> ⚠️ The VTEX CLI is logged into account **`<logged-account>`**, but `discovery.config.js` has `api.storeId` set to **`<expected-store-id>`**. Please run `vtex login <expected-store-id>` or switch to the correct account before uploading.
+
+**Do not** proceed with upload-schema until the accounts match.
+
+4. **Even when accounts match**, the agent **must ask the user for explicit confirmation** before uploading:
+
+> The schema will be uploaded to account **`<store-id>`**. Do you want to proceed? (yes/no)
+
+Wait for the user's response. **Only proceed if the user confirms.**
+
+### Non-interactive upload (automatic - USE ONLY AFTER ACCOUNT VERIFICATION)
+
+When uploading schema in an automated workflow, ALWAYS use `expect` to handle prompts automatically. **This block must only run after the pre-upload account verification above has passed and the user has confirmed.**
 
 ```bash
 # Export store ID from discovery.config.js
