@@ -28,73 +28,160 @@ To edit **content** in existing sections, use the Store Admin at:
 1. There is no need of creating `cms/faststore/pages/*.jsonc` files for new sections. This should be edited only when a new landing page is needed.
 2. After every change to `cms/faststore/components/*.jsonc` or `cms/faststore/pages/*.jsonc`, you **must** run **`vtex content generate-schema`** and **`vtex content upload-schema`** in the same working session (see [End-to-end agent workflow](#end-to-end-agent-workflow)). **Do not** use `yarn cms-sync`, `faststore cms-sync`, or other legacy `cms-sync` flows to publish Headless CMS schema — use **`vtex content`** only.
 3. Every file inside the folder `cms/faststore/components/` should follow this name pattern and extension: `cms_component__<name>.jsonc`
-4. Follow language idioms and conventions existent in other cms files
+4. Follow the conventions of the native components in `node_modules/@faststore/core/cms/faststore/components/` — see [Native Component Pattern Reference](#native-component-pattern-reference) for the full style guide
 
-## Schema Format
+## Native Component Pattern Reference
+
+When creating a new `cms/faststore/components/cms_component__<name>.jsonc`, **follow the conventions used by the native components** in `node_modules/@faststore/core/cms/faststore/components/`. The patterns below are extracted from those files and must be treated as the canonical style guide.
+
+### Structural conventions
+
+1. **Top-level keys appear in this order** — always:
+
+   ```jsonc
+   {
+     "$extends": ["#/$defs/base-component"],
+     "$componentKey": "MySection",
+     "$componentTitle": "My Section",
+     "title": "My Section",
+     "description": "Short CMS editor description",
+     "type": "object",
+     "required": [...],
+     "properties": { ... }
+   }
+   ```
+
+   - `$extends` is always `["#/$defs/base-component"]`.
+   - `$componentKey` is **PascalCase with no spaces** (e.g. `"ProductShelf"`, `"BannerText"`).
+   - `$componentTitle` and `"title"` are **human-readable** (may contain spaces): `"Product Shelf"`, `"Banner Text"`.
+   - `"description"` is a short sentence shown in the CMS palette (e.g. `"Add a quick promotion with an image/action pair"`).
+   - `"required"` lists only the fields that **must** be filled by the editor; optional fields are simply omitted from this array.
+
+2. **File name** matches the lowercased component name: `cms_component__productshelf.jsonc` for `$componentKey: "ProductShelf"`.
+
+### Property conventions
+
+| Pattern                 | Convention                                                                                                                              | Example from core                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Simple text field       | `{ "type": "string", "title": "Title" }`                                                                                                | Hero → `title`                                                                    |
+| Text with default       | Add `"default"` at the same level                                                                                                       | Newsletter → `emailInputLabel`                                                    |
+| Rich text (WYSIWYG)     | `"widget": { "ui:widget": "draftjs-rich-text" }`                                                                                        | Newsletter → `privacyPolicy`                                                      |
+| Image upload            | `"widget": { "ui:widget": "media-gallery", "restrictMediaTypes": { "video": true, "image": ["png","jpg","jpeg","gif","svg","webp"] } }` | Hero → `image.src`                                                                |
+| Boolean toggle          | `{ "type": "boolean", "title": "...", "default": false }`                                                                               | Alert → `dismissible`                                                             |
+| Dropdown (enum)         | `"enum"` + `"enumNames"` arrays of equal length; `enum` holds the value, `enumNames` the label                                          | Hero → `colorVariant` (`["main","light","accent"]` / `["Main","Light","Accent"]`) |
+| Integer with default    | `{ "type": "integer", "title": "...", "default": 5 }`                                                                                   | ProductShelf → `numberOfItems`                                                    |
+| Nested object group     | `{ "type": "object", "title": "...", "properties": { ... } }` — nest `required` inside the object when needed                           | BannerText → `link` (with inner `required: ["text","url"]`)                       |
+| Repeatable list         | `{ "type": "array", "items": { "type": "object", ... } }` — use `minItems`/`maxItems` to constrain                                      | Incentives → `incentives` (array of incentive objects)                            |
+| Sub-object config group | Group related toggles/fields under a descriptive object                                                                                 | ProductShelf → `taxesConfiguration`, `productCardConfiguration`                   |
+
+### Key rules derived from native components
+
+- **Every property must have `"title"`** — it is the CMS editor label.
+- **Use `"default"` generously** — provide sensible defaults so editors start with a working section.
+- **`"description"` on a property** is optional but recommended when the field is not self-explanatory (e.g. ProductShelf → `after`: `"Initial pagination item"`).
+- **Enums always use both `"enum"` and `"enumNames"`** — even when the display name matches the value. The arrays must have the same length and order.
+- **Nested objects with required inner fields** place the `"required"` array inside the object definition, not at the root level.
+- **No trailing commas in JSON** — although `.jsonc` tolerates them, the native components do **not** use trailing commas. Follow the same style.
+- **`"type"` is always explicit** on every property, including nested objects and array items.
+
+### Complete annotated example (following native style)
 
 ```jsonc
 {
   "$extends": ["#/$defs/base-component"],
-  "$componentKey": "CustomIconsAlert",
-  "$componentTitle": "CustomIconsAlert",
+  "$componentKey": "PromoBanner",
+  "$componentTitle": "Promo Banner",
+  "title": "Promo Banner",
+  "description": "Display a promotional banner with image and call to action",
   "type": "object",
-  "required": ["icon", "content", "dismissible"],
+  "required": ["title", "image"],
   "properties": {
-    "icon": {
+    "title": {
+      "title": "Title",
       "type": "string",
-      "title": "Icon",
-      "enumNames": [
-        "Bell",
-        "BellRinging",
-        "Checked",
-        "Info",
-        "Truck",
-        "User",
-        "Storefront",
-      ],
-      "enum": [
-        "Bell",
-        "BellRinging",
-        "Checked",
-        "Info",
-        "Truck",
-        "User",
-        "Storefront",
-      ],
     },
-    "content": {
+    "subtitle": {
+      "title": "Subtitle",
       "type": "string",
-      "title": "Content",
     },
-    "link": {
-      "title": "Link",
+    "image": {
+      "title": "Image",
       "type": "object",
       "properties": {
-        "text": { "type": "string", "title": "Link Text" },
-        "to": { "type": "string", "title": "Action link" },
+        "src": {
+          "title": "Image",
+          "type": "string",
+          "widget": {
+            "ui:widget": "media-gallery",
+            "restrictMediaTypes": {
+              "video": true,
+              "image": ["png", "jpg", "jpeg", "gif", "svg", "webp"],
+            },
+          },
+        },
+        "alt": {
+          "title": "Alternative Label",
+          "type": "string",
+        },
       },
     },
-    "dismissible": {
+    "link": {
+      "title": "Call to Action",
+      "type": "object",
+      "required": ["text", "url"],
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string",
+        },
+        "url": {
+          "title": "URL",
+          "type": "string",
+        },
+        "linkTargetBlank": {
+          "title": "Open link in new window?",
+          "type": "boolean",
+          "default": false,
+        },
+      },
+    },
+    "colorVariant": {
+      "title": "Color variant",
+      "type": "string",
+      "enumNames": ["Main", "Light", "Accent"],
+      "enum": ["main", "light", "accent"],
+    },
+    "showBadge": {
+      "title": "Show discount badge?",
       "type": "boolean",
-      "default": false,
-      "title": "Is dismissible?",
+      "default": true,
+    },
+    "items": {
+      "title": "Highlight Items",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "title": "Item",
+        "type": "object",
+        "required": ["label"],
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string",
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string",
+            "enumNames": ["Truck", "Gift", "Shield Check"],
+            "enum": ["Truck", "Gift", "ShieldCheck"],
+          },
+        },
+      },
     },
   },
 }
 ```
-
-## Schema Rules
-
-| Rule                     | Detail                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| `"$componentKey"`        | **Must** match a **key** on the **default export** object in `src/components/index.tsx` |
-| Properties               | Become the section's props passed to the React component                                |
-| `"enum"` + `"enumNames"` | Renders a dropdown in the CMS editor                                                    |
-| `"type": "boolean"`      | Renders a toggle                                                                        |
-| `"type": "object"`       | Creates a nested group of fields                                                        |
-| `"required"`             | Array of field names that must be filled by the editor                                  |
-
-## CMS Section Registration Workflow
 
 ## Mandatory Workflow for New Custom Sections
 
@@ -119,9 +206,7 @@ Follow this EXACT sequence. Do NOT skip steps.
 
 ### Phase 3: CMS Schema & Registration
 
-- [ ] Create JSONC schema at `cms/faststore/components/cms_component__<Name>.jsonc`
-  - Use `$extends`, `$componentKey`, `$componentTitle`
-  - Define `properties` that become CMS editor fields
+- [ ] Create JSONC schema at `cms/faststore/components/cms_component__<Name>.jsonc` following the [Native Component Pattern Reference](#native-component-pattern-reference)
 - [ ] Verify `$componentKey` matches exactly
 - [ ] Register in `src/components/index.tsx` with an object key **identical** to `$componentKey`
 - [ ] **RUN LINTER** on `index.tsx`
