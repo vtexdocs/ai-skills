@@ -33,15 +33,15 @@ To edit **content** in existing sections, use the Store Admin at:
 6. **Every custom section MUST have an inner `<div className="layout__content">` wrapper** immediately inside the `<section>` element. This wrapper constrains the content to the store's max-width grid and centers it. Without it, content will stretch edge-to-edge and break the store layout.
 
    **Correct section structure:**
+
    ```tsx
    <section className={`section ${styles.mySection}`}>
-     <div className="layout__content">
-       {/* Section content goes here */}
-     </div>
+     <div className="layout__content">{/* Section content goes here */}</div>
    </section>
    ```
 
    **Wrong — missing `section` class and `layout__content` wrapper:**
+
    ```tsx
    <section className={styles.mySection}>
      {/* Content renders without standard spacing and full-bleed */}
@@ -215,7 +215,7 @@ Follow this EXACT sequence. Do NOT skip steps.
 
 - [ ] Create folder: `mkdir -p src/components/sections/<Name>` (or `src/components/<Name>/` for non-section sub-components)
 - [ ] Create React component at `src/components/sections/<Name>/<Name>.tsx` with TypeScript interfaces
-  - The root element MUST be `<section className={\`section ${styles.mySection}\`}>` — `section` class always comes first
+  - The root element MUST be `<section className={\`section ${styles.mySection}\`}>`—`section` class always comes first
   - Immediately inside the `<section>`, add `<div className="layout__content">` to wrap all content
 - [ ] Create styles at `src/components/sections/<Name>/<name>.module.scss`
   - Wrap all styles in a single class
@@ -352,7 +352,7 @@ export STORE_ID=$(node -e "console.log(require('./discovery.config.js').api.stor
 expect -c '
   spawn vtex content upload-schema cms/faststore/schema.json
   expect "store ID"
-  send "$env(STORE_ID)\r"
+  send "faststore\r"
   expect -re "uploaded|confirm"
   send "y\r"
   expect -re "Are you sure|confirm"
