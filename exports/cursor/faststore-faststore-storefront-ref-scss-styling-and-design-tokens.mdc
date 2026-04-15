@@ -79,24 +79,52 @@ const CustomIconsAlert = getOverriddenSection({
 
 ## Importing `@faststore/ui` Styles for New Sections
 
-Native sections automatically get their styles. **New custom sections** must manually import styles for any `@faststore/ui` components they use:
+Native sections automatically get their styles. **New custom sections** must manually import styles for any `@faststore/ui` components they use.
+
+### Hard constraint: `@import` of `@faststore/ui` styles must be nested inside a local class
+
+CSS Modules require every selector in a `.module.scss` file to be "pure" — i.e., scoped under a local class or id. `@faststore/ui` component stylesheets declare selectors like `[data-fs-button]`, `[data-fs-input-field]`, etc. Importing them at the **root level** of a `.module.scss` file injects those global attribute selectors outside any local scope, triggering the build error:
+
+> `Selector "[data-fs-button]" is not pure (pure selectors must contain at least one local class or id)`
+
+**Why this matters:** The build fails. No workaround exists at the bundler level — the SCSS module spec enforces purity.
+
+**Detection:** Look for any `@import` or `@use` of `@faststore/ui` component styles that is **not** nested inside a local class in a `.module.scss` file.
+
+**Correct** — imports nested inside a local class:
 
 ```scss
 // src/components/ContactForm/contact-form.module.scss
 
-
 .contactForm {
-  // Import @faststore/ui styles for components used in this section: use @use syntax from dart-sass if the @faststore/core deps is v4.
-  // Also imports the component style inside the class definition to avoid scss module error: pure selectors must contain at least one local class or id
   @import "@faststore/ui/src/components/atoms/Button/styles.scss";
   @import "@faststore/ui/src/components/atoms/InputField/styles.scss";
   @import "@faststore/ui/src/components/molecules/Textarea/styles.scss";
-  // Your scoped styles
+
   display: flex;
   flex-direction: column;
   gap: var(--fs-spacing-3);
 }
 ```
+
+**Wrong** — imports at root level of the module file:
+
+```scss
+// src/components/ContactForm/contact-form.module.scss
+
+// These are at root scope — WILL FAIL with "not pure" error
+@import "@faststore/ui/src/components/atoms/Button/styles.scss";
+@import "@faststore/ui/src/components/atoms/InputField/styles.scss";
+
+.contactForm {
+  display: flex;
+}
+```
+
+**Alternative — use native HTML when `@faststore/ui` is not needed:**
+If the component only needs a styled `<button>` (no FastStore variants, icons, or loading states), use a plain `<button>` element with your own SCSS instead of importing `UIButton` styles. This avoids the import altogether and keeps the bundle smaller.
+
+> **Note (dart-sass / v4):** If `@faststore/core` is v4, use `@use` instead of `@import`. The nesting-inside-a-local-class rule still applies — `@use` at the module root triggers the same purity error.
 
 ## Targeting `@faststore/ui` Component Internals
 
@@ -117,6 +145,113 @@ Native sections automatically get their styles. **New custom sections** must man
 ```
 
 See [references/REFERENCE.md](references/REFERENCE.md) for the complete list of all `data-fs-*` styling attributes and design token custom properties.
+
+### Hard constraint: Prefer native HTML elements over `@faststore/ui` components when the design is fully custom
+
+`@faststore/ui` components (`UIButton`, `UIInput`, etc.) ship with internal styles bound to `[data-fs-*]` attribute selectors. When you import their stylesheets and then try to override most visual properties (background, padding, border-radius, font, etc.), the `[data-fs-button]` selectors from the imported stylesheet compete with your custom rules. Because both sit inside the same local class scope, the outcome depends on source order and specificity — leading to inconsistent results, `!important` escalation, or styles that break on upgrades.
+
+**Why this matters:** Specificity conflicts produce visual bugs that are hard to trace. Developers resort to `!important` or increasingly complex selectors, making the stylesheet fragile and unmaintainable.
+
+**Detection:** A custom section uses a `@faststore/ui` component **and** overrides more than 2–3 visual properties of that component in SCSS. If the custom design shares almost nothing with the default FastStore appearance, the component is adding overhead with no benefit.
+
+**When to use `@faststore/ui` components:**
+- The design is close to the default FastStore look (minor color/spacing tweaks)
+- You need built-in behavior: button loading states, input validation, icon slots, accessibility attributes
+- You are overriding a native section via `getOverriddenSection` (the slot already uses the UI component)
+
+**When to use native HTML elements instead:**
+- The design is completely custom (different shape, layout, animations)
+- The component is purely presentational with no special FastStore behavior
+- You find yourself overriding most `data-fs-*` default styles
+
+**Correct** — native `<button>` when the design is fully custom:
+
+```tsx
+// src/components/sections/CustomCTA/CustomCTA.tsx
+import styles from "./custom-cta.module.scss";
+
+export default function CustomCTA() {
+  return (
+    <section className={styles.customCta}>
+      <button className={styles.ctaButton} type="button">
+        Shop Now
+      </button>
+    </section>
+  );
+}
+```
+
+```scss
+// src/components/sections/CustomCTA/custom-cta.module.scss
+
+.customCta {
+  display: flex;
+  justify-content: center;
+  padding: var(--fs-spacing-6);
+}
+
+.ctaButton {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  border: none;
+  border-radius: 50px;
+  color: #fff;
+  padding: var(--fs-spacing-3) var(--fs-spacing-6);
+  font-size: var(--fs-text-size-body);
+  cursor: pointer;
+}
+```
+
+**Wrong** — importing `UIButton` styles then fighting specificity:
+
+```scss
+// custom-cta.module.scss
+
+.customCta {
+  @import "@faststore/ui/src/components/atoms/Button/styles.scss";
+
+  [data-fs-button] {
+    // Overriding almost everything — the import is wasted
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24) !important;
+    border: none !important;
+    border-radius: 50px !important;
+    padding: var(--fs-spacing-3) var(--fs-spacing-6) !important;
+  }
+}
+```
+
+## Using `@layer components` in Custom Sections
+
+FastStore native sections wrap their styles in `@layer components`. This CSS cascade layer sits **below** `@layer theme` in specificity, so theme token overrides in `custom-theme.scss` always win without needing `!important`.
+
+When building **new custom sections** (not overrides), use the same pattern to keep your section's styles consistent with the cascade order used by the rest of the storefront:
+
+```scss
+// src/components/sections/DailyOffers/daily-offers.module.scss
+
+@layer components {
+  .dailyOffers {
+    @import "@faststore/ui/src/components/atoms/Button/styles.scss";
+
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--fs-spacing-4);
+    padding: var(--fs-spacing-6) var(--fs-grid-padding);
+
+    [data-fs-button] {
+      min-width: 180px;
+    }
+  }
+}
+```
+
+**Why use `@layer components`:**
+- Theme tokens declared in `@layer theme { .theme { ... } }` automatically override component-layer styles — no `!important` needed
+- Consistent cascade behavior with native sections: your custom section responds to theme changes the same way built-in sections do
+- Future-proof: if FastStore adds new cascade layers, sections in `@layer components` stay in the right place
+
+**When to skip `@layer components`:**
+- Section overrides via `getOverriddenSection` — the native section already provides the layer; your `.module.scss` only adds scoped tweaks on top
+- Sections that use only native HTML elements with fully custom styles and no `@faststore/ui` components — there are no `data-fs-*` styles to layer against
 
 ## Common Design Tokens
 
@@ -199,7 +334,9 @@ Each component uses **CSS Modules** (`.module.scss`) for scoped styling:
 ```
 ## Importing `@faststore/ui` styles for new sections
 
-Native sections get their styles automatically. **New sections** (not overrides) must manually import the styles for any `@faststore/ui` components they use:
+Native sections get their styles automatically. **New sections** (not overrides) must manually import the styles for any `@faststore/ui` components they use.
+
+> **All `@import` / `@use` of `@faststore/ui` styles must be inside a local class** — never at the module root. Root-level imports inject `[data-fs-*]` attribute selectors that break CSS Modules purity. See the hard constraint above for details.
 
 ```scss
 // src/components/ContactForm/contact-form.module.scss
@@ -207,21 +344,17 @@ Native sections get their styles automatically. **New sections** (not overrides)
 // Import them explicitly for each UI component used.
 // Docs: https://developers.vtex.com/docs/guides/faststore/using-themes-importing-ui-components-styles
 
-@import "@faststore/ui/src/styles/base/utilities";
-
 .contactForm {
-  // Import styles for @faststore/ui components used in this section.
+  // Utilities import must also be inside the local class
+  @import "@faststore/ui/src/styles/base/utilities";
+
   @import "~@faststore/ui/src/components/atoms/Button/styles.scss";
   @import "~@faststore/ui/src/components/atoms/Input/styles.scss";
   @import "~@faststore/ui/src/components/molecules/InputField/styles.scss";
 
-  // Use the media mixin to add media query breakpoint rules..
-  // Existins breakpoints and their sizes:
-  // - "phone": 320px
-  // - "phonemid": 375px
-  // - "tablet": 768px
-  // - "notebook": 1280px
-  // - "desktop": 1440px
+  // Media mixin breakpoints (from utilities):
+  // "phone": 320px, "phonemid": 375px, "tablet": 768px,
+  // "notebook": 1280px, "desktop": 1440px
   @include media(">=notebook") {
     align-items: center;
     justify-content: space-between;
@@ -269,9 +402,22 @@ Native sections get their styles automatically. **New sections** (not overrides)
 
 - Use `data-fs-*` attribute selectors to target FastStore UI component internals.
 - Use `@layer theme` for global token overrides.
+- Use `@layer components` for new custom section styles so they participate in the same cascade as native sections.
 - Use `.module.scss` for component-scoped styles.
-- Import `@faststore/ui` component styles explicitly in new (non-override) sections.
-- Use "@faststore/ui/src/styles/base/utilities" mixin `@include media` for media query breakpoints styles.
+- Import `@faststore/ui` component styles explicitly in new (non-override) sections — **always inside a local class, never at the module root**.
+- Use `@faststore/ui/src/styles/base/utilities` mixin `@include media` for media query breakpoints styles.
+- When a `@faststore/ui` component is only used for basic HTML semantics (e.g., a plain `<button>`), prefer the native element with custom SCSS instead of importing `@faststore/ui` styles.
+- **Do not import `@faststore/ui` component styles and then override most of their visual properties** — use native HTML elements instead to avoid specificity conflicts and `!important` escalation.
+
+## Common failure modes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Selector "[data-fs-*]" is not pure (pure selectors must contain at least one local class or id)` | `@import` / `@use` of `@faststore/ui` component styles at root level of a `.module.scss` file | Move the import inside the wrapper local class (e.g., `.section { @import "..."; }`) |
+| Unstyled `@faststore/ui` components in a new custom section | Missing explicit style import for the UI component | Add `@import "@faststore/ui/src/components/.../<Component>/styles.scss"` inside the wrapper class |
+| `@include media(...)` not found | `@faststore/ui/src/styles/base/utilities` not imported | Import utilities inside the wrapper class before using the mixin |
+| Custom styles on `UIButton` / `UIInput` don't apply or require `!important` | Specificity conflict with imported `@faststore/ui` `[data-fs-*]` styles | If the design is fully custom, replace the `@faststore/ui` component with a native HTML element and remove the style import |
+| Theme token overrides in `custom-theme.scss` don't affect a custom section | Custom section styles are not inside `@layer components` | Wrap the section's `.module.scss` styles in `@layer components { ... }` so `@layer theme` wins |
 
 
 ---
