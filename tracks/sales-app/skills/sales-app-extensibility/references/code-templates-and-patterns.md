@@ -101,13 +101,14 @@ import { ${HOOKS_IMPORT} } from '@vtex/sales-app';
 import './${COMPONENT_NAME}.css';
 
 interface ${COMPONENT_NAME}Data {
-  // Define the API response structure
+  // Generated from API documentation — see docs/<ExtensionName>.md for source
+  // Object fields → typed properties. Nested objects → separate interfaces. Optional fields → property?: Type
   ${DATA_INTERFACE}
 }
 
 export function ${COMPONENT_NAME}(): JSX.Element {
   ${HOOKS_USAGE}
-  const [data, setData] = useState<${COMPONENT_NAME}Data | null>(null);
+  const [data, setData] = useState<${COMPONENT_NAME}Data | null>(null)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -177,6 +178,8 @@ import { ${HOOKS_IMPORT} } from '@vtex/sales-app';
 import './${COMPONENT_NAME}.css';
 
 interface ${COMPONENT_NAME}Data {
+  // Generated from API documentation — see docs/<ExtensionName>.md for source
+  // Object fields → typed properties. Nested objects → separate interfaces. Optional fields → property?: Type
   ${DATA_INTERFACE}
 }
 
@@ -257,6 +260,8 @@ import './${COMPONENT_NAME}.css';
  */
 
 interface ${COMPONENT_NAME}Data {
+  // Generated from API documentation — see docs/<ExtensionName>.md for source
+  // Object fields → typed properties. Nested objects → separate interfaces. Optional fields → property?: Type
   ${DATA_INTERFACE}
 }
 
@@ -446,3 +451,136 @@ After generating code, validate for these issues:
 8. **API call handling** — loading state and error handling must be present for any `fetch()` call
 9. **CSS class usage** — CSS classes defined in the stylesheet should be used in the component
 10. **defineExtensions in index.tsx** — entry point must import and call `defineExtensions`
+
+## API Type Generation from Documentation
+
+When API documentation was ingested during Discovery (Step 1), generate TypeScript interfaces from the extracted response shapes. Apply these rules:
+
+### JSON to TypeScript conversion rules
+
+| JSON value | TypeScript type |
+|-----------|----------------|
+| `"string"` | `string` |
+| `123` | `number` |
+| `true` / `false` | `boolean` |
+| `null` or sometimes absent | `type \| null` or `property?: type` |
+| `{ }` (nested object) | Separate named `interface` |
+| `[ ]` (array of objects) | `InterfaceType[]` |
+| `[ ]` (array of primitives) | `string[]`, `number[]`, etc. |
+
+### Naming conventions
+
+- Top-level response type: `{ComponentName}Data` (replaces the `${DATA_INTERFACE}` placeholder)
+- Nested object type: `{ComponentName}{FieldName}` (e.g., `LoyaltyHistoryEntry`)
+- Request body type (POST/PUT): `{ComponentName}Request`
+- Keep names PascalCase and domain-specific
+
+### Example
+
+Given API response:
+
+```json
+{ "points": 100, "tier": "gold", "expiresAt": null, "history": [{ "date": "2026-01-01", "amount": 10 }] }
+```
+
+Generate:
+
+```typescript
+interface LoyaltyHistoryEntry {
+  date: string;
+  amount: number;
+}
+
+interface LoyaltyData {
+  points: number;
+  tier: string;
+  expiresAt: string | null;
+  history: LoyaltyHistoryEntry[];
+}
+```
+
+If a field is documented as optional (not always present), use `?`:
+
+```typescript
+interface ProductRecommendationData {
+  id: string;
+  name: string;
+  price: number;
+  imageUrl?: string;  // optional per API docs
+  badge?: string;     // optional per API docs
+}
+```
+
+### Multiple endpoints
+
+If the extension calls more than one endpoint, generate a separate interface per endpoint response. Prefix with the endpoint purpose: `{ComponentName}{Purpose}Data` (e.g., `LoyaltyBalanceData`, `LoyaltyRedemptionResponse`).
+
+## Custom Fetch Hook Pattern
+
+Use this pattern when the extension calls **2 or more endpoints** or when the fetch logic is complex (chained requests, pagination, polling).
+
+### Decision rule
+
+- **1 endpoint** → inline `useEffect` fetch inside the component (existing pattern).
+- **2+ endpoints** → extract into one or more custom hooks in `hooks/use{Purpose}.ts`.
+
+### Custom hook template
+
+```typescript
+import { useState, useEffect } from 'react';
+
+export function use${Purpose}(account: string) {
+  const [data, setData] = useState<${ResponseType} | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch('${API_ENDPOINT}', {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) throw new Error('Failed to fetch ${Purpose}');
+        const result: ${ResponseType} = await response.json();
+        setData(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [account]);
+
+  return { data, loading, error };
+}
+```
+
+### Usage in component
+
+```typescript
+import { use${Purpose} } from './hooks/use${Purpose}';
+
+export function ${COMPONENT_NAME}(): JSX.Element {
+  const { account } = useExtension();
+  const { data: balance, loading: loadingBalance, error: errorBalance } = use${Purpose}(account);
+  const { data: history, loading: loadingHistory, error: errorHistory } = use${OtherPurpose}(account);
+
+  if (loadingBalance || loadingHistory) return <div className="loading">Loading...</div>;
+  if (errorBalance || errorHistory) return <div className="error">Error loading data</div>;
+  if (!balance || !history) return (<></>);
+
+  return (
+    <div className="container">
+      {/* render using balance and history */}
+    </div>
+  );
+}
+```
+
+### File placement
+
+Custom hooks go in `packages/sales-app/src/hooks/use{Purpose}.ts`. They must be TypeScript-only files (no JSX, no `.tsx` extension needed unless they return JSX).

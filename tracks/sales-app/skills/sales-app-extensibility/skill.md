@@ -1,6 +1,6 @@
 ---
 name: sales-app-extensibility
-description: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 6-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, and secure API integration patterns.
+description: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 7-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, secure API integration patterns, and API documentation ingestion (OpenAPI, URLs, or inline specs) to generate typed integrations.
 metadata:
   track: sales-app
   tags:
@@ -124,6 +124,7 @@ Follow the mandatory 6-step workflow in order. Do not skip steps.
 - API + no auth → **API template**
 - API + VTEX IO proxy → **IO proxy template** (recommended)
 - API + direct auth → **direct auth template** (insecure, warn user)
+- API doc provided → generate TypeScript interfaces from extracted response shapes; no API doc → use `${DATA_INTERFACE}` placeholder
 
 ### API authentication strategy
 
@@ -353,11 +354,11 @@ Discovery → Generate code immediately.
 
 **Step 0** — Check FastStore + Sales App prerequisites. STOP if missing.
 
-**Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. Load the [discovery reference](references/discovery-and-use-cases.md) for detailed question flows.
+**Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. If the user provides API documentation (URL, OpenAPI/Swagger file, Markdown, or inline text), ingest it to extract endpoint details and response shapes — skip the equivalent manual questions. Validate extracted information with the user. Load the [discovery reference](references/discovery-and-use-cases.md) for detailed question flows and the API Documentation Ingestion section.
 
 **Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns and the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
+**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, and the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
 
 **Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
@@ -368,6 +369,9 @@ Discovery → Generate code immediately.
 5. **Component structure** — description of the component tree, props, and state management.
 6. **Styling** — CSS module file name and summary of key classes.
 7. **API integration** (if applicable) — endpoint, auth strategy (IO Proxy or direct), request/response shape.
+   - **Source documentation:** URL or file path of the original API documentation, if provided.
+   - **Generated types:** list of TypeScript interfaces generated from the API documentation.
+   - Note which fields are optional (`?`) vs required per the documentation.
 8. **How to test** — dev server command and URL to reach the extension.
 9. **Known constraints** — any guards, edge cases, or limitations (e.g., `useCartItem().item` may be undefined).
 
@@ -421,7 +425,7 @@ Load these on demand based on what the task requires. Do not load all of them up
 | [references/extension-points-hooks-and-types.md](references/extension-points-hooks-and-types.md) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
 | [references/code-templates-and-patterns.md](references/code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
 | [references/discovery-and-use-cases.md](references/discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
-| [references/local-dev-build-and-deploy.md](references/local-dev-build-and-deploy.md) | Running Steps 4–5 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
+| [references/local-dev-build-and-deploy.md](references/local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
 
 ## Common failure modes
 
@@ -436,6 +440,9 @@ Load these on demand based on what the task requires. Do not load all of them up
 - **Not presenting plan** — User may want a different approach. Always confirm.
 - **Invented extension point names** — `cart.list.after` instead of `cart.cart-list.after` fails silently.
 - **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Future developers won't understand the extension's purpose, hooks, or constraints.
+- **Inventing API response types** — Generated interface doesn't match actual API. If documentation was provided, derive types from it; if not, ask the user for a sample JSON response.
+- **Ignoring provided API documentation** — User provided a URL or file but agent asked manual questions anyway. Always check for documentation first and use the API Documentation Ingestion flow.
+- **Inline fetch with 2+ endpoints** — Multiple `fetch` calls inside the component body. Extract into custom hook(s) in `hooks/use{Purpose}.ts`.
 
 ## Review checklist
 
@@ -454,6 +461,8 @@ Load these on demand based on what the task requires. Do not load all of them up
 - [ ] CSS file path matches component name?
 - [ ] Documentation generated at `docs/<ExtensionName>.md`?
 - [ ] Documentation covers overview, extension point, hooks, structure, and constraints?
+- [ ] If API documentation was provided, TypeScript interfaces match the documented response shape?
+- [ ] If 2+ API endpoints used, fetch logic extracted into custom hook(s) in `hooks/`?
 - [ ] Build passes: `yarn fsp build {account} sales-app`?
 - [ ] Tested locally: `yarn fsp dev {account}`?
 

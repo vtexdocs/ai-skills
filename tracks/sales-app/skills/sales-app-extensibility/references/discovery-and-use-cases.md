@@ -39,11 +39,12 @@ Detect the use case from keywords in the user's description:
 
 ### Loyalty Program
 
+0. **API documentation** (optional, recommended): Do you have API documentation to share? URL, OpenAPI/Swagger JSON/YAML, Markdown file path, or paste the spec inline. If yes, skip questions 2–5 — the agent will extract endpoint, parameters, and response types automatically.
 1. **Data source**: Own external API, VTEX IO app, VTEX Master Data, Third-party API, or Not sure yet?
-2. **API endpoint**: Path (e.g., `/_v/my-loyalty/points`) — only if external data source
-3. **HTTP method**: GET, POST, PUT, or DELETE?
-4. **Request params**: Parameters, query strings, or request body to send
-5. **Response format**: JSON structure of the API response (required for component data mapping)
+2. **API endpoint**: Path (e.g., `/_v/my-loyalty/points`) — only if external data source and no docs provided
+3. **HTTP method**: GET, POST, PUT, or DELETE? — skip if API docs provided
+4. **Request params**: Parameters, query strings, or request body to send — skip if API docs provided
+5. **Response format**: JSON structure of the API response — skip if API docs provided
 6. **Features**: Display points balance, Show earnings with purchase, Allow points redemption, Display customer level
 7. **Location**: `cart.order-summary.after` or `menu.drawer-content`
 8. **Interaction**: View only or Interactive (redeem points, apply discounts)?
@@ -54,12 +55,13 @@ Detect the use case from keywords in the user's description:
 
 ### Additional Services
 
+0. **API documentation** (optional, recommended): Do you have API documentation to share? URL, OpenAPI/Swagger JSON/YAML, Markdown file path, or paste the spec inline. If yes, skip questions 3–6 — the agent will extract endpoint, parameters, and response types automatically.
 1. **Service types**: Extended warranty, Insurance, Installation, Assembly, Customization, Other
 2. **Data source**: External API, VTEX IO app, Fixed list in code, or VTEX Catalog?
-3. **API endpoint**: Path — only if external data source
-4. **HTTP method**: GET, POST, PUT, or DELETE?
-5. **Request params**: Parameters or request body
-6. **Response format**: JSON structure of the API response
+3. **API endpoint**: Path — only if external data source and no docs provided
+4. **HTTP method**: GET, POST, PUT, or DELETE? — skip if API docs provided
+5. **Request params**: Parameters or request body — skip if API docs provided
+6. **Response format**: JSON structure of the API response — skip if API docs provided
 7. **Location**: `cart.cart-item.after` (per item) or `pdp.sidebar.after` (product page)
 8. **Pricing model**: Fixed price, Percentage of product, or Calculated by API?
 
@@ -69,12 +71,13 @@ Detect the use case from keywords in the user's description:
 
 ### Product Recommendations
 
+0. **API documentation** (optional, recommended): Do you have API documentation to share? URL, OpenAPI/Swagger JSON/YAML, Markdown file path, or paste the spec inline. If yes, skip questions 3–6 — the agent will extract endpoint, parameters, and response types automatically.
 1. **Recommendation type**: Frequently bought together, Accessories, Similar products, Upgrades
 2. **Data source**: Own API, VTEX Intelligent Search, Fixed rules, or Third-party API?
-3. **API endpoint**: Path — only if external data source
-4. **HTTP method**: GET, POST, PUT, or DELETE?
-5. **Request params**: Parameters or request body
-6. **Response format**: JSON structure of the API response
+3. **API endpoint**: Path — only if external data source and no docs provided
+4. **HTTP method**: GET, POST, PUT, or DELETE? — skip if API docs provided
+5. **Request params**: Parameters or request body — skip if API docs provided
+6. **Response format**: JSON structure of the API response — skip if API docs provided
 7. **Location**: `cart.cart-list.after` or `pdp.content.after`
 8. **Quick add**: Can the seller quickly add recommended products to the cart?
 9. **Display count**: 3, 4, 6 products, or customizable?
@@ -85,12 +88,13 @@ Detect the use case from keywords in the user's description:
 
 ### Custom Discounts
 
+0. **API documentation** (optional, recommended): Do you have API documentation to share? URL, OpenAPI/Swagger JSON/YAML, Markdown file path, or paste the spec inline. If yes, skip questions 3–6 — the agent will extract endpoint, parameters, and response types automatically.
 1. **Discount types**: Discount coupon, Manual seller discount, Volume discount, Special promotion
 2. **Validation source**: Own promotions API, VTEX Promotions, or Fixed coupon list?
-3. **API endpoint**: Path for validation — only if external API
-4. **HTTP method**: GET, POST, PUT, or DELETE?
-5. **Request params**: Parameters or request body
-6. **Response format**: JSON structure of the API response
+3. **API endpoint**: Path for validation — only if external API and no docs provided
+4. **HTTP method**: GET, POST, PUT, or DELETE? — skip if API docs provided
+5. **Request params**: Parameters or request body — skip if API docs provided
+6. **Response format**: JSON structure of the API response — skip if API docs provided
 7. **Discount limits**: No limit, Maximum percentage, Maximum value, or Depends on seller level?
 8. **Approval needed**: No, Yes above a certain value, or Always?
 
@@ -111,9 +115,12 @@ Detect the use case from keywords in the user's description:
 
 When the use case requires an external API:
 
-### Step 1: Confirm API details
+### Step 1: Check for API documentation and confirm API details
 
-Collect: HTTP method, request parameters/body, and API response JSON structure.
+**First** — Ask: does the user have API documentation they can share?
+
+- **Yes** → Go to the [API Documentation Ingestion](#api-documentation-ingestion) section. Extract HTTP method, request parameters/body, and response JSON structure from the docs. Present the extracted details to the user for confirmation, then proceed to Step 2.
+- **No** → Collect manually: HTTP method, request parameters/body, and API response JSON structure. Proceed to Step 2.
 
 ### Step 2: Does the API need authentication?
 
@@ -146,3 +153,53 @@ Use the Direct Auth template.
 ### IO Proxy Critical Rule
 
 The `fetch` call in the extension must use **ONLY the relative path** (e.g., `/_v/my-api/endpoint`). **NEVER** prefix with `https://` or a domain like `{account}.myvtex.com`. The Sales App has an internal proxy that automatically resolves the domain.
+
+## API Documentation Ingestion
+
+When the user provides API documentation, follow these steps to extract structured information before generating code.
+
+### Supported input formats
+
+| Format | How to load | Notes |
+|--------|------------|-------|
+| URL | Use `fetch_webpage` to retrieve the page content | Works for REST API reference pages, Swagger UI, Redoc |
+| OpenAPI/Swagger JSON | Parse the JSON directly from user input or file content | Look for `paths`, `components/schemas` keys |
+| OpenAPI/Swagger YAML | Convert YAML mentally to JSON structure, then parse same as above | |
+| Markdown doc | Read sections for endpoint paths, method, headers, request/response examples | |
+| Inline text | Read the pasted content, identify patterns: `GET /path`, `POST /path`, JSON examples | |
+
+### Extraction checklist
+
+From any documentation format, extract and record:
+
+1. **Base URL** — the host/prefix (e.g., `https://api.example.com/v2`). For IO Proxy, this becomes irrelevant — only the path matters.
+2. **Endpoints** — for each endpoint: HTTP method, path, and purpose description.
+3. **Required headers** — `Content-Type`, `Authorization`, `x-api-key`, or others.
+4. **Query parameters** — name, type, required/optional.
+5. **Request body shape** — JSON structure with field names, types, and required/optional status.
+6. **Response shape** — JSON structure. If multiple status codes, capture the success response (200/201).
+7. **Error shapes** — if documented, capture 4xx/5xx response structures.
+
+### Extraction output (mental model)
+
+After extracting, summarize to the user in this format before proceeding to code generation:
+
+```
+Extracted API summary:
+- Endpoint: [METHOD] [path]
+- Auth: [None / IO Proxy at /_v/... / Direct with header X]
+- Request: { field: type, ... }
+- Response: { field: type, ... }
+- Optional fields: [list]
+
+Does this match what you expected?
+```
+
+Wait for user confirmation before proceeding to Step 2 (template selection) or code generation.
+
+### Multiple endpoints
+
+If the documentation describes multiple endpoints needed by the extension:
+- List all of them in the summary above
+- Note whether they can be called in parallel or must be sequential
+- This will determine whether a custom fetch hook is needed (see code templates reference)
