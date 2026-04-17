@@ -47,7 +47,7 @@ See [`payment/AGENTS.md`](./payment/AGENTS.md) for detailed instructions.
 
 See [`sales-app/AGENTS.md`](./sales-app/AGENTS.md) for detailed instructions.
 
-  - **sales-app-extensibility**: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 6-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, and secure API integration patterns.
+  - **sales-app-extensibility**: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 7-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, secure API integration patterns, and API documentation ingestion (OpenAPI, URLs, or inline specs) to generate typed integrations.
 
 ## Custom VTEX IO Apps
 
