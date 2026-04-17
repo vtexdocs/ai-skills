@@ -92,8 +92,9 @@ Follow the mandatory 6-step workflow in order. Do not skip steps.
 | 1 | Discovery | Understand what the user wants to build |
 | 2 | Requirements & Plan | Map requirements → generate plan → **wait for user approval** |
 | 3 | Code Generation & Validation | Generate component + CSS + index.tsx → validate |
-| 4 | Local Testing | Provide dev commands and URLs |
-| 5 | Build & Deploy | Build command → deployment guide |
+| 4 | Documentation | Generate `docs/<ExtensionName>.md` explaining the extension |
+| 5 | Local Testing | Provide dev commands and URLs |
+| 6 | Build & Deploy | Build command → deployment guide |
 
 ### Extension point selection
 
@@ -358,9 +359,58 @@ Discovery → Generate code immediately.
 
 **Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns and the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
 
-**Step 4** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
+**Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
-**Step 5** — Build command and deployment guide. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
+1. **Extension name** — title matching the component name.
+2. **Overview** — one-paragraph summary of what the extension does and why it was built.
+3. **Extension point** — which extension point it registers on (e.g., `cart.cart-list.after`) and why that point was chosen.
+4. **Hooks used** — list each hook (`useCart`, `usePDP`, etc.) with a brief explanation of what data it provides to this extension.
+5. **Component structure** — description of the component tree, props, and state management.
+6. **Styling** — CSS module file name and summary of key classes.
+7. **API integration** (if applicable) — endpoint, auth strategy (IO Proxy or direct), request/response shape.
+8. **How to test** — dev server command and URL to reach the extension.
+9. **Known constraints** — any guards, edge cases, or limitations (e.g., `useCartItem().item` may be undefined).
+
+Template for the documentation file:
+
+````markdown
+# <ExtensionName>
+
+## Overview
+<One-paragraph description of the extension purpose and value.>
+
+## Extension point
+- **Point:** `<extension.point.name>`
+- **Rationale:** <Why this extension point was selected.>
+
+## Hooks used
+| Hook | Purpose |
+|------|---------|
+| `useCart` | <What data it provides here> |
+
+## Component structure
+<Describe the component tree, key props, and internal state.>
+
+## Styling
+- **File:** `<ComponentName>.module.css`
+- <Summary of key CSS classes and design decisions.>
+
+## API integration
+- **Endpoint:** `/_v/...`
+- **Auth strategy:** IO Proxy / Direct / None
+- **Request/Response:** <Brief shape description.>
+
+## How to test
+Run `yarn fsp dev {account}` and navigate to `https://{account}.myvtex.com/sales-app/...` to verify the extension renders.
+
+## Known constraints
+- <Guard or limitation 1>
+- <Guard or limitation 2>
+````
+
+**Step 5** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
+
+**Step 6** — Build command and deployment guide. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
 
 ## Reference Files
 
@@ -385,6 +435,7 @@ Load these on demand based on what the task requires. Do not load all of them up
 - **Skipping prerequisite checks** — Generating code without FastStore/Sales App installed.
 - **Not presenting plan** — User may want a different approach. Always confirm.
 - **Invented extension point names** — `cart.list.after` instead of `cart.cart-list.after` fails silently.
+- **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Future developers won't understand the extension's purpose, hooks, or constraints.
 
 ## Review checklist
 
@@ -401,6 +452,8 @@ Load these on demand based on what the task requires. Do not load all of them up
 - [ ] IO Proxy uses relative path (/_v/...)?
 - [ ] defineExtensions configured in index.tsx?
 - [ ] CSS file path matches component name?
+- [ ] Documentation generated at `docs/<ExtensionName>.md`?
+- [ ] Documentation covers overview, extension point, hooks, structure, and constraints?
 - [ ] Build passes: `yarn fsp build {account} sales-app`?
 - [ ] Tested locally: `yarn fsp dev {account}`?
 
