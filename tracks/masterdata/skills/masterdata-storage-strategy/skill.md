@@ -95,6 +95,130 @@ Master Data is a good fit when **all** of the following are true:
 - **`v-cache` matches the workload** — Leave `true` (default) for read-heavy entities. Set to `false` for entities with high write frequency where consumers need immediate consistency after writes.
 - **`v-security` is explicit** — Set `allowGetAll: false` unless unauthenticated list access is intentional. Use `publicRead`, `publicWrite`, `publicFilter` only for fields that must be accessible without authentication.
 
+### VTEX schema extensions (`v-*` fields) — reference
+
+Master Data v2 extends standard JSON Schema with `v-*` properties that control indexing, caching, security, defaults, triggers, and schema inheritance. These are **VTEX-specific**; standard JSON Schema validators ignore them.
+
+#### `v-indexed`
+
+Array of field names that Master Data will create secondary indexes for.
+
+- **Only** indexed fields can appear in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets.
+- Each index is updated on **every** document write. Over-indexing increases write latency and storage cost proportionally.
+- **When to index**: fields used in `where` filters, sort expressions, or `publicFilter`. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
+
+```json
+{ "v-indexed": ["email", "status", "createdAt"] }
+```
+
+#### `v-cache`
+
+Boolean (default `true`). Controls whether Master Data caches GET responses for individual documents.
+
+- **`true` (default)** — Read-heavy entities benefit from caching. Most entities should leave this as default.
+- **`false`** — Use for entities with **high write frequency** where consumers need **fresh reads** immediately after writes (e.g. real-time counters, configuration flags, session-like state).
+
+```json
+{ "v-cache": false }
+```
+
+#### `v-default-fields`
+
+Array of field names returned when the caller does **not** specify a `fields` parameter in the API request.
+
+- Keep this **minimal** — only the fields most consumers need by default.
+- Reduces payload size for common queries.
+
+```json
+{ "v-default-fields": ["email", "status", "score", "createdAt"] }
+```
+
+#### `v-security`
+
+Object controlling **unauthenticated** (public) access to fields. By default, all fields require authentication.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `allowGetAll` | `boolean` | If `true`, unauthenticated users can list all documents. **Default `false`; keep it off unless intentional.** |
+| `publicRead` | `string[]` | Fields readable without authentication |
+| `publicWrite` | `string[]` | Fields writable without authentication |
+| `publicFilter` | `string[]` | Fields usable in `where` clauses without authentication (must also be in `v-indexed`) |
+
+```json
+{
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "displayName", "rating"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**Never** include PII (email, phone, addresses), internal IDs, or business-sensitive data in `publicRead` or `publicFilter`.
+
+#### `v-triggers`
+
+Array of trigger objects that define automated actions executed when documents are created or updated and meet specified conditions.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Unique trigger name |
+| `active` | `boolean` | Enable/disable the trigger |
+| `condition` | `string` | `where`-style filter (e.g. `"approved=false"`, `"status=pending AND priority>3"`) |
+| `action.type` | `string` | `"email"`, `"http"` (webhook), or `"action"` |
+| `action.provider` | `string` | Email provider name (for email type) |
+| `action.uri` | `string` | Webhook URL (for http type) |
+| `action.method` | `string` | HTTP method for webhook (for http type) |
+| `retry.times` | `number` | Retry count on failure |
+| `retry.delay` | `object` | Delay between retries (e.g. `{ "addMinutes": 5 }`) |
+
+```json
+{
+  "v-triggers": [
+    {
+      "name": "notify-on-creation",
+      "active": true,
+      "condition": "status=new",
+      "action": {
+        "type": "email",
+        "provider": "default",
+        "subject": "New record: {{title}}",
+        "to": ["admin@mystore.com"],
+        "body": "Record {{id}} created by {{author}}"
+      },
+      "retry": { "times": 3, "delay": { "addMinutes": 5 } }
+    },
+    {
+      "name": "webhook-on-approval",
+      "active": true,
+      "condition": "approved=true",
+      "action": {
+        "type": "http",
+        "uri": "https://my-integration.example.com/webhook",
+        "method": "POST",
+        "headers": { "X-Custom-Header": "value" }
+      },
+      "retry": { "times": 2, "delay": { "addMinutes": 10 } }
+    }
+  ]
+}
+```
+
+#### `v-canonicalto`
+
+URL pointing to another schema in the **same** entity for **schema inheritance**. The current schema inherits properties and constraints from the target.
+
+```json
+{
+  "v-canonicalto": "https://{host}/api/dataentities/{entity}/schemas/{base-schema}"
+}
+```
+
+#### `additionalProperties`
+
+Standard JSON Schema property, but worth noting: set to `false` to **reject** fields not declared in `properties`. By default Master Data preserves extra fields without validation.
+
 ## Hard constraints
 
 ### Constraint: Index only fields used in where clauses or sort expressions

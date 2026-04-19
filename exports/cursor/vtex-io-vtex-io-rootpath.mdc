@@ -43,10 +43,10 @@ Every URL your app generates—links, redirects, API endpoints, canonical URLs, 
 
 ```typescript
 // Backend: use ctx.state.rootPath (parsed by prepare middleware)
-const { rootPath, forwardedHost } = ctx.state
+const { rootPath, forwardedHost } = ctx.state;
 
-const canonicalUrl = `https://${forwardedHost}${rootPath}/product/${slug}`
-const sitemapEntry = `${rootPath}/${categoryPath}`
+const canonicalUrl = `https://${forwardedHost}${rootPath}/product/${slug}`;
+const sitemapEntry = `${rootPath}/${categoryPath}`;
 ```
 
 ```tsx
@@ -83,18 +83,18 @@ When `rootPath` is `"/"` (single-binding or default binding), using it directly 
 
 ```typescript
 // In the prepare middleware, sanitize before storing on state:
-let rootPath = ctx.get('x-vtex-root-path')
-if (rootPath && !rootPath.startsWith('/')) {
-  rootPath = `/${rootPath}`
+let rootPath = ctx.get("x-vtex-root-path");
+if (rootPath && !rootPath.startsWith("/")) {
+  rootPath = `/${rootPath}`;
 }
-if (rootPath === '/') {
-  rootPath = ''
+if (rootPath === "/") {
+  rootPath = "";
 }
-ctx.state.rootPath = rootPath
+ctx.state.rootPath = rootPath;
 
 // Downstream: ctx.state.rootPath is already sanitized
-const { rootPath } = ctx.state
-const url = `${rootPath}/${path}`
+const { rootPath } = ctx.state;
+const url = `${rootPath}/${path}`;
 ```
 
 **Wrong**
@@ -114,15 +114,15 @@ Declare `rootPath` and related binding state on your `State` interface so all ha
 // node/typings.d.ts
 declare global {
   interface State extends RecorderState {
-    binding: Binding
-    rootPath: string
-    forwardedHost: string
-    forwardedPath: string
-    isCrossBorder: boolean
-    matchingBindings: Binding[]
+    binding: Binding;
+    rootPath: string;
+    forwardedHost: string;
+    forwardedPath: string;
+    isCrossBorder: boolean;
+    matchingBindings: Binding[];
   }
 
-  type Context = ServiceContext<Clients, State>
+  type Context = ServiceContext<Clients, State>;
 }
 ```
 
@@ -132,25 +132,25 @@ Wire a `prepare` middleware early in every route's middleware chain. It reads th
 
 ```typescript
 // node/middlewares/prepare.ts
-const FORWARDED_HOST_HEADER = 'x-forwarded-host'
-const VTEX_ROOT_PATH_HEADER = 'x-vtex-root-path'
+const FORWARDED_HOST_HEADER = "x-forwarded-host";
+const VTEX_ROOT_PATH_HEADER = "x-vtex-root-path";
 
 export async function prepare(ctx: Context, next: () => Promise<void>) {
-  const forwardedHost = ctx.get(FORWARDED_HOST_HEADER)
+  const forwardedHost = ctx.get(FORWARDED_HOST_HEADER);
 
-  let rootPath = ctx.get(VTEX_ROOT_PATH_HEADER)
+  let rootPath = ctx.get(VTEX_ROOT_PATH_HEADER);
 
   // Defend against malformed root path — must start with /
-  if (rootPath && !rootPath.startsWith('/')) {
-    rootPath = `/${rootPath}`
+  if (rootPath && !rootPath.startsWith("/")) {
+    rootPath = `/${rootPath}`;
   }
 
   // Normalize "/" to "" to avoid double slashes in URL construction
-  if (rootPath === '/') {
-    rootPath = ''
+  if (rootPath === "/") {
+    rootPath = "";
   }
 
-  const [forwardedPath] = ctx.get('x-forwarded-path').split('?')
+  const [forwardedPath] = ctx.get("x-forwarded-path").split("?");
 
   ctx.state = {
     ...ctx.state,
@@ -158,13 +158,13 @@ export async function prepare(ctx: Context, next: () => Promise<void>) {
     forwardedPath,
     rootPath,
     // ... resolve binding, matchingBindings, etc.
-  }
+  };
 
-  await next()
+  await next();
 
   // Vary on these headers so CDN caches separate responses per binding
-  ctx.vary(FORWARDED_HOST_HEADER)
-  ctx.vary(VTEX_ROOT_PATH_HEADER)
+  ctx.vary(FORWARDED_HOST_HEADER);
+  ctx.vary(VTEX_ROOT_PATH_HEADER);
 }
 ```
 
@@ -173,8 +173,8 @@ Downstream handlers then use `ctx.state.rootPath` directly — no header parsing
 ```typescript
 // node/middlewares/generateSitemap.ts
 export async function generateSitemap(ctx: Context, next: () => Promise<void>) {
-  const { rootPath, binding } = ctx.state
-  const canonicalUrl = `https://${ctx.state.forwardedHost}${rootPath}/${slug}`
+  const { rootPath, binding } = ctx.state;
+  const canonicalUrl = `https://${ctx.state.forwardedHost}${rootPath}/${slug}`;
   // ...
 }
 ```

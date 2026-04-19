@@ -6878,6 +6878,130 @@ Master Data is a good fit when **all** of the following are true:
 - **`v-cache` matches the workload** — Leave `true` (default) for read-heavy entities. Set to `false` for entities with high write frequency where consumers need immediate consistency after writes.
 - **`v-security` is explicit** — Set `allowGetAll: false` unless unauthenticated list access is intentional. Use `publicRead`, `publicWrite`, `publicFilter` only for fields that must be accessible without authentication.
 
+### VTEX schema extensions (`v-*` fields) — reference
+
+Master Data v2 extends standard JSON Schema with `v-*` properties that control indexing, caching, security, defaults, triggers, and schema inheritance. These are **VTEX-specific**; standard JSON Schema validators ignore them.
+
+#### `v-indexed`
+
+Array of field names that Master Data will create secondary indexes for.
+
+- **Only** indexed fields can appear in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets.
+- Each index is updated on **every** document write. Over-indexing increases write latency and storage cost proportionally.
+- **When to index**: fields used in `where` filters, sort expressions, or `publicFilter`. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
+
+```json
+{ "v-indexed": ["email", "status", "createdAt"] }
+```
+
+#### `v-cache`
+
+Boolean (default `true`). Controls whether Master Data caches GET responses for individual documents.
+
+- **`true` (default)** — Read-heavy entities benefit from caching. Most entities should leave this as default.
+- **`false`** — Use for entities with **high write frequency** where consumers need **fresh reads** immediately after writes (e.g. real-time counters, configuration flags, session-like state).
+
+```json
+{ "v-cache": false }
+```
+
+#### `v-default-fields`
+
+Array of field names returned when the caller does **not** specify a `fields` parameter in the API request.
+
+- Keep this **minimal** — only the fields most consumers need by default.
+- Reduces payload size for common queries.
+
+```json
+{ "v-default-fields": ["email", "status", "score", "createdAt"] }
+```
+
+#### `v-security`
+
+Object controlling **unauthenticated** (public) access to fields. By default, all fields require authentication.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `allowGetAll` | `boolean` | If `true`, unauthenticated users can list all documents. **Default `false`; keep it off unless intentional.** |
+| `publicRead` | `string[]` | Fields readable without authentication |
+| `publicWrite` | `string[]` | Fields writable without authentication |
+| `publicFilter` | `string[]` | Fields usable in `where` clauses without authentication (must also be in `v-indexed`) |
+
+```json
+{
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "displayName", "rating"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**Never** include PII (email, phone, addresses), internal IDs, or business-sensitive data in `publicRead` or `publicFilter`.
+
+#### `v-triggers`
+
+Array of trigger objects that define automated actions executed when documents are created or updated and meet specified conditions.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Unique trigger name |
+| `active` | `boolean` | Enable/disable the trigger |
+| `condition` | `string` | `where`-style filter (e.g. `"approved=false"`, `"status=pending AND priority>3"`) |
+| `action.type` | `string` | `"email"`, `"http"` (webhook), or `"action"` |
+| `action.provider` | `string` | Email provider name (for email type) |
+| `action.uri` | `string` | Webhook URL (for http type) |
+| `action.method` | `string` | HTTP method for webhook (for http type) |
+| `retry.times` | `number` | Retry count on failure |
+| `retry.delay` | `object` | Delay between retries (e.g. `{ "addMinutes": 5 }`) |
+
+```json
+{
+  "v-triggers": [
+    {
+      "name": "notify-on-creation",
+      "active": true,
+      "condition": "status=new",
+      "action": {
+        "type": "email",
+        "provider": "default",
+        "subject": "New record: {{title}}",
+        "to": ["admin@mystore.com"],
+        "body": "Record {{id}} created by {{author}}"
+      },
+      "retry": { "times": 3, "delay": { "addMinutes": 5 } }
+    },
+    {
+      "name": "webhook-on-approval",
+      "active": true,
+      "condition": "approved=true",
+      "action": {
+        "type": "http",
+        "uri": "https://my-integration.example.com/webhook",
+        "method": "POST",
+        "headers": { "X-Custom-Header": "value" }
+      },
+      "retry": { "times": 2, "delay": { "addMinutes": 10 } }
+    }
+  ]
+}
+```
+
+#### `v-canonicalto`
+
+URL pointing to another schema in the **same** entity for **schema inheritance**. The current schema inherits properties and constraints from the target.
+
+```json
+{
+  "v-canonicalto": "https://{host}/api/dataentities/{entity}/schemas/{base-schema}"
+}
+```
+
+#### `additionalProperties`
+
+Standard JSON Schema property, but worth noting: set to `false` to **reject** fields not declared in `properties`. By default Master Data preserves extra fields without validation.
+
 ## Hard constraints
 
 ### Constraint: Index only fields used in where clauses or sort expressions
@@ -10561,41 +10685,17 @@ When importing, exporting, or migrating large datasets:
 - Use `searchDocuments` for bounded result sets (known small size, max page size 100). Use `scrollDocuments` for large/unbounded result sets.
 - The `masterdata` builder creates a new schema per app version. Clean up unused schemas to avoid the 60-schema-per-entity hard limit.
 
-### `v-indexed`, `v-cache`, `v-default-fields`, and `v-security`
+### `v-*` schema extensions (v-indexed, v-cache, v-security, v-triggers, etc.)
 
-These are **VTEX-specific extensions** to standard JSON Schema. They control how Master Data v2 indexes, caches, and secures your data:
+Master Data v2 extends standard JSON Schema with `v-*` properties that control indexing, caching, security, defaults, triggers, and schema inheritance. For the **complete reference** on each extension—when to use, when not to, and detailed configuration—see the [masterdata-storage-strategy](../../../masterdata/skills/masterdata-storage-strategy/skill.md) skill in the Master Data track.
 
-- **`v-indexed`** — Array of field names that Master Data will index. **Only** indexed fields can be used in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets. Index **only** what you actually filter or sort on—over-indexing increases write latency and storage cost because every index must be updated on every document write.
-- **`v-cache`** — Boolean (default `true`). When `true`, Master Data caches GET responses for individual documents. Set to **`false`** when your entity has **high write frequency** and consumers need **fresh reads** immediately after writes (e.g. real-time counters, session-like state). For most entities that are read-heavy and write-infrequently, **leave the default** (`true`).
-- **`v-default-fields`** — Array of field names returned when the caller does **not** specify a `fields` parameter. Keep this list **minimal**—return only the fields most consumers need by default to reduce payload size.
-- **`v-security`** — Object controlling **public** (unauthenticated) access to fields. Use `publicRead`, `publicWrite`, and `publicFilter` arrays to expose specific fields without auth. Set `allowGetAll` to `false` unless you explicitly need unauthenticated list access.
-- **`v-triggers`** — Array of trigger configurations for automated actions on document changes. See the triggers section below.
-- **`v-canonicalto`** — URL pointing to another schema in the same entity for **schema inheritance**.
+The essentials for IO app development:
 
-```json
-{
-  "properties": {
-    "email": { "type": "string", "format": "email" },
-    "status": { "type": "string" },
-    "score": { "type": "integer" },
-    "internalNotes": { "type": "string" },
-    "createdAt": { "type": "string", "format": "date-time" }
-  },
-  "v-indexed": ["email", "status", "createdAt"],
-  "v-default-fields": ["email", "status", "score", "createdAt"],
-  "v-cache": true,
-  "v-security": {
-    "allowGetAll": false,
-    "publicRead": ["status", "score"],
-    "publicWrite": [],
-    "publicFilter": ["status"]
-  }
-}
-```
-
-**When to index**: fields used in `where` clauses, sort expressions, or frequently filtered in search. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
-
-**When to disable cache** (`v-cache: false`): entities with high write throughput where stale reads are unacceptable (e.g. real-time configuration flags, live counters). **When to keep cache** (`v-cache: true` or omit): standard entities with read-heavy access patterns (reviews, wishlists, product extensions).
+- **`v-indexed`** — All fields used in `where` clauses **must** be listed here. Don't over-index; each index increases write latency.
+- **`v-cache`** — Leave `true` (default) for read-heavy entities. Set `false` for high-write entities needing immediate read consistency.
+- **`v-default-fields`** — Keep minimal. Controls what's returned when the caller omits `fields`.
+- **`v-security`** — Set `allowGetAll: false` and never expose PII in `publicRead`/`publicFilter`.
+- **`v-triggers`** — For simple automated actions (email, webhook). Use IO events for complex orchestration.
 
 MasterDataClient methods:
 
@@ -11151,6 +11251,7 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 
 ## Related skills
 
+- [masterdata-storage-strategy](../../../masterdata/skills/masterdata-storage-strategy/skill.md) — When to use MD, `v-*` schema extensions reference, indexing strategy, triggers, capacity planning
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — IO performance patterns (cache layers, BFF-facing behavior)
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Public vs private routes for MD-backed APIs
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms that may read from or complement MD-stored state
@@ -11896,10 +11997,10 @@ Every URL your app generates—links, redirects, API endpoints, canonical URLs, 
 
 ```typescript
 // Backend: use ctx.state.rootPath (parsed by prepare middleware)
-const { rootPath, forwardedHost } = ctx.state
+const { rootPath, forwardedHost } = ctx.state;
 
-const canonicalUrl = `https://${forwardedHost}${rootPath}/product/${slug}`
-const sitemapEntry = `${rootPath}/${categoryPath}`
+const canonicalUrl = `https://${forwardedHost}${rootPath}/product/${slug}`;
+const sitemapEntry = `${rootPath}/${categoryPath}`;
 ```
 
 ```tsx
@@ -11936,18 +12037,18 @@ When `rootPath` is `"/"` (single-binding or default binding), using it directly 
 
 ```typescript
 // In the prepare middleware, sanitize before storing on state:
-let rootPath = ctx.get('x-vtex-root-path')
-if (rootPath && !rootPath.startsWith('/')) {
-  rootPath = `/${rootPath}`
+let rootPath = ctx.get("x-vtex-root-path");
+if (rootPath && !rootPath.startsWith("/")) {
+  rootPath = `/${rootPath}`;
 }
-if (rootPath === '/') {
-  rootPath = ''
+if (rootPath === "/") {
+  rootPath = "";
 }
-ctx.state.rootPath = rootPath
+ctx.state.rootPath = rootPath;
 
 // Downstream: ctx.state.rootPath is already sanitized
-const { rootPath } = ctx.state
-const url = `${rootPath}/${path}`
+const { rootPath } = ctx.state;
+const url = `${rootPath}/${path}`;
 ```
 
 **Wrong**
@@ -11967,15 +12068,15 @@ Declare `rootPath` and related binding state on your `State` interface so all ha
 // node/typings.d.ts
 declare global {
   interface State extends RecorderState {
-    binding: Binding
-    rootPath: string
-    forwardedHost: string
-    forwardedPath: string
-    isCrossBorder: boolean
-    matchingBindings: Binding[]
+    binding: Binding;
+    rootPath: string;
+    forwardedHost: string;
+    forwardedPath: string;
+    isCrossBorder: boolean;
+    matchingBindings: Binding[];
   }
 
-  type Context = ServiceContext<Clients, State>
+  type Context = ServiceContext<Clients, State>;
 }
 ```
 
@@ -11985,25 +12086,25 @@ Wire a `prepare` middleware early in every route's middleware chain. It reads th
 
 ```typescript
 // node/middlewares/prepare.ts
-const FORWARDED_HOST_HEADER = 'x-forwarded-host'
-const VTEX_ROOT_PATH_HEADER = 'x-vtex-root-path'
+const FORWARDED_HOST_HEADER = "x-forwarded-host";
+const VTEX_ROOT_PATH_HEADER = "x-vtex-root-path";
 
 export async function prepare(ctx: Context, next: () => Promise<void>) {
-  const forwardedHost = ctx.get(FORWARDED_HOST_HEADER)
+  const forwardedHost = ctx.get(FORWARDED_HOST_HEADER);
 
-  let rootPath = ctx.get(VTEX_ROOT_PATH_HEADER)
+  let rootPath = ctx.get(VTEX_ROOT_PATH_HEADER);
 
   // Defend against malformed root path — must start with /
-  if (rootPath && !rootPath.startsWith('/')) {
-    rootPath = `/${rootPath}`
+  if (rootPath && !rootPath.startsWith("/")) {
+    rootPath = `/${rootPath}`;
   }
 
   // Normalize "/" to "" to avoid double slashes in URL construction
-  if (rootPath === '/') {
-    rootPath = ''
+  if (rootPath === "/") {
+    rootPath = "";
   }
 
-  const [forwardedPath] = ctx.get('x-forwarded-path').split('?')
+  const [forwardedPath] = ctx.get("x-forwarded-path").split("?");
 
   ctx.state = {
     ...ctx.state,
@@ -12011,13 +12112,13 @@ export async function prepare(ctx: Context, next: () => Promise<void>) {
     forwardedPath,
     rootPath,
     // ... resolve binding, matchingBindings, etc.
-  }
+  };
 
-  await next()
+  await next();
 
   // Vary on these headers so CDN caches separate responses per binding
-  ctx.vary(FORWARDED_HOST_HEADER)
-  ctx.vary(VTEX_ROOT_PATH_HEADER)
+  ctx.vary(FORWARDED_HOST_HEADER);
+  ctx.vary(VTEX_ROOT_PATH_HEADER);
 }
 ```
 
@@ -12026,8 +12127,8 @@ Downstream handlers then use `ctx.state.rootPath` directly — no header parsing
 ```typescript
 // node/middlewares/generateSitemap.ts
 export async function generateSitemap(ctx: Context, next: () => Promise<void>) {
-  const { rootPath, binding } = ctx.state
-  const canonicalUrl = `https://${ctx.state.forwardedHost}${rootPath}/${slug}`
+  const { rootPath, binding } = ctx.state;
+  const canonicalUrl = `https://${ctx.state.forwardedHost}${rootPath}/${slug}`;
   // ...
 }
 ```
