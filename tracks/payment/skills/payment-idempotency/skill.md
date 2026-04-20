@@ -39,12 +39,14 @@ metadata:
 ## When this skill applies
 
 Use this skill when:
+
 - Implementing any PPP endpoint handler that processes payments, cancellations, captures, or refunds
 - Ensuring repeated Gateway calls with the same identifiers produce identical results without re-processing
 - Building a payment state machine to prevent invalid transitions (e.g., capturing a cancelled payment)
 - Handling the Gateway's 7-day retry window for `undefined` status payments
 
 Do not use this skill for:
+
 - PPP endpoint response shapes and HTTP methods — use [`payment-provider-protocol`](../payment-provider-protocol/skill.md)
 - Async callback URL notification logic — use [`payment-async-flow`](../payment-async-flow/skill.md)
 - PCI compliance and Secure Proxy — use [`payment-pci-security`](../payment-pci-security/skill.md)
@@ -71,8 +73,12 @@ The VTEX Gateway retries Create Payment requests with `undefined` status for up 
 If the Create Payment handler does not check for an existing `paymentId` before processing, STOP. The handler must query the data store for the `paymentId` first.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // Check for existing payment — idempotency guard
@@ -108,8 +114,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   // No idempotency check — every call hits the acquirer
@@ -144,8 +154,12 @@ The Gateway uses the response fields (`authorizationId`, `tid`, `nsu`, `status`)
 If the handler creates a new database record or generates new identifiers when it finds an existing `paymentId`, STOP. The handler must return the previously stored response verbatim.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -160,8 +174,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.body;
 
   const existing = await paymentStore.findByPaymentId(paymentId);
@@ -171,7 +189,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
     const newTid = generateNewTid();
     res.status(200).json({
       ...existing.response,
-      tid: newTid,  // Different from original — breaks reconciliation
+      tid: newTid, // Different from original — breaks reconciliation
       nsu: generateNewNsu(),
     });
     return;
@@ -192,8 +210,12 @@ Returning `approved` for an async method tells the Gateway the payment is confir
 If the Create Payment handler returns `status: "approved"` or `status: "denied"` for an asynchronous payment method (Boleto, Pix, bank transfer, redirect-based), STOP. Async methods must return `"undefined"` and use callbacks.
 
 **Correct**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   const isAsyncMethod = ["BankInvoice", "Pix"].includes(paymentMethod);
@@ -209,7 +231,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
     res.status(200).json({
       paymentId,
-      status: "undefined",  // Correct for async
+      status: "undefined", // Correct for async
       authorizationId: pending.authorizationId ?? null,
       nsu: pending.nsu ?? null,
       tid: pending.tid ?? null,
@@ -218,7 +240,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
       message: "Awaiting customer payment",
       delayToAutoSettle: 21600,
       delayToAutoSettleAfterAntifraud: 1800,
-      delayToCancel: 604800,  // 7 days for async
+      delayToCancel: 604800, // 7 days for async
       paymentUrl: pending.paymentUrl,
     });
     return;
@@ -230,8 +252,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 ```
 
 **Wrong**
+
 ```typescript
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod } = req.body;
 
   // WRONG: Approving a Pix payment synchronously
@@ -240,7 +266,7 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 
   res.status(200).json({
     paymentId,
-    status: "approved",  // WRONG — Pix is async, should be "undefined"
+    status: "approved", // WRONG — Pix is async, should be "undefined"
     authorizationId: result.authorizationId ?? null,
     nsu: null,
     tid: null,
@@ -261,7 +287,13 @@ Payment state store with idempotency support:
 ```typescript
 interface PaymentRecord {
   paymentId: string;
-  status: "undefined" | "approved" | "denied" | "cancelled" | "settled" | "refunded";
+  status:
+    | "undefined"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | "settled"
+    | "refunded";
   response: Record<string, unknown>;
   callbackUrl?: string;
   createdAt: Date;
@@ -282,7 +314,10 @@ Idempotent Create Payment with state machine:
 ```typescript
 const store = new PaymentStore();
 
-async function createPaymentHandler(req: Request, res: Response): Promise<void> {
+async function createPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId, paymentMethod, callbackUrl } = req.body;
 
   // Idempotency check
@@ -312,8 +347,12 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
   };
 
   await store.save(paymentId, {
-    paymentId, status, response, callbackUrl,
-    createdAt: new Date(), updatedAt: new Date(),
+    paymentId,
+    status,
+    response,
+    callbackUrl,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
   res.status(200).json(response);
@@ -323,7 +362,10 @@ async function createPaymentHandler(req: Request, res: Response): Promise<void> 
 Idempotent Cancel with `requestId` guard and state validation:
 
 ```typescript
-async function cancelPaymentHandler(req: Request, res: Response): Promise<void> {
+async function cancelPaymentHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { paymentId } = req.params;
   const { requestId } = req.body;
 
@@ -358,7 +400,11 @@ async function cancelPaymentHandler(req: Request, res: Response): Promise<void> 
 
   await store.updateStatus(paymentId, "cancelled");
   await store.saveOperation(requestId, {
-    requestId, paymentId, operation: "cancel", response, createdAt: new Date(),
+    requestId,
+    paymentId,
+    operation: "cancel",
+    response,
+    createdAt: new Date(),
   });
 
   res.status(200).json(response);
