@@ -5806,7 +5806,7 @@ async function proactiveRateManagement(
 
 ---
 
-# masterdata
+# Master Data Storage & Schema Design
 
 # Master Data storage strategy
 

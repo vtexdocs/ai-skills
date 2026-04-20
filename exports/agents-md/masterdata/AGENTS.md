@@ -1,6 +1,6 @@
-# AGENTS.md — masterdata
+# AGENTS.md — Master Data Storage & Schema Design
 
-These instructions guide AI agents working on VTEX masterdata tasks.
+These instructions guide AI agents working on VTEX Master Data Storage & Schema Design tasks.
 Follow these patterns and constraints when assisting developers.
 
 ## masterdata-storage-strategy
