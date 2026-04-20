@@ -35,6 +35,10 @@ em `steering/` fornecem orientação contextual baseada nos globs dos skills.
 - **marketplace-order-hook**: Apply when implementing order integration hooks, feeds, or webhook handlers for VTEX marketplace connectors. Covers Feed v3 (pull) vs Hook (push), filter types (FromWorkflow and FromOrders), order status lifecycle, payload validation, and idempotent processing. Use for building order integrations between VTEX marketplaces and external systems such as ERPs, WMS, or fulfillment services.
 - **marketplace-rate-limiting**: Apply when implementing retry logic, rate limit handling, or resilience patterns in VTEX API integrations. Covers VTEX rate limit headers (X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After), 429 status handling, exponential backoff with jitter, circuit breaker patterns, and request queuing. Use for any VTEX marketplace integration that must gracefully handle API throttling and maintain high availability.
 
+### masterdata
+
+- **masterdata-storage-strategy**: Apply when deciding whether VTEX Master Data is the right storage for a given workload, designing JSON Schemas with v-indexed, v-cache, v-security, and v-triggers, planning entity capacity and lifecycle, or auditing existing Master Data usage. Covers when to use MD versus Catalog, OMS, VBase, or external databases, schema design best practices, indexing strategy, trigger patterns, and operational considerations. Use before creating any new Master Data entity.
+
 ### Payment Connector Development
 
 - **payment-async-flow**: Apply when implementing asynchronous payment methods (Boleto, Pix, bank redirects) or working with callback URLs in payment connector code. Covers undefined status response, callbackUrl notification, X-VTEX-signature validation, sync vs async handling, correct delayToCancel configuration for each async method, and redirect-based flows where inboundRequestsUrl does not support browser GET redirects (requires custom public routes).
