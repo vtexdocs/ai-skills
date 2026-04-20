@@ -73,7 +73,7 @@ Role-based policies only work for **app-to-app** communication. If users (admin 
       "policies": [
         {
           "effect": "allow",
-          "actions": ["get", "post"],
+          "actions": ["GET", "POST"],
           "principals": [
             "vrn:vtex.vtex-id:*:*:*:user/*@mycompany.com",
             "vrn:apps:*:*:*:app/partner.integration-app@*"
@@ -95,7 +95,7 @@ Role-based policies only work for **app-to-app** communication. If users (admin 
     "statements": [
       {
         "effect": "allow",
-        "actions": ["get"],
+        "actions": ["GET"],
         "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
       }
     ]
@@ -119,12 +119,12 @@ When resource-based policies have overlapping principals between an `allow` and 
   "policies": [
     {
       "effect": "allow",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/*"]
     },
     {
       "effect": "deny",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/untrusted.app@*"]
     }
   ]
@@ -138,12 +138,12 @@ When resource-based policies have overlapping principals between an `allow` and 
   "policies": [
     {
       "effect": "deny",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/*"]
     },
     {
       "effect": "allow",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/trusted.app@*"]
     }
   ]
@@ -162,7 +162,7 @@ When resource-based policies have overlapping principals between an `allow` and 
     "statements": [
       {
         "effect": "allow",
-        "actions": ["post"],
+        "actions": ["POST"],
         "resources": [
           "vrn:vtex.store-graphql:{{region}}:{{account}}:{{workspace}}:/_v/graphql"
         ]
@@ -195,7 +195,7 @@ The consuming app declares the policy in its `manifest.json`:
       "policies": [
         {
           "effect": "allow",
-          "actions": ["post"],
+          "actions": ["POST"],
           "principals": [
             "vrn:apps:*:*:*:app/vtex.orders-broadcast@*",
             "vrn:vtex.vtex-id:*:*:*:user/vtexappkey-myaccount-*"

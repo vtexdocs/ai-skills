@@ -892,9 +892,11 @@ For **payment connectors**, the first line of defense is the **acquirer/gateway 
 **Correct** — Use acquirer idempotency key **and** await VBase writes.
 
 ```typescript
+const { paymentId } = authorization
+
 // Pass VTEX paymentId as idempotency key to the acquirer
 const response = await ctx.clients.paymentProvider.authorize(paymentData, {
-  headers: { 'Idempotency-Key': authorization.paymentId },
+  headers: { 'Idempotency-Key': paymentId },
 })
 
 // Await VBase write for local state tracking
@@ -905,6 +907,7 @@ return Authorizations.approve(authorization, { ... })
 **Wrong** — No acquirer idempotency key and fire-and-forget VBase write.
 
 ```typescript
+const { paymentId } = authorization
 // No idempotency key to the acquirer + no await on VBase
 const response = await ctx.clients.paymentProvider.authorize(paymentData)
 ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
@@ -4551,7 +4554,7 @@ Role-based policies only work for **app-to-app** communication. If users (admin 
       "policies": [
         {
           "effect": "allow",
-          "actions": ["get", "post"],
+          "actions": ["GET", "POST"],
           "principals": [
             "vrn:vtex.vtex-id:*:*:*:user/*@mycompany.com",
             "vrn:apps:*:*:*:app/partner.integration-app@*"
@@ -4573,7 +4576,7 @@ Role-based policies only work for **app-to-app** communication. If users (admin 
     "statements": [
       {
         "effect": "allow",
-        "actions": ["get"],
+        "actions": ["GET"],
         "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
       }
     ]
@@ -4597,12 +4600,12 @@ When resource-based policies have overlapping principals between an `allow` and 
   "policies": [
     {
       "effect": "allow",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/*"]
     },
     {
       "effect": "deny",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/untrusted.app@*"]
     }
   ]
@@ -4616,12 +4619,12 @@ When resource-based policies have overlapping principals between an `allow` and 
   "policies": [
     {
       "effect": "deny",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/*"]
     },
     {
       "effect": "allow",
-      "actions": ["post"],
+      "actions": ["POST"],
       "principals": ["vrn:apps:*:*:*:app/trusted.app@*"]
     }
   ]
@@ -4640,7 +4643,7 @@ When resource-based policies have overlapping principals between an `allow` and 
     "statements": [
       {
         "effect": "allow",
-        "actions": ["post"],
+        "actions": ["POST"],
         "resources": [
           "vrn:vtex.store-graphql:{{region}}:{{account}}:{{workspace}}:/_v/graphql"
         ]
@@ -4673,7 +4676,7 @@ The consuming app declares the policy in its `manifest.json`:
       "policies": [
         {
           "effect": "allow",
-          "actions": ["post"],
+          "actions": ["POST"],
           "principals": [
             "vrn:apps:*:*:*:app/vtex.orders-broadcast@*",
             "vrn:vtex.vtex-id:*:*:*:user/vtexappkey-myaccount-*"

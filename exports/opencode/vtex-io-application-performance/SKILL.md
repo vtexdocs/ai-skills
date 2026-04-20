@@ -89,9 +89,11 @@ For **payment connectors**, the first line of defense is the **acquirer/gateway 
 **Correct** — Use acquirer idempotency key **and** await VBase writes.
 
 ```typescript
+const { paymentId } = authorization
+
 // Pass VTEX paymentId as idempotency key to the acquirer
 const response = await ctx.clients.paymentProvider.authorize(paymentData, {
-  headers: { 'Idempotency-Key': authorization.paymentId },
+  headers: { 'Idempotency-Key': paymentId },
 })
 
 // Await VBase write for local state tracking
@@ -102,6 +104,7 @@ return Authorizations.approve(authorization, { ... })
 **Wrong** — No acquirer idempotency key and fire-and-forget VBase write.
 
 ```typescript
+const { paymentId } = authorization
 // No idempotency key to the acquirer + no await on VBase
 const response = await ctx.clients.paymentProvider.authorize(paymentData)
 ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
