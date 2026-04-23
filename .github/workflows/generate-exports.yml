@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'tracks/**/*.md'
+      - 'tracks/**'
       - 'scripts/**/*.ts'
       - '_templates/**'
       - 'package.json'
   pull_request:
     paths:
-      - 'tracks/**/*.md'
+      - 'tracks/**'
       - 'scripts/**/*.ts'
       - '_templates/**'
       - 'package.json'
