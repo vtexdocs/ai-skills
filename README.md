@@ -4,7 +4,7 @@
 
 <h1 align="center">VTEX Skills</h1>
 <p align="center">
-  <strong>39 AI agent skills for VTEX platform development — one source, six export formats.</strong>
+  <strong>40 AI agent skills for VTEX platform development — one source, six export formats.</strong>
 </p>
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
@@ -13,8 +13,8 @@
   <a href="#contributing">Contributing</a>
 </p>
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-39-F71963" alt="39 skills">
-  <img src="https://img.shields.io/badge/tracks-6-blue" alt="6 tracks">
+  <img src="https://img.shields.io/badge/skills-40-F71963" alt="40 skills">
+  <img src="https://img.shields.io/badge/tracks-7-blue" alt="7 tracks">
   <img src="https://img.shields.io/badge/platforms-6-green" alt="6 platforms">
   <img src="https://img.shields.io/github/license/vtex/skills" alt="License">
   <img src="https://img.shields.io/github/actions/workflow/status/vtex/skills/generate-exports.yml?label=exports" alt="Build">
@@ -205,6 +205,17 @@ BFF architecture, Intelligent Search API, checkout proxy patterns, and caching s
 
 </details>
 
+<details>
+<summary><strong>Track 7: Sales App Extension Development</strong> — 1 skill for Sales App extensions</summary>
+
+Complete 6-step workflow for building VTEX Sales App extensions. Covers extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, secure API integration patterns, code generation, validation, and deployment.
+
+| Skill | Description |
+|---|---|
+| `sales-app-extensibility` | Full lifecycle of Sales App extension development — prerequisites, discovery, code generation, validation, and deployment |
+
+</details>
+
 ---
 
 ## Open Plugins / Cursor Directory
@@ -258,6 +269,13 @@ vtex_skills/
         marketplace-rate-limiting/skill.md
     payment/
       index.md
+      skills/
+        payment-provider-protocol/skill.md
+        ...
+    sales-app/
+      index.md
+      skills/
+        sales-app-extensibility/skill.md
       skills/
         payment-provider-protocol/skill.md
         payment-provider-framework/skill.md

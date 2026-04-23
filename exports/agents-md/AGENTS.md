@@ -43,6 +43,12 @@ See [`payment/AGENTS.md`](./payment/AGENTS.md) for detailed instructions.
   - **payment-provider-framework**: Apply when designing or implementing a Payment Connector in VTEX IO. Covers PPF implementation, TypeScript 3.9.7 builder-hub constraints and safe dependency resolutions, configuration.json schema validation, PaymentProviderService clients wiring, Secure Proxy scope (authorize-only), ExternalClient vs SecureExternalClient patterns, IOContext access, PPF response helpers, PSP integration checklist, and vtex link debugging. Use for any implementation of a Payment Connector hosted in VTEX IO.
   - **payment-provider-protocol**: Apply when implementing a VTEX Payment Provider Protocol (PPP) connector or working with payment/connector endpoint files. Covers all nine required endpoints: Manifest, Create Payment, Cancel, Capture/Settle, Refund, Inbound Request, Create Auth Token, Provider Auth Redirect, and Get Credentials. Use for building or debugging any payment connector that integrates with the VTEX Payment Gateway.
 
+## sales-app
+
+See [`sales-app/AGENTS.md`](./sales-app/AGENTS.md) for detailed instructions.
+
+  - **sales-app-extensibility**: Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 7-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, secure API integration patterns, and API documentation ingestion (OpenAPI, URLs, or inline specs) to generate typed integrations.
+
 ## Custom VTEX IO Apps
 
 See [`vtex-io/AGENTS.md`](./vtex-io/AGENTS.md) for detailed instructions.
