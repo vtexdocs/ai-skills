@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/vtex/skills/compare/v1.9.0...v1.9.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **ci:** trigger export workflow on any tracks/ change, not just .md files ([b885afa](https://github.com/vtex/skills/commit/b885afa56ba42006487d9debc041198dd6a31c30))
+
 ## [1.9.0](https://github.com/vtex/skills/compare/v1.8.0...v1.9.0) (2026-04-23)
 
 
