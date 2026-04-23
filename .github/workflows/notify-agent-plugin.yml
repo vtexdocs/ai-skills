@@ -1,0 +1,17 @@
+name: Notify agent-plugin
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger update-skills in vtex/agent-plugin
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: token ${{ secrets.AGENT_PLUGIN_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/vtex/agent-plugin/dispatches \
+            -d "{\"event_type\":\"skills-release\",\"client_payload\":{\"version\":\"${{ github.event.release.tag_name }}\"}}"
