@@ -119,7 +119,12 @@ const cart = useCart();
 | `items` | `CartItem[]` | Array of items in the cart |
 | `totalizers` | `Totalizers[]` | Array of totalizers (Items, Shipping, Discounts, Tax) |
 | `clientProfileData` | `ClientProfileData` | Client profile (email, document, phone) |
+| `giftCards` | `GiftCard[]` | Gift cards currently attached to the cart |
 | `addItem` | `(data: UseCartAddItemData) => Promise<void>` | Add an item to the cart |
+| `removeItem` | `(id: string, index: number) => Promise<void>` | Remove an item from the cart |
+| `addCoupon` | `(coupon: string) => Promise<void>` | Add a coupon to the cart |
+| `addGiftCard` | `(redemptionCodeOrGiftCard: string \| GiftCard, provider?: string) => Promise<void>` | Add a gift card to the cart payment data |
+| `sync` | `() => Promise<void>` | Sync the cart with the latest Order Form data |
 
 **Example — display total items**:
 
@@ -141,6 +146,19 @@ const AddToCart = () => {
     id: '8392'
   });
   return <button onClick={addItem}>Add to cart</button>;
+};
+```
+
+**Example — add gift card**:
+
+```typescript
+const AddGiftCard = () => {
+  const cart = useCart();
+  const add = async () => {
+    await cart.addGiftCard('ABC-123', 'my-giftcard-provider');
+    await cart.sync();
+  };
+  return <button onClick={add}>Add gift card</button>;
 };
 ```
 
@@ -256,6 +274,19 @@ type Totalizers = {
 type Attachment = {
   name: string;
   content: Record<string, string>;
+};
+
+type GiftCard = {
+  id: string;
+  redemptionCode?: string | null;
+  name: string;
+  caption: string;
+  value: number;
+  balance: number;
+  provider: string;
+  groupName?: string | null;
+  inUse: boolean;
+  isSpecialCard: boolean;
 };
 
 type UseCartAddItemData = {

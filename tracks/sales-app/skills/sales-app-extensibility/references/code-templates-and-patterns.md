@@ -76,7 +76,8 @@ export function ${COMPONENT_NAME}(): JSX.Element {
 ```typescript
 // useCart — access cart data and mutations
 const cart = useCart();
-// cart.items, cart.value, cart.totalizers, cart.clientProfileData, cart.addItem()
+// cart.items, cart.value, cart.totalizers, cart.clientProfileData, cart.giftCards
+// cart.addItem(), cart.removeItem(), cart.addCoupon(), cart.addGiftCard(), cart.sync()
 
 // useCartItem — access individual cart item (cart.cart-item.after ONLY)
 const { item, itemIndex, changeItem, changePrice } = useCartItem();
