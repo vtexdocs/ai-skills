@@ -36,15 +36,15 @@ FastStore is an open-source framework by VTEX for high-performance e-commerce. T
 
 ## Project Routes
 
-| Route | URL |
-|-------|-----|
-| Home (landing page) | `{host}/` |
+| Route                      | URL                           |
+| -------------------------- | ----------------------------- |
+| Home (landing page)        | `{host}/`                     |
 | PLP — Product Listing Page | `{host}/s` or `{host}/{slug}` |
-| PDP — Product Details Page | `{host}/{slug}/p` |
-| Error Page | `{host}/500` |
-| Not Found | `{host}/404` |
-| Login | `{host}/login` |
-| Checkout | `{host}/checkout` |
+| PDP — Product Details Page | `{host}/{slug}/p`             |
+| Error Page                 | `{host}/500`                  |
+| Not Found                  | `{host}/404`                  |
+| Login                      | `{host}/login`                |
+| Checkout                   | `{host}/checkout`             |
 
 _Slug = product name identifier._
 
@@ -90,17 +90,17 @@ playground.store/
 
 ### Key Directories
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/components/` | All custom UI — overrides, new sections, sub-components. `index.tsx` is the **section registry**. |
-| `src/components/sections/` | Convention for section-level components (each gets its own folder). |
-| `src/fragments/` | GraphQL fragments extending FastStore core queries (e.g., add fields to PDP). |
-| `src/graphql/vtex/` | Schema extensions and resolvers augmenting the existing FastStore API. |
-| `src/graphql/thirdParty/` | Entirely new GraphQL types/mutations for external APIs. |
-| `src/themes/` | SCSS files with CSS custom property overrides (design tokens). |
-| `src/scripts/` | Third-party script injection. |
-| `cms/faststore/` | JSON schemas defining CMS content editor fields. |
-| `.faststore/` | **Generated, gitignored** — recreated on every build. Never edit directly. |
+| Directory                  | Purpose                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/components/`          | All custom UI — overrides, new sections, sub-components. `index.tsx` is the **section registry**. |
+| `src/components/sections/` | Convention for section-level components (each gets its own folder).                               |
+| `src/fragments/`           | GraphQL fragments extending FastStore core queries (e.g., add fields to PDP).                     |
+| `src/graphql/vtex/`        | Schema extensions and resolvers augmenting the existing FastStore API.                            |
+| `src/graphql/thirdParty/`  | Entirely new GraphQL types/mutations for external APIs.                                           |
+| `src/themes/`              | SCSS files with CSS custom property overrides (design tokens).                                    |
+| `src/scripts/`             | Third-party script injection.                                                                     |
+| `cms/faststore/`           | JSON schemas defining CMS content editor fields.                                                  |
+| `.faststore/`              | **Generated, gitignored** — recreated on every build. Never edit directly.                        |
 
 ## Store Configuration — `discovery.config.js`
 
@@ -114,10 +114,10 @@ module.exports = {
     titleTemplate: "%s | Playground",
     author: "FastStore",
   },
-  theme: "custom-theme",        // Must match a filename in src/themes/
+  theme: "custom-theme", // Must match a filename in src/themes/
   platform: "vtex",
   api: {
-    storeId: "playground",      // VTEX account name
+    storeId: "playground", // VTEX account name
     workspace: "master",
     environment: "vtexcommercestable",
     hideUnavailableItems: true,
@@ -137,12 +137,16 @@ module.exports = {
     gtmContainerId: "GTM-1234567",
   },
   vtexHeadlessCms: {
-    webhookUrls: ["https://playground.myvtex.com/cms-releases/webhook-releases"],
+    webhookUrls: [
+      "https://playground.myvtex.com/cms-releases/webhook-releases",
+    ],
   },
 };
 ```
 
 ## CLI Scripts
+
+Example `package.json` scripts (many stores match this shape):
 
 ```json
 {
@@ -155,6 +159,8 @@ module.exports = {
   }
 }
 ```
+
+**Headless CMS schema:** Treat **`cms-sync` / `faststore cms-sync`** as **legacy** for **publishing or refreshing** the **Headless CMS** schema. The current flow is **`vtex content generate-schema`** and **`vtex content upload-schema`** (global **VTEX CLI**, `vtex` — not `npx vtex`). See [cms-schema-and-section-registration.md](cms-schema-and-section-registration.md) and the storefront [skill.md](../skill.md).
 
 ### What `faststore build` / `faststore dev` Does
 
@@ -172,16 +178,20 @@ module.exports = {
 
 ## Naming Conventions
 
-| What | Convention | Example |
-|------|-----------|---------|
-| Stylesheet filenames | kebab-case | `custom-button.module.scss` |
-| Component files | PascalCase | `CustomButton.tsx` |
-| Component exports | PascalCase | `export default CustomButton` |
-| Function exports | camelCase | `export const getButtonVariants` |
-| Constants | UPPER_SNAKE_CASE | `const BUTTON_VARIANTS` |
-| Section folders | PascalCase | `src/components/sections/CustomButton/` |
-| GraphQL files | camelCase | `contactForm.graphql` |
-| Fragment files | PascalCase | `ServerProduct.ts`, `ClientProduct.ts` |
+| What                    | Convention       | Example                                 |
+| ----------------------- | ---------------- | --------------------------------------- |
+| Stylesheet filenames    | kebab-case       | `custom-button.module.scss`             |
+| Component files         | PascalCase       | `CustomButton.tsx`                      |
+| Component exports       | PascalCase       | `export default CustomButton`           |
+| Function exports        | camelCase        | `export const getButtonVariants`        |
+| Constants               | UPPER_SNAKE_CASE | `const BUTTON_VARIANTS`                 |
+| Section folders         | PascalCase       | `src/components/sections/CustomButton/` |
+| GraphQL files           | camelCase        | `contactForm.graphql`                   |
+| Fragment files          | PascalCase       | `ServerProduct.ts`, `ClientProduct.ts`  |
+| Export key in index.tsx | PascalCase       | `CustomButton`                          |
+| $componentKey in JSONC  | PascalCase       | `CustomButton`                          |
+
+⚠️ **CRITICAL**: The $componentKey in JSONC MUST match the export key in index.tsx EXACTLY.
 
 ## Experimental Imports
 
@@ -196,9 +206,26 @@ import { Image_unstable as Image } from "@faststore/core/experimental";
 ## PLP/Search Contexts
 
 PLP pages list variable numbers of items. Two URL patterns exist:
+
 - `{host}/s` — search pages
 - `{host}/{...slug}` — category PLP pages
 
 Facets (filters) are indexed by the Intelligent Search SDK. Configure at `https://{account}.myvtex.com/admin` → Catalog → Products and SKUs.
 
 Facets are available via the `usePage<SearchPageContext | PLPContext>()` hook at `context?.data?.search?.facets`.
+
+## Server vs Client Data Split
+
+FastStore pages load data in two phases. **Not all data is available on both phases.**
+
+| Page   | Server query                                              | Client query                                                 | Merged via                                           |
+| ------ | --------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------- |
+| PLP    | `ServerCollectionPageQuery` → collection, seo, breadcrumb | `ClientProductGalleryQuery` → products, **facets**, metadata | `deepmerge` in `ProductListing.tsx` → `PageProvider` |
+| PDP    | `ServerProductQuery` → product basics                     | `ClientProductQuery` → full product data                     | merged in `ProductDetailsPage.tsx` → `PageProvider`  |
+| Search | (none)                                                    | `ClientProductGalleryQuery` → products, **facets**, metadata | `ProductListing.tsx` → `PageProvider`                |
+
+**Custom sections using `usePage()` must handle both phases:**
+
+- On first server render, only server data is available
+- After client hydration, the merged data (including client fields like facets) becomes available
+- Components should return `null` or a skeleton when expected client data is missing

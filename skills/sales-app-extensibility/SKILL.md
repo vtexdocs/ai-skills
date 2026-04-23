@@ -1,7 +1,6 @@
 ---
+name: sales-app-extensibility
 description: "Apply when building, customizing, or deploying extensions for VTEX Sales App. Covers the complete 7-step workflow from prerequisite checks through code generation to deployment, including extension points (cart, PDP, menu), React hooks (useCart, usePDP, useCartItem, useCurrentUser, useExtension), TypeScript types, secure API integration patterns, and API documentation ingestion (OpenAPI, URLs, or inline specs) to generate typed integrations."
-globs: "packages/sales-app/**/*.tsx","packages/sales-app/**/*.ts","packages/sales-app/**/*.css","packages/sales-app/src/index.tsx"
-alwaysApply: false
 ---
 
 # Sales App Extensibility
@@ -323,11 +322,11 @@ Discovery → Generate code immediately.
 
 **Step 0** — Check FastStore + Sales App prerequisites. STOP if missing.
 
-**Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. If the user provides API documentation (URL, OpenAPI/Swagger file, Markdown, or inline text), ingest it to extract endpoint details and response shapes — skip the equivalent manual questions. Validate extracted information with the user. Load the [discovery reference](@sales-app-sales-app-extensibility-ref-discovery-and-use-cases.mdc) for detailed question flows and the API Documentation Ingestion section.
+**Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. If the user provides API documentation (URL, OpenAPI/Swagger file, Markdown, or inline text), ingest it to extract endpoint details and response shapes — skip the equivalent manual questions. Validate extracted information with the user. Load the [discovery reference](references/discovery-and-use-cases.md) for detailed question flows and the API Documentation Ingestion section.
 
 **Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](@sales-app-sales-app-extensibility-ref-code-templates-and-patterns.mdc) for all template patterns, the type generation rules, the custom fetch hook pattern, and the [types reference](@sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.mdc) for hook return types and TypeScript definitions.
+**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, and the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
 
 **Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
@@ -381,9 +380,9 @@ Run `yarn fsp dev {account}` and navigate to `https://{account}.myvtex.com/sales
 - <Guard or limitation 2>
 ````
 
-**Step 5** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](@sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.mdc).
+**Step 5** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
 
-**Step 6** — Build command and deployment guide. Load the [dev/build/deploy reference](@sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.mdc).
+**Step 6** — Build command and deployment guide. Load the [dev/build/deploy reference](references/local-dev-build-and-deploy.md).
 
 ## Reference Files
 
@@ -391,10 +390,10 @@ Load these on demand based on what the task requires. Do not load all of them up
 
 | File | Load when… |
 |------|-----------|
-| [references/extension-points-hooks-and-types.md](@sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.mdc) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
-| [references/code-templates-and-patterns.md](@sales-app-sales-app-extensibility-ref-code-templates-and-patterns.mdc) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
-| [references/discovery-and-use-cases.md](@sales-app-sales-app-extensibility-ref-discovery-and-use-cases.mdc) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
-| [references/local-dev-build-and-deploy.md](@sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.mdc) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
+| [references/extension-points-hooks-and-types.md](references/extension-points-hooks-and-types.md) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
+| [references/code-templates-and-patterns.md](references/code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
+| [references/discovery-and-use-cases.md](references/discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
+| [references/local-dev-build-and-deploy.md](references/local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
 
 ## Common failure modes
 
