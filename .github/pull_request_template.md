@@ -29,6 +29,8 @@ Examples of pages that commonly mirror this repository (non-exhaustive):
 
 Search `developers.vtex.com` and `help.vtex.com` for any other page that references the affected tracks, skills, install commands, or repo URL — there may be more than the examples above.
 
+> **Tip:** if you have the `vtex-docs` MCP configured (or any AI assistant with the VTEX Developer MCP), ask it to run `search_documentation` for the changed concepts and `fetch_document` on the hits — it covers both `developers.vtex.com` and `help.vtex.com` in a single pass. AI agents working on this repo are already instructed to do this automatically (see [`AGENTS.md`](../AGENTS.md#use-the-vtex-docs-mcp-for-discovery-and-diffing)).
+
 Pick one:
 
 - [ ] **No public docs change needed** — this PR only affects internal content (skill body edits, validator tweaks, refactors, CI, etc.)

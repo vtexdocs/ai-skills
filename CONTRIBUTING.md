@@ -323,6 +323,8 @@ Other places to check before opening the docs follow-up:
 
 The source for the developer portal pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Help center articles are managed by the docs team. Documentation changes are landed via a PR or ticket in the appropriate repository.
 
+> **Tip — use the `vtex-docs` MCP if you have it.** The [`vtex-docs` MCP server](https://developers.vtex.com/docs/guides/vtex-developer-mcp) (and the broader VTEX Developer MCP) indexes both `developers.vtex.com` and `help.vtex.com`. From any MCP-aware AI assistant you can call `search_documentation` with track names, skill names, or install snippet strings to discover every page that references the affected behavior, then `fetch_document` to read the current content and propose precise edits. AI agents working on this repo are instructed to use it automatically — see [`AGENTS.md`](AGENTS.md#use-the-vtex-docs-mcp-for-discovery-and-diffing).
+
 ### When a docs update is required
 
 Open a follow-up in `vtex/dev-portal-content` (or flag it in the PR description) when this PR does any of the following:

@@ -104,6 +104,23 @@ When evaluating a change, also consider: the AI-assisted development overview/in
 
 The source for the developer portal pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Help center articles are owned by the docs team. Whenever you finish a change in this repo, evaluate whether the public docs need a follow-up and surface it to the user.
 
+### Use the `vtex-docs` MCP for discovery and diffing
+
+If the `vtex-docs` MCP server is available in your environment (server identifier `user-vtex-docs`, tools: `search_documentation`, `fetch_document`, `search_endpoints`, `get_endpoint_details`), prefer it over guessing. It indexes both `developers.vtex.com` and `help.vtex.com` and is the most reliable way to find pages that may need updates.
+
+Recommended workflow when a change in this repo could affect public docs:
+
+1. **Discover** with `search_documentation` (locale `en` by default; also check `pt` and `es` for translated pages). Run multiple targeted queries, for example:
+   - The track or skill name that changed (e.g. `"VTEX IO MasterData skill"`, `"FastStore overrides"`).
+   - User-facing strings that appear in install snippets (e.g. `"npx skills add"`, `"vtex/skills"`, `"agents-md.tar.gz"`).
+   - Concept names from the catalog (e.g. `"VTEX Skills"`, `"VTEX Developer MCP"`, `"AI-assisted development"`).
+2. **Fetch** each promising URL with `fetch_document` and read the relevant sections. Confirm whether the page genuinely references the changed behavior, or just mentions an unrelated topic.
+3. **Diff in your head**: compare the page content against the change in this PR. Identify the exact paragraphs, table rows, code blocks, or counts that are now stale.
+4. **Report** the findings to the user as part of the "Public docs sync" note: list each affected URL, what is stale on it, and a concrete proposed edit (e.g. "the 'Tracks and skills' table on `developers.vtex.com/docs/guides/vtex-skills` lists `Custom VTEX IO Apps — 24 skills`; this PR brings the count to 25").
+5. **Recommend the follow-up venue**: developer portal pages → PR in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content); help center articles → ticket with the docs team.
+
+If the MCP is **not** available, say so explicitly in your "Public docs sync" note, fall back to the known examples listed above, and ask the user to verify on `developers.vtex.com` and `help.vtex.com`. Do not invent URLs — only cite pages you have actually retrieved or that are linked from this repository.
+
 ### Trigger checklist
 
 Suggest a public docs update when the change does any of the following:
