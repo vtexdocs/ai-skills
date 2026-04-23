@@ -305,14 +305,23 @@ Before submitting a pull request, verify all of these:
 
 ## Public Documentation Sync
 
-This repository is mirrored on the official VTEX developer portal. When user-facing behavior changes here, the public docs must be updated so external developers see consistent information.
+This repository is mirrored on the official VTEX developer portal (`developers.vtex.com`) and referenced from the help center (`help.vtex.com`). When user-facing behavior changes here, every public page that references the affected concepts must be updated so external developers see consistent information.
 
-### Pages that mirror this repository
+### Example pages that commonly mirror this repository
+
+The list below is **not exhaustive** — treat it as a starting point. Always search `developers.vtex.com` and `help.vtex.com` for any other page that references the affected tracks, skills, install commands, supported platforms, or the repository URL.
 
 - [VTEX Skills guide](https://developers.vtex.com/docs/guides/vtex-skills) — install commands, supported platforms, track and skill counts, behavior overview
 - [Release notes — VTEX Developer MCP and Skills](https://developers.vtex.com/updates/release-notes/2026-04-09-vtex-developer-mcp-and-skills) — historical announcement; only correct factual errors here, do not rewrite history
 
-The source for these pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Documentation changes are landed via a PR in that repository.
+Other places to check before opening the docs follow-up:
+
+- The AI-assisted development overview / index page on `developers.vtex.com`
+- Any track-specific guide that links into this catalog (FastStore, Payment, VTEX IO, Marketplace, Headless, Architecture)
+- More recent release notes that mention VTEX Skills or the VTEX Developer MCP
+- Any internal portals or onboarding material that embed install snippets
+
+The source for the developer portal pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Help center articles are managed by the docs team. Documentation changes are landed via a PR or ticket in the appropriate repository.
 
 ### When a docs update is required
 

@@ -20,21 +20,23 @@ Before submitting, please verify:
 
 ## Public Documentation Sync
 
-VTEX Skills and the VTEX Developer MCP are documented on the public developer portal. When this PR changes user-facing behavior (new/removed skills, renamed tracks, install commands, supported platforms, CLI flags, repository URL, etc.), the public docs may need to be updated in lockstep.
+VTEX Skills, the VTEX Developer MCP, and other AI-assisted development tooling are documented across the public developer portal (`developers.vtex.com`) and help center (`help.vtex.com`). When this PR changes user-facing behavior (new/removed skills, renamed tracks, install commands, supported platforms, CLI flags, repository URL, etc.), any related public page may need to be updated in lockstep.
 
-Check the pages that mirror this repository:
+Examples of pages that commonly mirror this repository (non-exhaustive):
 
 - [VTEX Skills guide](https://developers.vtex.com/docs/guides/vtex-skills)
 - [Release notes — VTEX Developer MCP and Skills](https://developers.vtex.com/updates/release-notes/2026-04-09-vtex-developer-mcp-and-skills)
 
+Search `developers.vtex.com` and `help.vtex.com` for any other page that references the affected tracks, skills, install commands, or repo URL — there may be more than the examples above.
+
 Pick one:
 
 - [ ] **No public docs change needed** — this PR only affects internal content (skill body edits, validator tweaks, refactors, CI, etc.)
-- [ ] **Public docs update required** — describe what needs to change and link the follow-up (issue, PR in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content), or ticket) below:
+- [ ] **Public docs update required** — list every page that needs to change and link the follow-up (issue, PR in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content), or ticket) below:
 
 <!--
 Example:
-- Adds a new track `architecture` → update the "Tracks and skills" table on the VTEX Skills guide.
+- Adds a new track `architecture` → update the "Tracks and skills" table on the VTEX Skills guide and any other page that lists the tracks.
 - Follow-up: vtex/dev-portal-content#1234
 -->
 

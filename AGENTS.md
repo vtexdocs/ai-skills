@@ -93,12 +93,16 @@ Use `refactor(track):` for skill content changes so they appear in the changelog
 
 ## Public documentation sync
 
-This repository is mirrored on the official VTEX developer portal:
+This repository is mirrored across the official VTEX developer portal (`developers.vtex.com`) and referenced from the help center (`help.vtex.com`). The pages below are **examples**, not an exhaustive list — there are likely other pages that reference VTEX Skills, the VTEX Developer MCP, or specific tracks/skills, and you should treat all of them as in scope.
+
+Known examples:
 
 - [VTEX Skills guide](https://developers.vtex.com/docs/guides/vtex-skills) — install commands, supported platforms, track and skill counts, behavior overview.
 - [Release notes — VTEX Developer MCP and Skills](https://developers.vtex.com/updates/release-notes/2026-04-09-vtex-developer-mcp-and-skills) — historical announcement; only correct factual errors here.
 
-The source for both pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Whenever you finish a change in this repo, evaluate whether the public docs need a follow-up and surface it to the user.
+When evaluating a change, also consider: the AI-assisted development overview/index, track-specific guides that link into this catalog, more recent release notes, and any onboarding material that embeds install snippets. If you are uncertain whether other pages exist, say so explicitly and recommend the user search `developers.vtex.com` and `help.vtex.com` for the affected terms.
+
+The source for the developer portal pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Help center articles are owned by the docs team. Whenever you finish a change in this repo, evaluate whether the public docs need a follow-up and surface it to the user.
 
 ### Trigger checklist
 
@@ -118,6 +122,6 @@ Do **not** suggest a docs update for purely internal changes: edits to skill bod
 At the end of the task, include a short "Public docs sync" note with one of:
 
 - **No public docs change needed** — state why (e.g. "skill body edit only, no install command or counts changed").
-- **Public docs update required** — list the specific pages and sections that need to change, and suggest opening a follow-up in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). When relevant, draft the exact wording or table cell that needs updating.
+- **Public docs update required** — list every page you can identify that needs to change (the known examples above plus any others you spotted), and suggest opening a follow-up in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content) or with the docs team for help-center articles. When relevant, draft the exact wording or table cell that needs updating. If you suspect there are additional pages you cannot enumerate, call that out and ask the user to verify.
 
 Also remind the user that the PR template's **Public Documentation Sync** section needs to be filled out before merging. The full criteria are in [`CONTRIBUTING.md`](CONTRIBUTING.md#public-documentation-sync).
