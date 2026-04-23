@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/vtex/skills/compare/v1.8.0...v1.9.0) (2026-04-23)
+
+
+### Features
+
+* **sales-app:** addGiftCard to useCart hook ([693e18f](https://github.com/vtex/skills/commit/693e18f85cc097b1ea42e42a9f01cc98a6739715))
+* **sales-app:** sales app extensibility skill ([5a14972](https://github.com/vtex/skills/commit/5a14972d81daeb59e9df4000b7b1d886b9e4061c))
+* **sales-app:** sales app extensibility skill ([3988622](https://github.com/vtex/skills/commit/3988622fec41daf99cb7269910bfadb295875599))
+* **sales-app:** sales-app-extensibility add the ability to interpret documentation ([eb7ce92](https://github.com/vtex/skills/commit/eb7ce925c49b722bec92e1775815a24b885e89e1))
+* **sales-app:** sales-app-extensibility add the ability to interpret documentation ([0e16536](https://github.com/vtex/skills/commit/0e165362d0f618bc9286ef0fc63a960cc23ec372))
+* **sales-app:** sales-app-extensibility documentation for generated extension ([f483443](https://github.com/vtex/skills/commit/f48344345998cacd792931aa9795b6dea557dc7c))
+* Update and enhance FastStore skill documentation and guidelines ([8eecdff](https://github.com/vtex/skills/commit/8eecdffb6ff1c6b85284e76f53e24eebdfe61ea3))
+
 ## [1.8.0](https://github.com/vtex/skills/compare/v1.7.0...v1.8.0) (2026-04-13)
 
 
