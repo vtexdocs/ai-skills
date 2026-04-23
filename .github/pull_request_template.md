@@ -20,29 +20,18 @@ Before submitting, please verify:
 
 ## Public Documentation Sync
 
-VTEX Skills, the VTEX Developer MCP, and other AI-assisted development tooling are documented across the public developer portal (`developers.vtex.com`) and help center (`help.vtex.com`). When this PR changes user-facing behavior (new/removed skills, renamed tracks, install commands, supported platforms, CLI flags, repository URL, etc.), any related public page may need to be updated in lockstep.
+Public VTEX docs on `developers.vtex.com` and `help.vtex.com` may need to be updated when this PR ships. Pick one:
 
-Examples of pages that commonly mirror this repository (non-exhaustive):
-
-- [VTEX Skills guide](https://developers.vtex.com/docs/guides/vtex-skills)
-- [Release notes — VTEX Developer MCP and Skills](https://developers.vtex.com/updates/release-notes/2026-04-09-vtex-developer-mcp-and-skills)
-
-Search `developers.vtex.com` and `help.vtex.com` for any other page that references the affected tracks, skills, install commands, or repo URL — there may be more than the examples above.
-
-> **Tip:** if you have the `vtex-docs` MCP configured (or any AI assistant with the VTEX Developer MCP), ask it to run `search_documentation` for the changed concepts and `fetch_document` on the hits — it covers both `developers.vtex.com` and `help.vtex.com` in a single pass. AI agents working on this repo are already instructed to do this automatically (see [`AGENTS.md`](../AGENTS.md#use-the-vtex-docs-mcp-for-discovery-and-diffing)).
-
-Pick one:
-
-- [ ] **No public docs change needed** — this PR only affects internal content (skill body edits, validator tweaks, refactors, CI, etc.)
-- [ ] **Public docs update required** — list every page that needs to change and link the follow-up (issue, PR in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content), or ticket) below:
+- [ ] **No public docs change needed**
+- [ ] **Public docs update required** — list the affected pages and link the follow-up below:
 
 <!--
 Example:
-- Adds a new track `architecture` → update the "Tracks and skills" table on the VTEX Skills guide and any other page that lists the tracks.
+- developers.vtex.com/docs/guides/vtex-skills → update the "Tracks and skills" table.
 - Follow-up: vtex/dev-portal-content#1234
 -->
 
-See [Public documentation sync](../CONTRIBUTING.md#public-documentation-sync) in `CONTRIBUTING.md` for the full checklist of what triggers a docs update.
+See [Public documentation sync](../CONTRIBUTING.md#public-documentation-sync) in `CONTRIBUTING.md` for what triggers a docs update and how to find every affected page.
 
 ---
 
