@@ -63,9 +63,9 @@ Only link to `developers.vtex.com` or `help.vtex.com`. Verify URLs resolve befor
 
 ## Validation checks
 
-`bun run validate` runs 11 checks on every skill file. Checks are split into **hard** (must pass — block CI) and **soft** (produce warnings only):
+`bun run validate` runs 13 checks on every skill file. Checks are split into **hard** (must pass — block CI) and **soft** (produce warnings only):
 
-**Hard checks** (7): yaml-validity, description-quality, code-block-annotations, no-placeholders, size-bounds, track-consistency, globs-format.
+**Hard checks** (9): yaml-validity, description-quality, code-block-annotations, no-placeholders, size-bounds, track-consistency, globs-format, filename-casing, companion-links.
 
 **Soft checks** (4): required-sections, detection-patterns, paired-examples, url-format.
 

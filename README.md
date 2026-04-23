@@ -24,17 +24,45 @@
 
 ## Quick Start
 
-Pick your platform and run one command. No clone needed.
+### GitHub CLI (Recommended — requires `gh` v2.90.0+)
 
-### Install all skills with npx (Cursor, Claude Code, Codex, OpenCode, and 38+ agents)
+If you have the [GitHub CLI](https://cli.github.com/) installed, this is the fastest path. It auto-detects which agents you have configured, supports version pinning, and provides `gh skill update` to stay current.
+
+```bash
+# Browse and install skills interactively
+gh skill install vtex/skills
+
+# Install a specific skill
+gh skill install vtex/skills payment-provider-protocol
+
+# Target a specific agent explicitly
+gh skill install vtex/skills payment-provider-protocol --agent claude-code
+
+# Pin to a release for reproducibility
+gh skill install vtex/skills payment-provider-protocol --pin v1.9.0
+
+# Keep all installed skills up to date
+gh skill update --all
+```
+
+Skills are installed to `.agents/skills/` at project scope by default — shared automatically across GitHub Copilot, Cursor, Claude Code, Codex, OpenCode, Windsurf, and [40+ other agents](https://cli.github.com/manual/gh_skill_install). Use `--scope user` to install globally instead.
+
+### npx (No GitHub CLI required)
+
+Works on any machine with Node.js. Handles bulk installs and is CI-friendly:
 
 ```bash
 npx skills add vtex/skills
 ```
 
-This uses the [open skills CLI](https://github.com/vercel-labs/skills) to install skills into whichever AI agents you have configured. It auto-detects Cursor, Claude Code, Codex, OpenCode, and others. Use `--list` to preview available skills before installing, or `--all` to install everything non-interactively.
+Use `--list` to preview available skills before installing, `--all --yes` to install everything non-interactively, or `--agent <name>` to target a specific tool.
 
-### AGENTS.md (Recommended — works with Cursor, Copilot, Codex, Windsurf, Amp, Devin, and more)
+### Platform-specific installs (fallback)
+
+<details>
+<summary>Install directly via curl, manual copy, or file upload — no CLI needed</summary>
+
+#### AGENTS.md (works with Cursor, Copilot, Codex, Windsurf, Amp, Devin, and more)
 
 ```bash
 curl -sL https://github.com/vtex/skills/releases/latest/download/agents-md.tar.gz | tar xz -C your-project/
@@ -42,7 +70,7 @@ curl -sL https://github.com/vtex/skills/releases/latest/download/agents-md.tar.g
 
 This places a root `AGENTS.md` with links to per-track files in subdirectories. Most AI coding tools discover and follow these instructions automatically.
 
-### Cursor
+#### Cursor
 
 ```bash
 mkdir -p your-project/.cursor/rules
@@ -51,7 +79,7 @@ curl -sL https://github.com/vtex/skills/releases/latest/download/cursor-rules.ta
 
 Each `.mdc` file includes glob patterns that auto-attach the rule when you open matching files. Per-track composites (e.g., `faststore-all.mdc`) are also available.
 
-### GitHub Copilot
+#### GitHub Copilot
 
 ```bash
 mkdir -p your-project/.github
@@ -60,11 +88,11 @@ curl -sL https://github.com/vtex/skills/releases/latest/download/copilot-instruc
 
 Per-track files are available in `exports/copilot/` if you only need a subset.
 
-### Claude Projects
+#### Claude Projects
 
 Upload files from [`exports/claude/`](exports/claude/) as project knowledge in your Claude Project settings. Use individual skill files for focused context, or per-track composites (e.g., `faststore.md`) for broader coverage.
 
-### OpenCode
+#### OpenCode
 
 ```bash
 curl -sL https://github.com/vtex/skills/releases/latest/download/opencode-skills.tar.gz | tar xz -C ~/.config/opencode/skills/
@@ -72,8 +100,7 @@ curl -sL https://github.com/vtex/skills/releases/latest/download/opencode-skills
 
 Each skill becomes a directory with a `SKILL.md` file. OpenCode discovers them automatically and makes them available as loadable skills in your sessions.
 
-<details>
-<summary>Alternative: clone the repo and copy locally</summary>
+#### Clone and copy locally
 
 ```bash
 git clone https://github.com/vtex/skills.git
@@ -108,14 +135,14 @@ cp -r exports/opencode/. ~/.config/opencode/skills/
 
 ## Supported Platforms
 
-| Platform | Format | Auto-detection | Files |
+| Platform | Format | Auto-detection | Layout |
 |---|---|---|---|
-| **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 7 |
-| **Cursor** | `.mdc` rules | ✅ Glob + description | 45 |
-| **GitHub Copilot** | Instructions | ✅ Auto-loaded | 7 |
-| **Claude Projects** | Knowledge files | Manual upload | 45 |
-| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 39 |
-| **Kiro** | `POWER.md` + steering | ✅ Auto-discovered | 46 |
+| **AGENTS.md** | Markdown | ✅ Native in 7+ tools | 1 root file + 1 per track |
+| **Cursor** | `.mdc` rules | ✅ Glob + description | 1 per skill + per-track composites |
+| **GitHub Copilot** | Instructions | ✅ Auto-loaded | 1 master file + 1 per track |
+| **Claude Projects** | Knowledge files | Manual upload | 1 per skill + per-track composites |
+| **OpenCode** | `SKILL.md` | ✅ Auto-discovered | 1 directory per skill |
+| **Kiro** | `POWER.md` + steering | ✅ Auto-discovered | 1 `POWER.md` + per-skill steering files |
 
 ---
 
@@ -165,7 +192,7 @@ Comprehensive coverage of VTEX IO app development organized into five groups: Fo
 
 | Group | Skills |
 |---|---|
-| **Foundations** | `vtex-io-app-contract`, `vtex-io-service-runtime`, `vtex-io-client-integration`, `vtex-io-app-structure`¹, `vtex-io-service-apps`¹ |
+| **Foundations** | `vtex-io-app-contract`, `vtex-io-service-runtime`, `vtex-io-client-integration`, `vtex-io-service-apps`¹ |
 | **API Exposure** | `vtex-io-graphql-api`, `vtex-io-http-routes`, `vtex-io-events-and-workers` |
 | **Frontend** | `vtex-io-storefront-react`, `vtex-io-admin-react`, `vtex-io-render-runtime-and-blocks`, `vtex-io-messages-and-i18n`, `vtex-io-react-apps`¹ |
 | **Data & Config** | `vtex-io-app-settings`, `vtex-io-service-configuration-apps`, `vtex-io-masterdata-strategy`, `vtex-io-data-access-patterns`, `vtex-io-masterdata`¹, `vtex-io-service-paths-and-cdn`, `vtex-io-application-performance`, `vtex-io-session-apps` |
@@ -223,8 +250,8 @@ Complete 6-step workflow for building VTEX Sales App extensions. Covers extensio
 This repository is an [Open Plugin](https://open-plugins.com) — a portable, platform-agnostic skill pack that any AI coding tool can discover and install.
 
 ```
-rules/*.mdc              # 45 Cursor rules (auto-discovered)
-skills/*/SKILL.md        # 39 agent skills (auto-discovered)
+rules/*.mdc              # Cursor rules (auto-discovered)
+skills/*/SKILL.md        # Agent skills (auto-discovered)
 .cursor-plugin/plugin.json   # Cursor plugin manifest
 .plugin/plugin.json          # Vendor-neutral plugin manifest
 ```
@@ -276,12 +303,6 @@ vtex_skills/
       index.md
       skills/
         sales-app-extensibility/skill.md
-      skills/
-        payment-provider-protocol/skill.md
-        payment-provider-framework/skill.md
-        payment-idempotency/skill.md
-        payment-async-flow/skill.md
-        payment-pci-security/skill.md
     vtex-io/
       index.md
       skills/
@@ -332,9 +353,9 @@ Check all skill files for quality and correctness before exporting:
 bun run validate
 ```
 
-The validator runs 11 checks on every skill file, split into **hard** (must pass — block CI) and **soft** (produce warnings only):
+The validator runs 13 checks on every skill file, split into **hard** (must pass — block CI) and **soft** (produce warnings only):
 
-**Hard checks** (7):
+**Hard checks** (9):
 - **yaml-validity** — frontmatter parses without errors, has required fields (name, description, track, tags)
 - **description-quality** — description is at least 20 words
 - **code-block-annotations** — all opening code fences have a language annotation
@@ -342,6 +363,8 @@ The validator runs 11 checks on every skill file, split into **hard** (must pass
 - **size-bounds** — skill files are within acceptable size limits
 - **track-consistency** — the `track` frontmatter field matches the directory
 - **globs-format** — if present, the `globs` field is a valid array of glob pattern strings
+- **filename-casing** — the file is named `skill.md` (lowercase)
+- **companion-links** — all relative links in the skill file resolve to existing files
 
 **Soft checks** (4) — produce warnings but do not block CI:
 - **required-sections** — recommended H2 sections present (decision-oriented template)

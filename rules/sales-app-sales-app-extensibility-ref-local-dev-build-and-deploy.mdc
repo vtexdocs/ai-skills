@@ -1,0 +1,151 @@
+---
+description: "Commands and instructions for local development, building, and deploying Sales App extensions via FastStore WebOps. Use during Steps 4 and 5 of the workflow."
+globs: 
+alwaysApply: false
+---
+
+# Local Development, Build, and Deployment
+
+## Local Development (Step 4)
+
+### Start the dev server
+
+```bash
+# Verify dependencies are installed
+yarn install
+
+# Primary command — run at monorepo root
+yarn fsp dev {account_name}
+
+# Alternative with more control
+yarn sales-app dev {account_name} ./{account_name}/sales-app 3002
+
+# Show extension point placeholders (useful for finding where to render)
+yarn sales-app dev {account_name} ./{account_name}/sales-app 3002 --show-placeholders
+```
+
+### Test URLs
+
+| Page | URL |
+|------|-----|
+| Cart | `http://localhost:3002/sales-app/checkout/cart` |
+| PDP | `http://localhost:3002/sales-app/product/<product-id>` |
+| Base | `http://localhost:3002/sales-app` |
+
+### Development tips
+
+- Hot reload is active — code changes reflect automatically
+- Use `--show-placeholders` to see where extension points are located
+- Check the port configuration in `faststore.json` if there are conflicts
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Port in use | Try a different port: 3003, 3004 |
+| Extension not visible | Check `index.tsx` and the configured extension point name |
+| Build error during dev | Run `yarn fsp build {account_name} sales-app` for detailed errors |
+| Module not found | Run `yarn install` to ensure dependencies are linked |
+
+## Build (Step 5a)
+
+### Build command
+
+```bash
+yarn fsp build {account_name} sales-app
+```
+
+### What the build checks
+
+1. **TypeScript** — types and syntax errors
+2. **Imports** — referenced modules and files exist
+3. **JSX** — correct React component syntax
+4. **CSS** — style files imported correctly
+5. **defineExtensions** — valid extension points configuration
+
+### Common build errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| TypeScript errors | Type mismatches, missing types | Check variable types and `@vtex/sales-app` imports |
+| Module not found | Wrong import path or missing file | Verify file exists at the imported path |
+| Hook errors | Hooks inside conditionals or loops | Move hook calls to the top level of the component |
+| CSS errors | Missing or misnamed CSS file | Check `.css` file exists and import path is correct |
+| defineExtensions errors | Invalid extension point or missing export | Verify extension point name and component export |
+
+### Build tip
+
+During development, `yarn fsp dev` already runs the build automatically. Use `yarn fsp build` when you want to validate before deploying.
+
+## Deployment (Step 5b)
+
+Deployment is automatic via **FastStore WebOps** when you push to the `main` branch.
+
+### Deployment steps
+
+```bash
+# 1. Verify local build passes
+yarn fsp build {account_name} sales-app
+
+# 2. Review changes
+git status
+
+# 3. Stage files
+git add .
+
+# 4. Create commit
+git commit -m "feat: add Sales App extension"
+
+# 5. Push to main
+git push origin main
+```
+
+After pushing:
+
+6. **Monitor deploy** — Access FastStore WebOps in VTEX Admin (`https://{account_name}.myvtex.com/admin/faststore-webops`)
+7. **Wait for propagation** — Deployment takes 5-10 minutes (includes CDN cache propagation)
+8. **Validate in production** — Access Sales App in production and verify the extension
+
+### Monitoring
+
+**FastStore WebOps**:
+- URL: VTEX Admin > FastStore > WebOps
+- Shows build and deployment status
+
+**GitHub Checks**:
+- Go to the GitHub repository
+- See the status icon (✔️, ❌, 🟡) next to each commit
+
+### Rollback
+
+If something goes wrong after deployment:
+
+```bash
+git revert HEAD
+git push origin main
+```
+
+### Troubleshooting deployment
+
+#### Build failed in WebOps
+
+1. Go to the GitHub repository
+2. Click the status icon next to the commit
+3. Select "Details" under "FastStore WebOps"
+4. Read the error logs
+5. Fix the issue locally
+6. Make a new commit and push
+
+#### Extension doesn't appear after deploy
+
+1. Check the extension point is correct in `index.tsx`
+2. Clear browser cache (Ctrl+Shift+R)
+3. Wait longer for propagation (up to 10 minutes)
+4. Verify you're accessing the correct account
+
+#### Runtime error in production
+
+1. Open the browser console (F12)
+2. Check for JavaScript errors
+3. If API error, verify URLs and authentication
+4. Fix locally, test, and redeploy

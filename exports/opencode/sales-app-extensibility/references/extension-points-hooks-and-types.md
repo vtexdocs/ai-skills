@@ -1,0 +1,323 @@
+---
+name: sales-app-extension-points-hooks-types
+description: Complete reference for Sales App extension points, React hooks, and TypeScript types. Use when choosing where to render an extension, which hooks to use, or looking up type definitions for CartItem, ProductSku, Totalizers, and related types.
+metadata:
+  version: "1.0"
+---
+
+# Extension Points, Hooks, and Types
+
+## Extension Points
+
+Sales App has 8 extension points across 3 categories.
+
+### Cart Extension Points
+
+#### `cart.cart-list.after`
+
+- **Location**: Below the cart items list
+- **Layout Shift**: No
+- **Available Hooks**: useCart, useExtension
+- **Use Cases**: Loyalty points summary, promotional banners, gift options, shipping estimates
+
+```typescript
+import { defineExtensions } from '@vtex/sales-app';
+import { MyExtension } from './components/MyExtension';
+
+export default defineExtensions({
+  'cart.cart-list.after': MyExtension,
+});
+```
+
+#### `cart.cart-item.after`
+
+- **Location**: Below each individual cart item
+- **Layout Shift**: Yes — use loading states and skeletons
+- **Available Hooks**: useCart, useCartItem, useExtension
+- **Use Cases**: Warranty options, item-specific promotions, personalization, service attachments
+
+```typescript
+export default defineExtensions({
+  'cart.cart-item.after': ItemWarranty,
+});
+```
+
+#### `cart.order-summary.after`
+
+- **Location**: Below the order summary/totals
+- **Layout Shift**: Yes — use loading states and skeletons
+- **Available Hooks**: useCart, useExtension
+- **Use Cases**: Loyalty points redemption, additional fees/discounts, coupon input, installment options
+
+```typescript
+export default defineExtensions({
+  'cart.order-summary.after': LoyaltyPoints,
+});
+```
+
+### PDP Extension Points
+
+#### `pdp.sidebar.before`
+
+- **Location**: Above the sidebar content on the Product Detail Page
+- **Layout Shift**: Yes
+- **Available Hooks**: usePDP, useCart, useExtension
+- **Use Cases**: Product badges, stock alerts, promotional banners, seller information
+
+#### `pdp.sidebar.after`
+
+- **Location**: Below the sidebar content on the Product Detail Page
+- **Layout Shift**: Yes
+- **Available Hooks**: usePDP, useCart, useExtension
+- **Use Cases**: Warranty selection, related services, financing options, gift wrapping
+
+#### `pdp.content.after`
+
+- **Location**: Below the main content area on the Product Detail Page
+- **Layout Shift**: Yes
+- **Available Hooks**: usePDP, useCart, useExtension
+- **Use Cases**: Product recommendations, customer reviews, specifications, complementary products
+
+### Menu Extension Points
+
+#### `menu.item`
+
+- **Location**: Sales App main menu
+- **Layout Shift**: No
+- **Available Hooks**: useExtension
+- **Use Cases**: Custom navigation links, quick action buttons, menu notifications
+
+#### `menu.drawer-content`
+
+- **Location**: Sales App menu drawer
+- **Layout Shift**: No
+- **Available Hooks**: useCurrentUser, useExtension
+- **Use Cases**: User profile information, sales performance metrics, settings shortcuts, notifications
+
+## Hooks Reference
+
+All hooks are imported from `@vtex/sales-app`.
+
+### useCart
+
+Access cart data and perform mutations.
+
+```typescript
+import { useCart } from '@vtex/sales-app';
+
+const cart = useCart();
+```
+
+**Available in**: `cart.cart-list.after`, `cart.cart-item.after`, `cart.order-summary.after`, `pdp.sidebar.before`, `pdp.sidebar.after`, `pdp.content.after`
+
+**Returns**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `orderFormId` | `string \| undefined` | Unique identifier of the current order form |
+| `value` | `number` | Total cart value in cents |
+| `items` | `CartItem[]` | Array of items in the cart |
+| `totalizers` | `Totalizers[]` | Array of totalizers (Items, Shipping, Discounts, Tax) |
+| `clientProfileData` | `ClientProfileData` | Client profile (email, document, phone) |
+| `giftCards` | `GiftCard[]` | Gift cards currently attached to the cart |
+| `addItem` | `(data: UseCartAddItemData) => Promise<void>` | Add an item to the cart |
+| `removeItem` | `(id: string, index: number) => Promise<void>` | Remove an item from the cart |
+| `addCoupon` | `(coupon: string) => Promise<void>` | Add a coupon to the cart |
+| `addGiftCard` | `(redemptionCodeOrGiftCard: string \| GiftCard, provider?: string) => Promise<void>` | Add a gift card to the cart payment data |
+| `sync` | `() => Promise<void>` | Sync the cart with the latest Order Form data |
+
+**Example — display total items**:
+
+```typescript
+const TotalItems = () => {
+  const cart = useCart();
+  return <div>Items: {cart.items.length}</div>;
+};
+```
+
+**Example — add item to cart**:
+
+```typescript
+const AddToCart = () => {
+  const cart = useCart();
+  const addItem = () => cart.addItem({
+    quantity: 1,
+    seller: '1',
+    id: '8392'
+  });
+  return <button onClick={addItem}>Add to cart</button>;
+};
+```
+
+**Example — add gift card**:
+
+```typescript
+const AddGiftCard = () => {
+  const cart = useCart();
+  const add = async () => {
+    await cart.addGiftCard('ABC-123', 'my-giftcard-provider');
+    await cart.sync();
+  };
+  return <button onClick={add}>Add gift card</button>;
+};
+```
+
+### useCartItem
+
+Access individual cart item data. **Only available in `cart.cart-item.after`**.
+
+```typescript
+import { useCartItem } from '@vtex/sales-app';
+
+const { item, itemIndex, changeItem, changePrice } = useCartItem();
+// IMPORTANT: item may be undefined — always check first
+if (!item) return (<></>);
+```
+
+**Returns**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `item` | `CartItem \| undefined` | The cart item data — **check for undefined** |
+| `itemIndex` | `number \| undefined` | Index of the item in the cart |
+| `changeItem` | `(data: UseCartItemChangeItemData) => Promise<void>` | Modify quantity or attachments |
+| `changePrice` | `(price: number) => Promise<void>` | Change item price (requires `allowManualPrice` in orderForm) |
+
+### useCurrentUser
+
+Access current authenticated user data. **Only available in `menu.drawer-content`**.
+
+```typescript
+import { useCurrentUser } from '@vtex/sales-app';
+
+const { name, email } = useCurrentUser();
+```
+
+**Returns**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Current user's name |
+| `email` | `string` | Current user's email |
+
+### useExtension
+
+Access account and extension point context. **Available in all extension points**.
+
+```typescript
+import { useExtension } from '@vtex/sales-app';
+
+const { account, extensionPoint } = useExtension();
+```
+
+**Returns**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `account` | `string` | Current VTEX account name |
+| `extensionPoint` | `ExtensionPointsType` | Name of the extension point where the component is mounted |
+
+### usePDP
+
+Access Product Detail Page data. **Only available in PDP extensions**.
+
+```typescript
+import { usePDP } from '@vtex/sales-app';
+
+const { productSku } = usePDP();
+```
+
+**Returns**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `productSku` | `ProductSku` | Current product SKU data |
+
+## TypeScript Types
+
+```typescript
+type CartItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  seller: string;
+  sellingPrice: number;
+  listPrice: number;
+  manualPrice?: number;       // optional — guard before use
+  price: number;
+  imageUrl: string;
+  productRefId?: string;      // optional — guard before use
+  attachments?: Attachment[];  // optional — guard before use
+};
+
+type ClientProfileData = {
+  email: string | null;
+  document: string | null;
+  phone: string | null;
+};
+
+type ProductSku = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  listPrice: number;
+  sellingPrice?: number;
+};
+
+type Totalizers = {
+  id: string;    // Common IDs: "Items", "Shipping", "Discounts", "Tax"
+  name: string;
+  value: number; // in cents
+};
+
+type Attachment = {
+  name: string;
+  content: Record<string, string>;
+};
+
+type GiftCard = {
+  id: string;
+  redemptionCode?: string | null;
+  name: string;
+  caption: string;
+  value: number;
+  balance: number;
+  provider: string;
+  groupName?: string | null;
+  inUse: boolean;
+  isSpecialCard: boolean;
+};
+
+type UseCartAddItemData = {
+  id: string;
+  quantity: number;
+  seller: string;
+  attachments?: Attachment[];
+};
+
+type UseCartItemChangeItemData = {
+  quantity?: number;
+  attachments?: Attachment[];
+};
+
+type ExtensionPointsType =
+  | 'cart.cart-list.after'
+  | 'cart.cart-item.after'
+  | 'cart.order-summary.after'
+  | 'pdp.sidebar.before'
+  | 'pdp.sidebar.after'
+  | 'pdp.content.after'
+  | 'menu.item'
+  | 'menu.drawer-content';
+```
+
+### Optional Properties Warning
+
+Three `CartItem` properties are optional and must be guarded:
+
+| Property | Type | Safe Access |
+|----------|------|-------------|
+| `manualPrice` | `number \| undefined` | `item.manualPrice ?? item.sellingPrice` |
+| `productRefId` | `string \| undefined` | `item.productRefId ?? 'N/A'` |
+| `attachments` | `Attachment[] \| undefined` | `item.attachments?.length ?? 0` |
