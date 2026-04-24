@@ -99,19 +99,19 @@ See [Skill Template Reference](#skill-template-reference) for what goes in each 
 
 ### Step 5: Annotate all code blocks
 
-Every opening code fence must have a language annotation. The validator will fail on bare fences.
+Every opening code fence must have a language annotation. The validator will fail on bare fences. The examples below use a 4-backtick outer fence so the inner 3-backtick fence (and its bare closing fence) are rendered literally:
 
-````typescript
-// Good
+````markdown
 ```typescript
-const x = 1
+const x = 1;
+```
 ````
 
-````text
-// Also good for diagrams and directory trees
+````markdown
 ```text
 src/
   components/
+```
 ````
 
 Closing fences are always bare (just ` ``` `). Only opening fences need the annotation.

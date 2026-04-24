@@ -7,7 +7,7 @@ This file provides instructions for AI coding agents working on this repository.
 1. **Source files only**: Edit skill files in `tracks/{track}/skills/{name}/skill.md`. Never edit `exports/`, `skills/`, or `rules/` — they are auto-generated and will be silently overwritten the next time `bun run export` runs.
 2. **Validate before committing**: Run `bun run validate`. All hard checks must pass; soft checks produce warnings but do not block CI.
 3. **Regenerate exports**: Run `bun run export` after any skill change. Commit both source and generated files.
-4. **Flag public docs sync**: After completing the change, evaluate whether the public VTEX developer portal needs to be updated and tell the user. See [Public documentation sync](#public-documentation-sync) below.
+4. **Flag public docs sync**: After completing the change, evaluate whether public VTEX docs (developer portal + help center) need to be updated and tell the user. See [Public documentation sync](#public-documentation-sync) below.
 
 ## Skill template
 
