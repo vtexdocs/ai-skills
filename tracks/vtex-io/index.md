@@ -24,6 +24,8 @@ The VTEX IO track is being reorganized into smaller, more decision-oriented skil
 
 ### Group 3: Frontend
 
+- `vtex-io-storefront-theme-app`
+- `vtex-io-storefront-theme-versioning`
 - `vtex-io-storefront-react`
 - `vtex-io-admin-react`
 - `vtex-io-render-runtime-and-blocks`
@@ -59,6 +61,8 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 | **Service paths & CDN behavior** | Choose `public` vs `/_v/segment` vs `/_v/private` routes in `service.json`, align cookies and edge caching with data scope, and set HTTP cache headers safely. | [skills/vtex-io-service-paths-and-cdn/skill.md](skills/vtex-io-service-paths-and-cdn/skill.md) |
 | **Application performance** | Improve latency and resilience with LRU, VBase, stale-while-revalidate, AppSettings loading, parallel client calls, resolver deduplication, per-entity VBase keys, and service.json tuning—plus rules on what must never be cached (transactional data) and when VBase writes must be awaited (financial flows). | [skills/vtex-io-application-performance/skill.md](skills/vtex-io-application-performance/skill.md) |
 | **Session transform apps** | Build or debug session transforms: namespace ownership, input-vs-output fields, transform ordering (DAG), public-as-input vs private-as-read, cross-namespace propagation, and caching inside transforms for B2B, pricing, or regionalization context. | [skills/vtex-io-session-apps/skill.md](skills/vtex-io-session-apps/skill.md) |
+| **Storefront Theme App** | Decide what a theme app owns: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, base-theme extension, and how block IDs from component apps are composed into pages. | [skills/vtex-io-storefront-theme-app/skill.md](skills/vtex-io-storefront-theme-app/skill.md) |
+| **Storefront Theme Versioning, Install & Rollback** | Safely version, install, promote, and roll back a content-holding storefront app. Covers VBase content keying by `vendor.app@MAJOR.x`, why a major bump orphans Site Editor content, the dev-workspace smoke-test workflow, VBase backups, and emergency rollback. | [skills/vtex-io-storefront-theme-versioning/skill.md](skills/vtex-io-storefront-theme-versioning/skill.md) |
 | **Storefront React Components** | Build shopper-facing VTEX IO React components with css-handles, storefront-safe rendering, and localized UI behavior. | [skills/vtex-io-storefront-react/skill.md](skills/vtex-io-storefront-react/skill.md) |
 | **Admin React Interfaces** | Build VTEX Admin experiences with Styleguide, explicit operational states, and safe admin interaction patterns. | [skills/vtex-io-admin-react/skill.md](skills/vtex-io-admin-react/skill.md) |
 | **Render Runtime & Block Registration** | Register and compose Store Framework blocks through `interfaces.json` and render-runtime contracts. | [skills/vtex-io-render-runtime-and-blocks/skill.md](skills/vtex-io-render-runtime-and-blocks/skill.md) |
@@ -80,7 +84,7 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 1. **Start with App Architecture** — Understand `manifest.json`, builders, and policies first. This is the foundation for all VTEX IO apps.
 2. **Learn Backend Services** — Understand the Service class, clients, and middleware pattern for building backend logic.
 3. **Service paths & application performance** — After you have routes, align **path patterns** with **cookies** and **edge caching**; add **LRU/VBase**, **parallel** fetches, **resolver deduplication**, and **efficient** AppSettings/context where needed. Understand what must never be cached (transactional data) and when VBase writes must be awaited.
-4. **Add Frontend Components** — Learn how to build React components and register them as Store Framework blocks.
+4. **Add Frontend Components** — Learn how to build React components and register them as Store Framework blocks. For storefront-facing work, also learn how a theme app composes those blocks (`vtex-io-storefront-theme-app`) and how to safely change the installed theme version on `master` (`vtex-io-storefront-theme-versioning`).
 5. **Expose GraphQL APIs** — Learn how to define schemas and resolvers for data access.
 6. **Session transforms** — When your app needs to derive session state (B2B pricing, regionalization, custom context), learn namespace ownership, input propagation, and caching inside transforms.
 7. **Store Custom Data** — Use Master Data v2 only after **scrutinizing** the storage choice: confirm MD fits the workload, audit entity governance, or use another VTEX surface or external DB.
@@ -110,6 +114,8 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 - **Session transforms: own your namespace** — Each session app owns its output namespace; never write to another app's output namespace. Use `public.*` for input propagation only, not as a read model. Frontend reads private namespaces for business state.
 - **Use VTEX design systems in admin apps** — Admin apps should use official VTEX design systems such as `vtex.styleguide` or `@vtex/shoreline`. Generic third-party UI libraries break consistency and are not supported.
 - **Use css-handles for storefront styling** — Never hardcode class names. Use `useCssHandles()` to expose safe CSS classes for customization.
+- **Major version bumps on content-holding apps orphan VBase content** — `vtex.pages-graphql` keys merchant routes, templates, and Site Editor content by `vendor.app@MAJOR.x:template`. A major bump on any app that ships `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` invalidates that key, falls back to default `vtex.store-theme` content, and visibly "wipes" the storefront. Always install new majors via a production-flag dev workspace, back up VBase first, and follow `vtex-io-storefront-theme-versioning`.
+- **Block IDs are scoped by the declaring app's installed major** — A block declared in `acme.product-widgets@0.x` is not the same block as one declared in `acme.product-widgets@5.x`, even with the same ID. Consumer themes must match the declaring app's installed major or the resolver returns `Missing block`.
 - **Master Data has a 60-schema-per-entity hard limit** — Plan your schema versioning strategy to avoid hitting this limit.
 
 ## Related Tracks

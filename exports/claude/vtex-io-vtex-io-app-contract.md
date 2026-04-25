@@ -130,6 +130,37 @@ If you see uppercase characters, underscores, non-semver versions, or vendor/nam
 
 This identity is not safely publishable because the name is not kebab-case and the version is not valid semver.
 
+### Constraint: Major version bumps on content-holding apps invalidate stored content
+
+If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` (i.e. it is a **content-holding app** in the Store Framework sense), the `version` field MUST be treated as merchant-facing. A `vtex release major` on this app changes the VBase key prefix that `vtex.pages-graphql` uses to store every Site Editor edit, every custom route, and every per-template render cache.
+
+**Why this matters**
+
+`vtex.pages-graphql` stores merchant content under `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, all previously stored content is unreachable under the active major key, and the storefront falls back to default `vtex.store-theme` content. This is not a data deletion — the content is still in VBase under the previous major key — but it is invisible to the resolver until the previous major is restored.
+
+**Detection**
+
+Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-migration plan, a fresh VBase backup, and a documented rollback. The same rule applies before installing any new MAJOR of such an app on a production account.
+
+**Correct**
+
+```bash
+# patch and minor preserve VBase content keys; safe for content-holding apps
+vtex release patch
+vtex release minor
+```
+
+**Wrong**
+
+```bash
+# major bump on a content-holding app silently orphans every Site Editor edit
+vtex release major
+vtex publish
+vtex install acme.store-theme@5.0.0
+```
+
+See `vtex-io-storefront-theme-versioning` for the safe install, smoke-test, promote, and rollback flow for content-holding apps.
+
 ### Constraint: Dependencies and peerDependencies must express installation intent correctly
 
 Use `dependencies` only for apps that this app should install as part of its contract and that can be auto-installed safely. Use `peerDependencies` for apps that must already be present in the environment, should remain externally managed, or declare `billingOptions`.
@@ -235,6 +266,12 @@ Use this split when the backend/API contract and the storefront contract have di
 - [ ] Are `dependencies` and `peerDependencies` separated by installation intent?
 - [ ] Would splitting the contract into two apps reduce unrelated concerns or release coupling?
 - [ ] Are runtime, route, GraphQL implementation, frontend, and security details kept out of this skill?
+- [ ] If the app ships any file under `store/`, has the merchant-facing impact of any planned major version bump been reviewed?
+
+## Related skills
+
+- [`vtex-io-storefront-theme-versioning`](../vtex-io-storefront-theme-versioning/skill.md) — Use when the app declares the `store` builder and a version change must preserve or migrate Site Editor content.
+- [`vtex-io-storefront-theme-app`](../vtex-io-storefront-theme-app/skill.md) — Use when the question is what the theme app's `store/` files should own.
 
 ## Reference
 
