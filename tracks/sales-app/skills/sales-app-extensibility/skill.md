@@ -348,6 +348,114 @@ Discovery → Requirements → Present plan → **User approves** → Generate c
 **Wrong**
 Discovery → Generate code immediately.
 
+### Constraint: Never access DOM APIs directly
+
+Extensions run in a sandboxed environment enforced by `@vtex/fsp-analyzer`. DOM APIs bypass the sandbox.
+
+**Why this matters**
+Accessing `document`, `window`, `localStorage`, `sessionStorage`, or `navigator` causes a `RESTRICTED_API` violation. The build fails.
+
+**Detection**
+Any use of these identifiers as a value: `document.querySelector`, `window.innerWidth`, `localStorage.getItem`, etc.
+
+**Correct**
+
+```typescript
+// Use React state, props, and Sales App hooks for data
+const { account } = useExtension();
+const cart = useCart();
+```
+
+**Wrong**
+
+```typescript
+const userId = localStorage.getItem('userId');
+const width = window.innerWidth;
+document.title = 'My Extension';
+```
+
+### Constraint: Never import restricted Node.js modules
+
+Extensions are browser-only React components. Node.js modules are unavailable at runtime and banned by the sandbox.
+
+**Why this matters**
+Importing `fs`, `path`, `child_process`, or `crypto` causes a `RESTRICTED_IMPORT` violation. The build fails.
+
+**Detection**
+`import fs from 'fs'`, `import { resolve } from 'path'`, `import crypto from 'crypto'`, `import child_process from 'child_process'`.
+
+**Correct**
+
+```typescript
+import { useCart } from '@vtex/sales-app';
+import React, { useState, useEffect } from 'react';
+```
+
+**Wrong**
+
+```typescript
+import fs from 'fs';
+import crypto from 'crypto';
+```
+
+### Constraint: Never use eval or the Function constructor
+
+Arbitrary code execution is banned in the sandbox.
+
+**Why this matters**
+`eval`, `new Function`, and string-form `setTimeout`/`setInterval` cause a `CODE_EXECUTION` violation. The build fails and is a critical security risk.
+
+**Detection**
+Any call to `eval(...)`, `new Function(...)`, or `setTimeout('code', delay)` / `setInterval('code', delay)` with a string first argument.
+
+**Correct**
+
+```typescript
+const result = computeValue(input); // deterministic logic only
+```
+
+**Wrong**
+
+```typescript
+eval('doSomething()');
+const fn = new Function('return 42');
+setTimeout('doSomething()', 1000);
+```
+
+### Constraint: CSS must use namespaced selectors — no global elements
+
+Extension CSS is injected into the Sales App shell. Global selectors pollute the cascade and break containment.
+
+**Why this matters**
+Selectors like `*`, `body`, `html`, `:root`, `head`, `main`, `#root`, `#__next` cause `CSS_GLOBAL_SELECTOR` or `CSS_CONTAINMENT_BREAKOUT` violations. CSS also must not use `@import`, `position: fixed`, `z-index: 9999`, or un-namespaced `@keyframes`.
+
+**Detection**
+Any CSS rule targeting global elements, `:root`, `#root`, `#__next`, or using `@import`, `:host`, `position: fixed`, `z-index: 9999`. Any `@keyframes` name not prefixed with the extension namespace.
+
+**Correct**
+
+```css
+/* CSS Module — classes are auto-scoped by the bundler */
+.container { padding: 8px; }
+.title { font-size: 16px; }
+
+@keyframes extension-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+```
+
+**Wrong**
+
+```css
+body { font-size: 14px; }
+* { box-sizing: border-box; }
+:root { --my-color: red; }
+@import './reset.css';
+.overlay { position: fixed; z-index: 9999; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+```
+
 ## Preferred pattern
 
 ### Workflow overview
@@ -358,7 +466,7 @@ Discovery → Generate code immediately.
 
 **Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, and the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
+**Step 3** — Generate component, CSS, and index.tsx. Validate against the 11-point checklist (items 1–10 from the code templates reference plus static analysis compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](references/code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](references/extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, and the [static analysis reference](references/static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files. Fix all violations before presenting code; surface warnings to the user.
 
 **Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
@@ -426,6 +534,7 @@ Load these on demand based on what the task requires. Do not load all of them up
 | [references/code-templates-and-patterns.md](references/code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
 | [references/discovery-and-use-cases.md](references/discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
 | [references/local-dev-build-and-deploy.md](references/local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
+| [references/static-analysis-rules.md](references/static-analysis-rules.md) | Validating generated code (Step 3) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`; full rule catalog with violation IDs, detection patterns, and correct/wrong examples |
 
 ## Common failure modes
 
@@ -443,6 +552,10 @@ Load these on demand based on what the task requires. Do not load all of them up
 - **Inventing API response types** — Generated interface doesn't match actual API. If documentation was provided, derive types from it; if not, ask the user for a sample JSON response.
 - **Ignoring provided API documentation** — User provided a URL or file but agent asked manual questions anyway. Always check for documentation first and use the API Documentation Ingestion flow.
 - **Inline fetch with 2+ endpoints** — Multiple `fetch` calls inside the component body. Extract into custom hook(s) in `hooks/use{Purpose}.ts`.
+- **Accessing DOM APIs directly** — `document`, `window`, `localStorage` cause a `RESTRICTED_API` violation at build time. The sandbox blocks this.
+- **Using global CSS selectors** — `body`, `html`, `:root`, `*`, `#root` in extension CSS cause `CSS_GLOBAL_SELECTOR` / `CSS_CONTAINMENT_BREAKOUT` violations. Always scope to the component container.
+- **useLayoutEffect usage** — Blocked by the sandbox (`REACT_LAYOUT_EFFECT_MISUSE`). Use `useEffect` instead.
+- **Heavyweight library imports** — Importing `lodash` or `moment` triggers `LARGE_BUNDLE_SIZE_IMPACT` warnings. Use native array methods or `date-fns` instead.
 
 ## Review checklist
 
@@ -463,6 +576,16 @@ Load these on demand based on what the task requires. Do not load all of them up
 - [ ] Documentation covers overview, extension point, hooks, structure, and constraints?
 - [ ] If API documentation was provided, TypeScript interfaces match the documented response shape?
 - [ ] If 2+ API endpoints used, fetch logic extracted into custom hook(s) in `hooks/`?
+- [ ] No DOM API access (document, window, localStorage, sessionStorage, navigator)?
+- [ ] No restricted Node.js imports (fs, path, child_process, crypto)?
+- [ ] No eval(), new Function(), or string-form setTimeout/setInterval?
+- [ ] CSS selectors scoped — no global *, body, html, :root, #root, #__next?
+- [ ] No @import rules in CSS?
+- [ ] No position: fixed or z-index: 9999 in CSS?
+- [ ] @keyframes names prefixed with extension namespace?
+- [ ] No useLayoutEffect (use useEffect instead)?
+- [ ] No heavyweight library imports (lodash, moment)?
+- [ ] Components under 200 lines?
 - [ ] Build passes: `yarn fsp build {account} sales-app`?
 - [ ] Tested locally: `yarn fsp dev {account}`?
 
