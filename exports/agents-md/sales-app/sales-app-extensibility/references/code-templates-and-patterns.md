@@ -452,6 +452,7 @@ After generating code, validate for these issues:
 8. **API call handling** — loading state and error handling must be present for any `fetch()` call
 9. **CSS class usage** — CSS classes defined in the stylesheet should be used in the component
 10. **defineExtensions in index.tsx** — entry point must import and call `defineExtensions`
+11. **Static analysis compliance** — generated code must pass all fsp-analyzer sandbox security, CSS containment, and React performance rules. Load the [static analysis reference](static-analysis-rules.md) to run the full check. Fix all violations before presenting code to the user; flag warnings to the user for review.
 
 ## API Type Generation from Documentation
 
