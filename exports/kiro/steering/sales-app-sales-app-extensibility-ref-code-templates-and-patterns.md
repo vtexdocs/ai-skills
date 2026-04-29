@@ -326,82 +326,115 @@ export function ${COMPONENT_NAME}(): JSX.Element {
 
 ## CSS Module
 
-All extensions use CSS modules with Admin UI design tokens.
+All extensions use CSS modules with Sales App design tokens. See [design-guidelines.md](design-guidelines.md) for the full token reference.
 
 ```css
 /**
  * ${COMPONENT_NAME} Styles
- * Design tokens follow Admin UI patterns.
+ * Design tokens follow Sales App Design Guidelines.
+ * Reference: references/design-guidelines.md
+ * UX writing: Use sentence case for all UI text. Never use ALL-CAPS.
  */
 
-.container { padding: 16px; background-color: #ffffff; }
-.content { display: flex; flex-direction: column; gap: 12px; }
-.title { font-size: 16px; font-weight: 600; color: #1a1a1a; margin: 0; }
-.subtitle { font-size: 14px; color: #666666; margin: 0; }
-.text { font-size: 14px; color: #333333; line-height: 1.5; }
+.container {
+  /* Sales App design tokens — do not replace with hardcoded hex values */
+  --sa-color-primary:       #157BF4;   /* Light Blue 800 */
+  --sa-color-primary-hover: #0366DD;   /* Light Blue 900 */
+  --sa-color-text-primary:   #1F1F1F;  /* Neutral 1200 */
+  --sa-color-text-secondary: #5C5C5C;  /* Neutral 600 */
+  --sa-color-text-tertiary:  #3D3D3D;  /* Neutral 500 */
+  --sa-color-text-muted:     #999999;  /* Neutral 700 */
+  --sa-color-bg:        #FFFFFF;
+  --sa-color-bg-subtle: #F5F5F5;       /* Neutral 100 */
+  --sa-color-bg-muted:  #EBEBEB;       /* Neutral 200 */
+  --sa-color-border:       #E0E0E0;    /* Neutral 300 */
+  --sa-color-border-input: #D6D6D6;    /* Neutral 400 */
+  --sa-color-error-bg:     #FDF6F5;    /* Red 50 */
+  --sa-color-error-border: #FFDFD9;    /* Red 200 */
+  --sa-color-error-text:   #EC3727;    /* Red 800 */
+  --sa-color-success-bg:   #EDFDF5;    /* Green 50 */
+  --sa-color-success-text: #01905F;    /* Green 800 */
+  --sa-color-warning-bg:   #FBF7D4;    /* Yellow 50 */
+  --sa-color-warning-text: #E57001;    /* Orange 700 */
+  --sa-color-info-bg:   #F1F8FD;       /* Light Blue 50 */
+  --sa-color-info-text: #157BF4;       /* Light Blue 800 */
 
-/* Loading State */
+  padding: 16px;
+  background-color: var(--sa-color-bg);
+  font-family: 'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.content { display: flex; flex-direction: column; gap: 12px; }
+.title { font-size: 16px; font-weight: 600; color: var(--sa-color-text-primary); margin: 0; }
+.subtitle { font-size: 14px; color: var(--sa-color-text-secondary); margin: 0; }
+.text { font-size: 14px; color: var(--sa-color-text-tertiary); line-height: 1.5; }
+
+/* Loading state */
 .loading {
   display: flex; align-items: center; justify-content: center;
-  gap: 8px; padding: 24px; color: #666666;
+  gap: 8px; padding: 24px; color: var(--sa-color-text-secondary);
 }
 .spinner {
   width: 20px; height: 20px;
-  border: 2px solid #e0e0e0; border-top-color: #0066cc;
-  border-radius: 50%; animation: spin 1s linear infinite;
+  border: 2px solid var(--sa-color-border); border-top-color: var(--sa-color-primary);
+  border-radius: 50%; animation: ${COMPONENT_NAME}-spin 1s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ${COMPONENT_NAME}-spin { to { transform: rotate(360deg); } }
 
-/* Error State */
+/* Error state */
 .error {
-  padding: 16px; background-color: #fff5f5;
-  border: 1px solid #ffcccc; border-radius: 8px;
-  color: #cc0000; font-size: 14px;
+  padding: 16px; background-color: var(--sa-color-error-bg);
+  border: 1px solid var(--sa-color-error-border); border-radius: 8px;
+  color: var(--sa-color-error-text); font-size: 14px;
 }
 
-/* Button Styles */
+/* Button styles */
 .button {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 10px 16px; font-size: 14px; font-weight: 500;
+  padding: 12px 16px; font-size: 14px; font-weight: 500;
   border: none; border-radius: 6px; cursor: pointer;
   transition: background-color 0.2s ease;
 }
-.buttonPrimary { background-color: #0066cc; color: #ffffff; }
-.buttonPrimary:hover { background-color: #0052a3; }
-.buttonSecondary { background-color: #f0f0f0; color: #333333; }
-.buttonSecondary:hover { background-color: #e0e0e0; }
+.buttonPrimary { background-color: var(--sa-color-primary); color: #FFFFFF; }
+.buttonPrimary:hover { background-color: var(--sa-color-primary-hover); }
+.buttonSecondary { background-color: var(--sa-color-bg-muted); color: var(--sa-color-text-tertiary); }
+.buttonSecondary:hover { background-color: var(--sa-color-border); }
 
-/* Card Styles */
+/* Card */
 .card {
-  padding: 16px; background-color: #f9f9f9;
-  border-radius: 8px; border: 1px solid #e0e0e0;
+  padding: 16px; background-color: var(--sa-color-bg-subtle);
+  border-radius: 8px; border: 1px solid var(--sa-color-border);
 }
 
-/* Badge Styles */
+/* Badges */
 .badge {
   display: inline-block; padding: 4px 8px;
   font-size: 12px; font-weight: 500; border-radius: 4px;
 }
-.badgeSuccess { background-color: #e6f4ea; color: #137333; }
-.badgeWarning { background-color: #fef7e0; color: #b06000; }
-.badgeInfo { background-color: #e8f0fe; color: #1a73e8; }
+.badgeSuccess { background-color: var(--sa-color-success-bg); color: var(--sa-color-success-text); }
+.badgeWarning { background-color: var(--sa-color-warning-bg); color: var(--sa-color-warning-text); }
+.badgeInfo { background-color: var(--sa-color-info-bg); color: var(--sa-color-info-text); }
 
-/* Input Styles */
+/* Input */
 .input {
-  width: 100%; padding: 10px 12px; font-size: 14px;
-  border: 1px solid #d0d0d0; border-radius: 6px;
+  width: 100%; padding: 12px; font-size: 14px;
+  border: 1px solid var(--sa-color-border-input); border-radius: 6px;
   outline: none; transition: border-color 0.2s ease;
 }
-.input:focus { border-color: #0066cc; }
+.input:focus { border-color: var(--sa-color-primary); }
 
-/* Row/Flex Helpers */
+/* Row/flex helpers */
 .row { display: flex; align-items: center; gap: 12px; }
 .spaceBetween { justify-content: space-between; }
 
-/* Price Display */
-.price { font-size: 18px; font-weight: 600; color: #1a1a1a; }
-.priceOld { font-size: 14px; color: #999999; text-decoration: line-through; }
-.priceDiscount { font-size: 14px; color: #137333; font-weight: 500; }
+/* Price display */
+.price { font-size: 18px; font-weight: 600; color: var(--sa-color-text-primary); }
+.priceOld { font-size: 14px; color: var(--sa-color-text-muted); text-decoration: line-through; }
+.priceDiscount { font-size: 14px; color: var(--sa-color-success-text); font-weight: 500; }
+
+/* Responsive — Sales App breakpoints */
+@media (max-width: 743px) {
+  .container { padding: 12px; margin: 0 24px; }
+}
 ```
 
 ## index.tsx with defineExtensions
@@ -446,6 +479,7 @@ After generating code, validate for these issues:
 9. **CSS class usage** — CSS classes defined in the stylesheet should be used in the component
 10. **defineExtensions in index.tsx** — entry point must import and call `defineExtensions`
 11. **Static analysis compliance** — generated code must pass all fsp-analyzer sandbox security, CSS containment, and React performance rules. Load the [static analysis reference](static-analysis-rules.md) to run the full check. Fix all violations before presenting code to the user; flag warnings to the user for review.
+12. **Design token compliance** — the CSS module must declare `--sa-color-*` custom properties on `.container` and use only those tokens for all colors. No hardcoded hex values outside the token block. Font family must be `'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif`. All UI text in sentence case. Icons from Phosphor Icons only. Load the [design guidelines reference](design-guidelines.md) for the full token table.
 
 ## API Type Generation from Documentation
 
