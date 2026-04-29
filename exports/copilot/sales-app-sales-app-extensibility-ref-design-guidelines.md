@@ -1,0 +1,238 @@
+# Sales App Design Guidelines
+
+All extensions must follow the Sales App Design Guidelines to ensure visual consistency with the Sales App shell. These guidelines are authoritative — do not invent colors, fonts, or icon libraries outside this reference.
+
+---
+
+## 1. UX and Writing Rules
+
+Apply these rules to every string that appears in the UI (labels, buttons, messages, placeholders).
+
+| Rule | Correct | Wrong |
+|------|---------|-------|
+| Sentence case | "Add to cart" | "ADD TO CART" |
+| Proper nouns | "VTEX account" | "vtex account" |
+| No all-caps | "Loyalty points" | "LOYALTY POINTS" |
+| No system placeholders | "Your email" | "EMAIL ADDRESS" |
+
+These rules derive from Google Material Design writing principles and Apple Human Interface Guidelines adopted by VTEX.
+
+---
+
+## 2. Design Tokens (CSS Custom Properties)
+
+Extensions must declare the following CSS custom properties on the root `.container` class and reference them throughout the component CSS. Never use hardcoded hex values; always use the token variables.
+
+```css
+.container {
+  /* Primary action */
+  --sa-color-primary:       #157BF4;   /* Light Blue 800 */
+  --sa-color-primary-hover: #0366DD;   /* Light Blue 900 */
+
+  /* Text */
+  --sa-color-text-primary:   #1F1F1F;  /* Neutral 1200 */
+  --sa-color-text-secondary: #5C5C5C;  /* Neutral 600 */
+  --sa-color-text-tertiary:  #3D3D3D;  /* Neutral 500 */
+  --sa-color-text-muted:     #999999;  /* Neutral 700 */
+
+  /* Backgrounds */
+  --sa-color-bg:        #FFFFFF;       /* Neutral White */
+  --sa-color-bg-subtle: #F5F5F5;       /* Neutral 100 */
+  --sa-color-bg-muted:  #EBEBEB;       /* Neutral 200 */
+
+  /* Borders */
+  --sa-color-border:       #E0E0E0;    /* Neutral 300 */
+  --sa-color-border-input: #D6D6D6;    /* Neutral 400 */
+
+  /* Error (Red scale) */
+  --sa-color-error-bg:     #FDF6F5;    /* Red 50 */
+  --sa-color-error-border: #FFDFD9;    /* Red 200 */
+  --sa-color-error-text:   #EC3727;    /* Red 800 */
+
+  /* Success (Green scale) */
+  --sa-color-success-bg:   #EDFDF5;    /* Green 50 */
+  --sa-color-success-text: #01905F;    /* Green 800 */
+
+  /* Warning (Yellow/Orange scale) */
+  --sa-color-warning-bg:   #FBF7D4;    /* Yellow 50 */
+  --sa-color-warning-text: #E57001;    /* Orange 700 */
+
+  /* Info (Light Blue scale) */
+  --sa-color-info-bg:   #F1F8FD;       /* Light Blue 50 */
+  --sa-color-info-text: #157BF4;       /* Light Blue 800 */
+}
+```
+
+### Token mapping reference
+
+| Semantic role | Token | Hex | Palette origin |
+|--------------|-------|-----|----------------|
+| Primary action | `--sa-color-primary` | `#157BF4` | Light Blue 800 |
+| Primary hover | `--sa-color-primary-hover` | `#0366DD` | Light Blue 900 |
+| Text — high emphasis | `--sa-color-text-primary` | `#1F1F1F` | Neutral 1200 |
+| Text — medium emphasis | `--sa-color-text-secondary` | `#5C5C5C` | Neutral 600 |
+| Text — low emphasis | `--sa-color-text-tertiary` | `#3D3D3D` | Neutral 500 |
+| Text — disabled/hint | `--sa-color-text-muted` | `#999999` | Neutral 700 |
+| Surface / white | `--sa-color-bg` | `#FFFFFF` | Neutral White |
+| Subtle surface | `--sa-color-bg-subtle` | `#F5F5F5` | Neutral 100 |
+| Muted surface | `--sa-color-bg-muted` | `#EBEBEB` | Neutral 200 |
+| Border default | `--sa-color-border` | `#E0E0E0` | Neutral 300 |
+| Border input | `--sa-color-border-input` | `#D6D6D6` | Neutral 400 |
+| Error background | `--sa-color-error-bg` | `#FDF6F5` | Red 50 |
+| Error border | `--sa-color-error-border` | `#FFDFD9` | Red 200 |
+| Error text | `--sa-color-error-text` | `#EC3727` | Red 800 |
+| Success background | `--sa-color-success-bg` | `#EDFDF5` | Green 50 |
+| Success text | `--sa-color-success-text` | `#01905F` | Green 800 |
+| Warning background | `--sa-color-warning-bg` | `#FBF7D4` | Yellow 50 |
+| Warning text | `--sa-color-warning-text` | `#E57001` | Orange 700 |
+| Info background | `--sa-color-info-bg` | `#F1F8FD` | Light Blue 50 |
+| Info text | `--sa-color-info-text` | `#157BF4` | Light Blue 800 |
+
+---
+
+## 3. Typography
+
+### Typeface
+
+The required typeface is **VTEX Trust** — the proprietary VTEX digital typeface. Always include system font fallbacks for environments where VTEX Trust is not loaded.
+
+```css
+font-family: 'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif;
+```
+
+Set this on the root `.container` class so all descendant elements inherit it.
+
+### Weights
+
+Use only these four weights: Regular (400), Medium (500), Semibold (600), Bold (700).
+
+### Allowed font sizes
+
+Only use sizes from this scale (px): **10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 36, 40, 44, 48**.
+
+Do not use arbitrary sizes like 13px, 15px, or 17px.
+
+| Use case | Size | Weight |
+|----------|------|--------|
+| Section title | 16px | Semibold (600) |
+| Subtitle / label | 14px | Medium (500) |
+| Body text | 14px | Regular (400) |
+| Caption / hint | 12px | Regular (400) |
+| Price | 18px | Semibold (600) |
+
+---
+
+## 4. Iconography
+
+### Library
+
+All icons must come from **[Phosphor Icons](https://phosphoricons.com/)**. Do not use other icon libraries (Material Icons, Font Awesome, Heroicons, etc.).
+
+### Sizes
+
+| Usage | Size |
+|-------|------|
+| Standard / default | 24px |
+| Compact / inline | 16px |
+| Large / featured | 32–48px |
+
+Always use sizes within the supported range: **16px to 48px**.
+
+### Weights
+
+Use **Regular** or **Bold** weight variants. Keep the weight consistent within a single component.
+
+### Installation
+
+```bash
+yarn add @phosphor-icons/react
+```
+
+### Usage example
+
+```typescript
+import { ShoppingCart, Star, Warning } from '@phosphor-icons/react';
+
+export function MyExtension(): JSX.Element {
+  return (
+    <div className="container">
+      <ShoppingCart size={24} />
+      <span>Cart items</span>
+    </div>
+  );
+}
+```
+
+---
+
+## 5. Spacing and Baseline Grid
+
+All spacing values must be multiples of **4px** (the baseline grid). This applies to padding, margin, gap, and height values.
+
+| Value | Baseline multiple |
+|-------|-----------------|
+| 4px | 1× |
+| 8px | 2× |
+| 12px | 3× |
+| 16px | 4× |
+| 20px | 5× |
+| 24px | 6× |
+| 32px | 8× |
+
+**Do not use** values like 10px, 14px, 18px, or 22px for spacing. The only exception is font sizes, which follow the typography scale.
+
+---
+
+## 6. Responsive Breakpoints
+
+Sales App extensions render within a host container that handles most layout responsiveness. Use these breakpoints only when the extension itself needs layout adjustments.
+
+| Breakpoint | Resolution range | Notes |
+|-----------|-----------------|-------|
+| Small (mobile) | 320–743px | Margin: 24px, no column grid |
+| Medium (tablet) | 744–1279px | Gutters: 16px |
+| Large (desktop) | 1280–1919px | Gutters: 20px |
+| Extra large (monitor) | 1920px+ | Gutters: 20px |
+
+Recommended mobile override (applied to the responsive section of the CSS module):
+
+```css
+@media (max-width: 743px) {
+  .container { padding: 12px; margin: 0 24px; }
+}
+```
+
+---
+
+## 7. CSS Module Structure
+
+Every extension CSS module must follow this structure:
+
+1. **Token declarations** — CSS custom properties on `.container`
+2. **Layout classes** — `.container`, `.content`, `.row`, `.spaceBetween`
+3. **Typography classes** — `.title`, `.subtitle`, `.text`
+4. **State classes** — `.loading`, `.spinner`, `@keyframes`, `.error`
+5. **Component classes** — `.button`, `.card`, `.badge`, `.input`, `.price`
+6. **Responsive overrides** — `@media` queries at the bottom
+
+### Critical CSS rules
+
+- All `@keyframes` names must be prefixed with the component name (e.g., `@keyframes LoyaltyPoints-spin`). The template uses `${COMPONENT_NAME}-spin` as a placeholder.
+- No global selectors (`body`, `html`, `:root`, `*`, `#root`, `#__next`).
+- No `@import`, `position: fixed`, or `z-index: 9999`.
+- No hardcoded hex values — always use the `--sa-color-*` tokens declared on `.container`.
+
+---
+
+## 8. Quick Compliance Checklist
+
+Before presenting generated CSS to the user, verify:
+
+- [ ] CSS custom properties (`--sa-color-*`) declared on `.container`?
+- [ ] No hardcoded hex values outside the token declarations block?
+- [ ] `font-family: 'VTEX Trust', ...` set on `.container`?
+- [ ] All font sizes from the allowed scale (10, 12, 14, 16, 18, 20...)?
+- [ ] All spacing multiples of 4px?
+- [ ] All icons from Phosphor Icons?
+- [ ] All UI text in sentence case (no ALL-CAPS)?
+- [ ] `@keyframes` names prefixed with `${COMPONENT_NAME}`?
