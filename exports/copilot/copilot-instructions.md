@@ -9366,6 +9366,36 @@ body { font-size: 14px; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 ```
 
+### Constraint: CSS must follow Sales App Design Guidelines
+
+Generated CSS must use the approved `--sa-color-*` design tokens, `VTEX Trust` as the base font, and Phosphor Icons when icons are needed. All UI text must use sentence case.
+
+**Why this matters**
+Custom hex values and arbitrary fonts break visual consistency with the Sales App shell. All-caps text violates the adopted UX writing standards.
+
+**Detection**
+Hardcoded hex values outside the `--sa-color-*` token declarations block; missing `font-family: 'VTEX Trust'` on `.container`; ALL-CAPS strings in JSX text nodes; icons from non-Phosphor libraries.
+
+**Correct**
+
+```css
+.container {
+  --sa-color-primary: #157BF4;
+  --sa-color-text-primary: #1F1F1F;
+  font-family: 'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.title { color: var(--sa-color-text-primary); font-size: 16px; }
+.buttonPrimary { background-color: var(--sa-color-primary); }
+```
+
+**Wrong**
+
+```css
+.container { font-family: Arial; }
+.title { color: #1a1a1a; font-size: 15px; }
+.buttonPrimary { background-color: #0066cc; }
+```
+
 ## Preferred pattern
 
 ### Workflow overview
@@ -9376,7 +9406,7 @@ body { font-size: 14px; }
 
 **Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 11-point checklist (items 1–10 from the code templates reference plus static analysis compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, and the [static analysis reference](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files. Fix all violations before presenting code; surface warnings to the user.
+**Step 3** — Generate component, CSS, and index.tsx. Validate against the 12-point checklist (items 1–10 from the code templates reference, static analysis compliance, and design token compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, the [static analysis reference](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files, and the [design guidelines reference](sales-app-sales-app-extensibility-ref-design-guidelines.md) for approved color tokens, typography, iconography, and UX writing rules. All generated CSS must use `--sa-color-*` tokens, `VTEX Trust` font family, and sentence-case text. Fix all violations before presenting code; surface warnings to the user.
 
 **Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
@@ -9445,6 +9475,7 @@ Load these on demand based on what the task requires. Do not load all of them up
 | [references/discovery-and-use-cases.md](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
 | [references/local-dev-build-and-deploy.md](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
 | [references/static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) | Validating generated code (Step 3) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`; full rule catalog with violation IDs, detection patterns, and correct/wrong examples |
+| [references/design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) | Generating CSS for any extension — approved `--sa-color-*` design tokens, VTEX Trust font, Phosphor Icons, allowed font sizes, 4px spacing grid, UX writing rules (sentence case), and responsive breakpoints |
 
 ## Common failure modes
 
@@ -9466,6 +9497,10 @@ Load these on demand based on what the task requires. Do not load all of them up
 - **Using global CSS selectors** — `body`, `html`, `:root`, `*`, `#root` in extension CSS cause `CSS_GLOBAL_SELECTOR` / `CSS_CONTAINMENT_BREAKOUT` violations. Always scope to the component container.
 - **useLayoutEffect usage** — Blocked by the sandbox (`REACT_LAYOUT_EFFECT_MISUSE`). Use `useEffect` instead.
 - **Heavyweight library imports** — Importing `lodash` or `moment` triggers `LARGE_BUNDLE_SIZE_IMPACT` warnings. Use native array methods or `date-fns` instead.
+- **Hardcoded colors instead of design tokens** — Using hex values like `#0066cc` or `#1a1a1a` directly in CSS breaks visual consistency with the Sales App shell. Declare `--sa-color-*` tokens on `.container` and reference only those.
+- **Missing VTEX Trust font** — Not setting `font-family: 'VTEX Trust', ...` on `.container` causes the extension to render with the browser default font, inconsistent with the rest of Sales App.
+- **ALL-CAPS text in UI** — Any uppercase-transformed text (via CSS `text-transform: uppercase` or hardcoded ALL-CAPS strings) violates the Sales App UX writing guidelines.
+- **Non-Phosphor icons** — Using Material Icons, Font Awesome, or any other icon library breaks the Sales App iconography system. Import icons from `@phosphor-icons/react` only.
 
 ## Review checklist
 
@@ -9496,6 +9531,11 @@ Load these on demand based on what the task requires. Do not load all of them up
 - [ ] No useLayoutEffect (use useEffect instead)?
 - [ ] No heavyweight library imports (lodash, moment)?
 - [ ] Components under 200 lines?
+- [ ] CSS declares `--sa-color-*` design tokens on `.container` (no hardcoded hex values in rules)?
+- [ ] `font-family: 'VTEX Trust', ...` set on `.container`?
+- [ ] All CSS font sizes from the allowed scale (10, 12, 14, 16, 18, 20, 22, 24, 28, 32...)?
+- [ ] All UI text in sentence case (no ALL-CAPS, no system-like placeholders)?
+- [ ] Icons use Phosphor Icons (`@phosphor-icons/react`) if icons are present?
 - [ ] Build passes: `yarn fsp build {account} sales-app`?
 - [ ] Tested locally: `yarn fsp dev {account}`?
 
