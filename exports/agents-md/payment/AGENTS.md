@@ -2029,7 +2029,7 @@ async settle(settlement: SettlementRequest) {
 ```json
 {
   "builders": {
-    "node": "6.x",
+    "node": "7.x",
     "paymentProvider": "1.x"
   },
   "policies": [
