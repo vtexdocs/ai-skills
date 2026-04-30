@@ -1,6 +1,6 @@
 ---
 name: sales-app-code-templates
-description: Code generation templates for Sales App extensions — simple, hook-based, API (no auth), IO Proxy (secure), Direct Auth (insecure), CSS module, and index.tsx with defineExtensions. Use when generating or scaffolding extension code.
+description: Code generation templates for Sales App extensions — simple, hook-based, API (no auth), IO Proxy (secure), Direct Auth (insecure), CSS stylesheet, and index.tsx with defineExtensions. Use when generating or scaffolding extension code.
 metadata:
   version: "1.0"
 ---
@@ -331,9 +331,11 @@ export function ${COMPONENT_NAME}(): JSX.Element {
 }
 ```
 
-## CSS Module
+## CSS Stylesheet
 
-All extensions use CSS modules with Sales App design tokens. See [design-guidelines.md](design-guidelines.md) for the full token reference.
+All extensions use **plain CSS** (not CSS modules) with Sales App design tokens. See [design-guidelines.md](design-guidelines.md) for the full token reference.
+
+**CRITICAL — File naming:** The CSS file MUST be named `${COMPONENT_NAME}.css` — **never** `${COMPONENT_NAME}.module.css`. The Sales App bundler does not support CSS modules. Import as a side-effect: `import './${COMPONENT_NAME}.css';` — never as `import styles from './${COMPONENT_NAME}.module.css';`. Use `className="container"` string literals, not `className={styles.container}`.
 
 ```css
 /**
@@ -486,7 +488,7 @@ After generating code, validate for these issues:
 9. **CSS class usage** — CSS classes defined in the stylesheet should be used in the component
 10. **defineExtensions in index.tsx** — entry point must import and call `defineExtensions`
 11. **Static analysis compliance** — generated code must pass all fsp-analyzer sandbox security, CSS containment, and React performance rules. Load the [static analysis reference](static-analysis-rules.md) to run the full check. Fix all violations before presenting code to the user; flag warnings to the user for review.
-12. **Design token compliance** — the CSS module must declare `--sa-color-*` custom properties on `.container` and use only those tokens for all colors. No hardcoded hex values outside the token block. Font family must be `'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif`. All UI text in sentence case. Icons from Phosphor Icons only. Load the [design guidelines reference](design-guidelines.md) for the full token table.
+12. **Design token compliance** — the CSS file must declare `--sa-color-*` custom properties on `.container` and use only those tokens for all colors. No hardcoded hex values outside the token block. Font family must be `'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif`. All UI text in sentence case. Icons from Phosphor Icons only. Load the [design guidelines reference](design-guidelines.md) for the full token table.
 
 ## API Type Generation from Documentation
 

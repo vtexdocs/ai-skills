@@ -271,10 +271,10 @@ Restricted expressions: `element.style`, `element.className`, `element.classList
 
 **Correct**
 ```typescript
-// Use CSS modules and conditional class application
-import styles from './MyExtension.module.css';
+// Use plain CSS with namespaced class names
+import './MyExtension.css';
 
-return <div className={isActive ? styles.active : styles.inactive} />;
+return <div className={isActive ? 'extension-active' : 'extension-inactive'} />;
 ```
 
 **Wrong**
@@ -381,7 +381,7 @@ Applied to `.css`, `.scss`, `.less` files by `CSSAnalyzer`. CSS namespace prefix
 ### `CSS_GLOBAL_SELECTOR` — Global element selectors
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 Restricted selectors: `*`, `body`, `html`, `:root`, `head`, `main`, `#root`, `#__next`.
 
@@ -419,7 +419,7 @@ body {
 ### `CSS_CONTAINMENT_BREAKOUT` — CSS containment breakout
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 Restricted patterns: `:host`, `:host-context`, `::slotted`, `:global`, `position: fixed`, `position: absolute`, `z-index: 9999`.
 
@@ -453,21 +453,15 @@ Restricted patterns: `:host`, `:host-context`, `::slotted`, `:global`, `position
 ### `CSS_NAMESPACE_REQUIRED` — Missing CSS namespace
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
-All CSS selectors must be scoped under an allowed namespace prefix (default: `extension-`). A CSS Module file that uses `styles.someClass` in JSX automatically scopes classes — this is the recommended pattern.
+All CSS selectors must be scoped under an allowed namespace prefix (default: `extension-`). The project uses plain CSS (not CSS modules), so all classes must be manually namespaced.
 
-**Detection:** A selector not prefixed with any value from `allowedNamespaces` (when not using CSS Modules).
+**Detection:** A selector not prefixed with any value from `allowedNamespaces`.
 
 **Correct**
 ```css
-/* CSS Module — all classes are auto-scoped */
-.container { padding: 8px; }
-.title { font-size: 16px; }
-```
-
-```css
-/* Plain CSS — must namespace manually */
+/* Plain CSS — namespace all classes */
 .extension-container { padding: 8px; }
 .extension-title { font-size: 16px; }
 ```
@@ -484,7 +478,7 @@ All CSS selectors must be scoped under an allowed namespace prefix (default: `ex
 ### `CSS_GLOBAL_IMPORT` — CSS @import rules
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 `@import` pulls external stylesheets that affect global styles and bypass containment.
 
@@ -506,7 +500,7 @@ All CSS selectors must be scoped under an allowed namespace prefix (default: `ex
 ### `CSS_GLOBAL_KEYFRAMES` — Keyframes without namespace
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 `@keyframes` names are global. Without a namespace they may conflict with other extensions or the Sales App shell.
 
@@ -533,7 +527,7 @@ All CSS selectors must be scoped under an allowed namespace prefix (default: `ex
 ### `CSS_RESTRICTED_PROPERTY` — Restricted CSS properties
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 Certain properties affect layout or rendering globally and are restricted to prevent layout shift or containment breakout.
 
@@ -546,7 +540,7 @@ Certain properties affect layout or rendering globally and are restricted to pre
 ### `CSS_RESTRICTED_VALUE` — Restricted CSS values
 
 **Severity:** Violation (block)  
-**Files:** `.css`, `.module.css`
+**Files:** `.css`
 
 Certain CSS values (e.g., `!important`) override the cascade and break containment guarantees.
 

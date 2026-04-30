@@ -200,7 +200,7 @@ Sales App extensions render within a host container that handles most layout res
 | Large (desktop) | 1280–1919px | Gutters: 20px |
 | Extra large (monitor) | 1920px+ | Gutters: 20px |
 
-Recommended mobile override (applied to the responsive section of the CSS module):
+Recommended mobile override (applied to the responsive section of the CSS file):
 
 ```css
 @media (max-width: 743px) {
@@ -210,9 +210,9 @@ Recommended mobile override (applied to the responsive section of the CSS module
 
 ---
 
-## 7. CSS Module Structure
+## 7. CSS File Structure
 
-Every extension CSS module must follow this structure:
+Every extension CSS file must follow this structure:
 
 1. **Token declarations** — CSS custom properties on `.container`
 2. **Layout classes** — `.container`, `.content`, `.row`, `.spaceBetween`

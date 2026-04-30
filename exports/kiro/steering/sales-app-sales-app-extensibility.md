@@ -58,7 +58,7 @@ Follow the mandatory 6-step workflow in order. Do not skip steps.
 | 0 | Check prerequisites | FastStore + Sales App installed → proceed; otherwise STOP |
 | 1 | Discovery | Understand what the user wants to build |
 | 2 | Requirements & Plan | Map requirements → generate plan → **wait for user approval** |
-| 3 | Code Generation & Validation | Generate component + CSS + index.tsx → validate |
+| 3 | Code Generation & Validation | Generate `Component.tsx` + `Component.css` (plain CSS, never `.module.css`) + `index.tsx` → validate |
 | 4 | Documentation | Generate `docs/<ExtensionName>.md` explaining the extension |
 | 5 | Local Testing | Provide dev commands and URLs |
 | 6 | Build & Deploy | Build command → deployment guide |
@@ -389,6 +389,32 @@ const fn = new Function('return 42');
 setTimeout('doSomething()', 1000);
 ```
 
+### Constraint: CSS files must use plain .css extension, never .module.css
+
+The Sales App bundler does not support CSS modules. All stylesheets must use plain `.css` extension and be imported as side-effect imports.
+
+**Why this matters**
+A `.module.css` file will not be processed correctly by the bundler. Styles will not be applied and the build may fail.
+
+**Detection**
+Any file named `*.module.css` or any import like `import styles from './*.module.css'`.
+
+**Correct**
+
+```typescript
+import './CashbackWidget.css';
+// Use className strings directly
+<div className="container">
+```
+
+**Wrong**
+
+```typescript
+import styles from './CashbackWidget.module.css';
+// CSS modules object access
+<div className={styles.container}>
+```
+
 ### Constraint: CSS must use namespaced selectors — no global elements
 
 Extension CSS is injected into the Sales App shell. Global selectors pollute the cascade and break containment.
@@ -402,7 +428,7 @@ Any CSS rule targeting global elements, `:root`, `#root`, `#__next`, or using `@
 **Correct**
 
 ```css
-/* CSS Module — classes are auto-scoped by the bundler */
+/* Plain CSS — use namespace prefix to scope classes */
 .container { padding: 8px; }
 .title { font-size: 16px; }
 
@@ -461,9 +487,9 @@ Hardcoded hex values outside the `--sa-color-*` token declarations block; missin
 
 **Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. If the user provides API documentation (URL, OpenAPI/Swagger file, Markdown, or inline text), ingest it to extract endpoint details and response shapes — skip the equivalent manual questions. Validate extracted information with the user. Load the [discovery reference](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) for detailed question flows and the API Documentation Ingestion section.
 
-**Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
+**Step 2** — Map requirements to extension point + hooks + template. Present plan listing the files to be created: `components/<ComponentName>.tsx`, `components/<ComponentName>.css` (plain CSS — **never** `.module.css`), and `index.tsx`. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 12-point checklist (items 1–10 from the code templates reference, static analysis compliance, and design token compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, the [static analysis reference](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files, and the [design guidelines reference](sales-app-sales-app-extensibility-ref-design-guidelines.md) for approved color tokens, typography, iconography, and UX writing rules. All generated CSS must use `--sa-color-*` tokens, `VTEX Trust` font family, and sentence-case text. Fix all violations before presenting code; surface warnings to the user.
+**Step 3** — Generate `<ComponentName>.tsx`, `<ComponentName>.css` (plain CSS, **never** `.module.css`), and `index.tsx`. Validate against the 12-point checklist (items 1–10 from the code templates reference, static analysis compliance, and design token compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, the [static analysis reference](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files, and the [design guidelines reference](sales-app-sales-app-extensibility-ref-design-guidelines.md) for approved color tokens, typography, iconography, and UX writing rules. All generated CSS must use `--sa-color-*` tokens, `VTEX Trust` font family, and sentence-case text. Fix all violations before presenting code; surface warnings to the user.
 
 **Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
 
@@ -472,7 +498,7 @@ Hardcoded hex values outside the `--sa-color-*` token declarations block; missin
 3. **Extension point** — which extension point it registers on (e.g., `cart.cart-list.after`) and why that point was chosen.
 4. **Hooks used** — list each hook (`useCart`, `usePDP`, etc.) with a brief explanation of what data it provides to this extension.
 5. **Component structure** — description of the component tree, props, and state management.
-6. **Styling** — CSS module file name and summary of key classes.
+6. **Styling** — CSS file name and summary of key classes.
 7. **API integration** (if applicable) — endpoint, auth strategy (IO Proxy or direct), request/response shape.
    - **Source documentation:** URL or file path of the original API documentation, if provided.
    - **Generated types:** list of TypeScript interfaces generated from the API documentation.
@@ -501,7 +527,7 @@ Template for the documentation file:
 <Describe the component tree, key props, and internal state.>
 
 ## Styling
-- **File:** `<ComponentName>.module.css`
+- **File:** `<ComponentName>.css`
 - <Summary of key CSS classes and design decisions.>
 
 ## API integration
@@ -528,7 +554,7 @@ Load these on demand based on what the task requires. Do not load all of them up
 | File | Load when… |
 |------|-----------|
 | [references/extension-points-hooks-and-types.md](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
-| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
+| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
 | [references/discovery-and-use-cases.md](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
 | [references/local-dev-build-and-deploy.md](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
 | [references/static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) | Validating generated code (Step 3) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`; full rule catalog with violation IDs, detection patterns, and correct/wrong examples |
