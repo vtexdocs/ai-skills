@@ -1,0 +1,22 @@
+# Skill sources are the canonical content edited by hand.
+# The repo does not yet enforce a shared formatter (no .prettierrc, no
+# prettier in devDependencies, no format step in CI). Until a
+# repo-wide formatter is adopted, contributors with format-on-save
+# enabled would otherwise reflow markdown tables, blank lines, and
+# JSON arrays in skill sources on every save, producing noisy,
+# unrelated diffs in content PRs. Ignore them defensively.
+tracks/**/*.md
+
+# Auto-generated exports — never edit these by hand.
+# `bun run export` regenerates them from `tracks/`.
+exports/
+skills/
+rules/
+
+# Release-please owns this file. Local Prettier passes have produced
+# noisy diffs when contributors open it.
+CHANGELOG.md
+
+# Lockfiles and build artifacts.
+bun.lock
+node_modules/
