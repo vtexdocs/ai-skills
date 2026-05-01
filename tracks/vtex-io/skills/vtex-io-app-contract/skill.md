@@ -175,20 +175,20 @@ This identity is not safely publishable because the name is not kebab-case and t
 
 ### Constraint: Major version bumps on content-holding apps invalidate stored content
 
-If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` (i.e. it is a **content-holding app** in the Store Framework sense), the `version` field MUST be treated as merchant-facing. A `vtex release major` on this app changes the VBase key prefix that `vtex.pages-graphql` uses to store every Site Editor edit, every custom route, and every per-template render cache.
+If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` (i.e. it is a **content-holding app** in the Store Framework sense), the `version` field MUST be treated as merchant-facing. A `vtex release major` on this app changes the key prefix that `vtex.pages-graphql` uses to look up every Site Editor edit, every custom route, and every per-template render cache.
 
 **Why this matters**
 
-`vtex.pages-graphql` stores merchant content under `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, all previously stored content is unreachable under the active major key, and the storefront falls back to default `vtex.store-theme` content. This is not a data deletion — the content is still in VBase under the previous major key — but it is invisible to the resolver until the previous major is restored.
+`vtex.pages-graphql` keys merchant content by `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, none of the previously authored content is visible to the resolver under the active major key, and the storefront falls back to default `vtex.store-theme` content until the merchant content is re-authored under the new major. There is no developer-side restore for the previous major's content; the only safe path is to recreate the content in a production-flag dev workspace before promoting.
 
 **Detection**
 
-Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-migration plan, a fresh VBase backup, and a documented rollback. The same rule applies before installing any new MAJOR of such an app on a production account.
+Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-rebuild plan in a production-flag dev workspace. The same rule applies before installing any new MAJOR of such an app on a production account.
 
 **Correct**
 
 ```bash
-# patch and minor preserve VBase content keys; safe for content-holding apps
+# patch and minor preserve content keys; safe for content-holding apps
 vtex release patch
 vtex release minor
 ```
@@ -196,7 +196,8 @@ vtex release minor
 **Wrong**
 
 ```bash
-# major bump on a content-holding app silently orphans every Site Editor edit
+# major bump on a content-holding app makes every Site Editor edit invisible
+# to the resolver until the content is re-authored under the new major
 vtex release major
 vtex publish
 vtex install acme.store-theme@5.0.0

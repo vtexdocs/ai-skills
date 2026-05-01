@@ -1,6 +1,6 @@
 <!-- globs: store/blocks.json, store/routes.json, store/templates/**/*.json, store/contentSchemas.json, store/blocks/**/*.json -->
 
-Apply when designing or modifying a VTEX IO storefront theme app — the app that owns `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, and the storefront page tree assembled from `store.home`, `store.product`, `store.search`, `store.custom`, and other native page templates. Covers how a theme app extends a base theme, declares routes, composes blocks across pages, and how its `store/` files map to VBase Site Editor content. Use for theme scaffolding, custom page routes, theme-level overrides, or reviewing whether a change belongs in the theme app, in a component app, or in app settings.
+Apply when designing or modifying a VTEX IO storefront theme app — the app that owns `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, and the storefront page tree assembled from `store.home`, `store.product`, `store.search`, `store.custom`, and other native page templates. Covers how a theme app extends a base theme, declares routes, composes blocks across pages, and how its `store/` files relate to merchant Site Editor content. Use for theme scaffolding, custom page routes, theme-level overrides, or reviewing whether a change belongs in the theme app, in a component app, or in app settings.
 
 # Storefront Theme App
 
@@ -28,14 +28,14 @@ Do not use this skill for:
 - The theme app declares its base theme in `manifest.json#dependencies`, typically `vtex.store-theme`, and inherits every page template, block declaration, and default content the base ships.
 - `store/blocks.json` (or per-template files under `store/blocks/`) defines the **block tree per page template** by referencing block IDs. Block IDs come from the component apps' `store/interfaces.json` and are scoped by the declaring app's MAJOR version.
 - `store/routes.json` defines **custom storefront routes** and binds them to a page context (`store.custom`, `store.product`, `store.search`, etc.). Native routes (`/`, `/{slug}/p`, search) come from the base theme and rarely need to be redeclared.
-- `store/contentSchemas.json` declares **Site Editor-editable props** for blocks. Merchant edits to those props are persisted in VBase by `vtex.pages-graphql` under the theme app's MAJOR version key.
+- `store/contentSchemas.json` declares **Site Editor-editable props** for blocks. Merchant edits to those props are stored by `vtex.pages-graphql` under a key that includes the theme app's MAJOR version.
 - Three change locations exist for storefront behavior. Pick consciously:
   1. Theme app `store/` JSON — composition, routes, default content, allowed children. Affects all shoppers immediately on promote.
   2. Component app code — the React behavior of a block. Released on the component app's own version cadence.
-  3. Site Editor — merchant-managed content overrides on top of the theme's defaults. Persisted in VBase.
+  3. Site Editor — merchant-managed content overrides on top of the theme's defaults. Stored by `vtex.pages-graphql` and scoped by the declaring app's installed major.
 - Prefer extending a base theme over forking it. Forking a base theme moves the responsibility for every block, route, and template to your app forever, including upstream bug fixes.
 - A storefront page is a tree of blocks. The leaves are component blocks; the branches are container blocks (`flex-layout.row`, `flex-layout.col`, etc.). Keep the tree as shallow as the design allows; deep trees inflate render and content footprint.
-- The theme app is a **content-holding app** in the sense of `vtex-io-storefront-theme-versioning`. Its installed major version is part of every VBase Site Editor key. Treat its version contract as merchant-facing, not developer-facing.
+- The theme app is a **content-holding app** in the sense of `vtex-io-storefront-theme-versioning`. Its installed major version is part of the key the platform uses for every Site Editor change a merchant has ever saved against blocks declared by this app. Treat its version contract as merchant-facing, not developer-facing.
 
 ## Hard constraints
 
@@ -295,7 +295,7 @@ Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that 
 - Declaring the same block ID in two different apps and getting non-deterministic resolution at render time.
 - Putting Site Editor-editable copy directly in `store/blocks.json` `props` without `contentSchemas.json`, so merchants cannot change it.
 - Adding a custom route to `store/routes.json` without adding the matching `store.custom#<id>` template in `store/blocks.json`.
-- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which orphans every Site Editor edit (see `vtex-io-storefront-theme-versioning`).
+- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which leaves the new major with no merchant content and forces a full content rebuild before promote (see `vtex-io-storefront-theme-versioning`).
 - Putting React component code in the theme app instead of in a dedicated component app, which mixes block declaration with block consumption and complicates reuse.
 - Storing operational or shopper-specific data in theme `store/` files. The theme is global; per-shopper or per-segment data belongs elsewhere.
 

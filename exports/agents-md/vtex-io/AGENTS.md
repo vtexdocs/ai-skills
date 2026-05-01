@@ -427,20 +427,20 @@ This identity is not safely publishable because the name is not kebab-case and t
 
 ### Constraint: Major version bumps on content-holding apps invalidate stored content
 
-If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` (i.e. it is a **content-holding app** in the Store Framework sense), the `version` field MUST be treated as merchant-facing. A `vtex release major` on this app changes the VBase key prefix that `vtex.pages-graphql` uses to store every Site Editor edit, every custom route, and every per-template render cache.
+If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` (i.e. it is a **content-holding app** in the Store Framework sense), the `version` field MUST be treated as merchant-facing. A `vtex release major` on this app changes the key prefix that `vtex.pages-graphql` uses to look up every Site Editor edit, every custom route, and every per-template render cache.
 
 **Why this matters**
 
-`vtex.pages-graphql` stores merchant content under `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, all previously stored content is unreachable under the active major key, and the storefront falls back to default `vtex.store-theme` content. This is not a data deletion — the content is still in VBase under the previous major key — but it is invisible to the resolver until the previous major is restored.
+`vtex.pages-graphql` keys merchant content by `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, none of the previously authored content is visible to the resolver under the active major key, and the storefront falls back to default `vtex.store-theme` content until the merchant content is re-authored under the new major. There is no developer-side restore for the previous major's content; the only safe path is to recreate the content in a production-flag dev workspace before promoting.
 
 **Detection**
 
-Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-migration plan, a fresh VBase backup, and a documented rollback. The same rule applies before installing any new MAJOR of such an app on a production account.
+Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-rebuild plan in a production-flag dev workspace. The same rule applies before installing any new MAJOR of such an app on a production account.
 
 **Correct**
 
 ```bash
-# patch and minor preserve VBase content keys; safe for content-holding apps
+# patch and minor preserve content keys; safe for content-holding apps
 vtex release patch
 vtex release minor
 ```
@@ -448,7 +448,8 @@ vtex release minor
 **Wrong**
 
 ```bash
-# major bump on a content-holding app silently orphans every Site Editor edit
+# major bump on a content-holding app makes every Site Editor edit invisible
+# to the resolver until the content is re-authored under the new major
 vtex release major
 vtex publish
 vtex install acme.store-theme@5.0.0
@@ -4545,7 +4546,7 @@ Do not use this skill for:
 - Each exported component MUST have a root-level file in `/react` that re-exports it. The builder resolves `"component": "ProductReviews"` to `react/ProductReviews.tsx`.
 - For **storefront** components, use `vtex.css-handles` for styling (not inline styles, not global CSS).
 - For **admin** components, use `vtex.styleguide` — the official VTEX Admin component library. No third-party UI libraries.
-- Use `contentSchemas.json` in `/store` to make component props editable in Site Editor (JSON Schema format). Merchant edits are persisted by `vtex.pages-graphql` in VBase under a key that includes the **declaring app's MAJOR version** (`vendor.app@MAJOR.x:template`). A major version bump on the declaring app orphans those edits — see `vtex-io-storefront-theme-versioning`.
+- Use `contentSchemas.json` in `/store` to make component props editable in Site Editor (JSON Schema format). Merchant edits are stored by `vtex.pages-graphql` under a key that includes the **declaring app's MAJOR version** (`vendor.app@MAJOR.x:template`). A major version bump on the declaring app makes those edits invisible to the resolver until the content is re-authored under the new major — see `vtex-io-storefront-theme-versioning`.
 - Use `react-intl` and the `messages` builder for i18n — never hardcode user-facing strings.
 - Fetch data via GraphQL queries (`useQuery` from `react-apollo`), never via direct API calls from the browser.
 
@@ -4928,7 +4929,7 @@ Using the component in a Store Framework theme:
 - **Directly calling APIs from React components**: Using `fetch()` or `axios` exposes authentication tokens to the client and bypasses CORS restrictions. Use GraphQL queries that resolve server-side via `useQuery` from `react-apollo`.
 - **Hardcoded strings without i18n**: Components with hardcoded strings only work in one language. Use the `messages` builder and `react-intl` for internationalization.
 - **Missing root-level export file**: If `interfaces.json` references `"component": "ProductReviews"` but `react/ProductReviews.tsx` doesn't exist, the block silently fails to render.
-- **Major version bump on a content-holding component app**: A `vtex release major` on an app that ships `store/contentSchemas.json` orphans every Site Editor edit ever saved against blocks declared by that app. Use a `patch` or `minor` whenever possible, and follow `vtex-io-storefront-theme-versioning` when a major is unavoidable.
+- **Major version bump on a content-holding component app**: A `vtex release major` on an app that ships `store/contentSchemas.json` makes every Site Editor edit ever saved against blocks declared by that app invisible to the resolver until the content is re-authored under the new major. Use a `patch` or `minor` whenever possible, and follow `vtex-io-storefront-theme-versioning` when a major is unavoidable.
 
 ## Review checklist
 
@@ -6993,7 +6994,7 @@ export function MyComponent() {
 
 ## vtex-io-storefront-theme-app
 
-> Apply when designing or modifying a VTEX IO storefront theme app — the app that owns `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, and the storefront page tree assembled from `store.home`, `store.product`, `store.search`, `store.custom`, and other native page templates. Covers how a theme app extends a base theme, declares routes, composes blocks across pages, and how its `store/` files map to VBase Site Editor content. Use for theme scaffolding, custom page routes, theme-level overrides, or reviewing whether a change belongs in the theme app, in a component app, or in app settings.
+> Apply when designing or modifying a VTEX IO storefront theme app — the app that owns `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, and the storefront page tree assembled from `store.home`, `store.product`, `store.search`, `store.custom`, and other native page templates. Covers how a theme app extends a base theme, declares routes, composes blocks across pages, and how its `store/` files relate to merchant Site Editor content. Use for theme scaffolding, custom page routes, theme-level overrides, or reviewing whether a change belongs in the theme app, in a component app, or in app settings.
 
 # Storefront Theme App
 
@@ -7021,14 +7022,14 @@ Do not use this skill for:
 - The theme app declares its base theme in `manifest.json#dependencies`, typically `vtex.store-theme`, and inherits every page template, block declaration, and default content the base ships.
 - `store/blocks.json` (or per-template files under `store/blocks/`) defines the **block tree per page template** by referencing block IDs. Block IDs come from the component apps' `store/interfaces.json` and are scoped by the declaring app's MAJOR version.
 - `store/routes.json` defines **custom storefront routes** and binds them to a page context (`store.custom`, `store.product`, `store.search`, etc.). Native routes (`/`, `/{slug}/p`, search) come from the base theme and rarely need to be redeclared.
-- `store/contentSchemas.json` declares **Site Editor-editable props** for blocks. Merchant edits to those props are persisted in VBase by `vtex.pages-graphql` under the theme app's MAJOR version key.
+- `store/contentSchemas.json` declares **Site Editor-editable props** for blocks. Merchant edits to those props are stored by `vtex.pages-graphql` under a key that includes the theme app's MAJOR version.
 - Three change locations exist for storefront behavior. Pick consciously:
   1. Theme app `store/` JSON — composition, routes, default content, allowed children. Affects all shoppers immediately on promote.
   2. Component app code — the React behavior of a block. Released on the component app's own version cadence.
-  3. Site Editor — merchant-managed content overrides on top of the theme's defaults. Persisted in VBase.
+  3. Site Editor — merchant-managed content overrides on top of the theme's defaults. Stored by `vtex.pages-graphql` and scoped by the declaring app's installed major.
 - Prefer extending a base theme over forking it. Forking a base theme moves the responsibility for every block, route, and template to your app forever, including upstream bug fixes.
 - A storefront page is a tree of blocks. The leaves are component blocks; the branches are container blocks (`flex-layout.row`, `flex-layout.col`, etc.). Keep the tree as shallow as the design allows; deep trees inflate render and content footprint.
-- The theme app is a **content-holding app** in the sense of `vtex-io-storefront-theme-versioning`. Its installed major version is part of every VBase Site Editor key. Treat its version contract as merchant-facing, not developer-facing.
+- The theme app is a **content-holding app** in the sense of `vtex-io-storefront-theme-versioning`. Its installed major version is part of the key the platform uses for every Site Editor change a merchant has ever saved against blocks declared by this app. Treat its version contract as merchant-facing, not developer-facing.
 
 ## Hard constraints
 
@@ -7288,7 +7289,7 @@ Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that 
 - Declaring the same block ID in two different apps and getting non-deterministic resolution at render time.
 - Putting Site Editor-editable copy directly in `store/blocks.json` `props` without `contentSchemas.json`, so merchants cannot change it.
 - Adding a custom route to `store/routes.json` without adding the matching `store.custom#<id>` template in `store/blocks.json`.
-- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which orphans every Site Editor edit (see `vtex-io-storefront-theme-versioning`).
+- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which leaves the new major with no merchant content and forces a full content rebuild before promote (see `vtex-io-storefront-theme-versioning`).
 - Putting React component code in the theme app instead of in a dedicated component app, which mixes block declaration with block consumption and complicates reuse.
 - Storing operational or shopper-specific data in theme `store/` files. The theme is global; per-shopper or per-segment data belongs elsewhere.
 
@@ -7321,7 +7322,7 @@ Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that 
 
 ## vtex-io-storefront-theme-versioning
 
-> Apply when installing, publishing, upgrading, or rolling back a VTEX IO storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentSchemas.json`). Covers how Site Editor and theme content are persisted in VBase keyed by the app's MAJOR version, why a major version bump silently orphans all storefront content, the safe deploy and promote workflow, and the rollback contract. Use for any operation that changes which version of a content-holding app is installed in `master`.
+> Apply when installing, publishing, upgrading, or rolling back a VTEX IO storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentSchemas.json`). Covers how Site Editor and theme content are scoped by the app's MAJOR version, why a major version bump leaves the new major with no merchant content and silently falls back to default theme content, and the safe install-in-workspace, recreate-content, smoke-test, then promote workflow. Use for any operation that changes which version of a content-holding app is installed in `master`.
 
 # Storefront Theme Versioning, Install, and Rollback
 
@@ -7345,41 +7346,43 @@ Do not use this skill for:
 
 ## Decision rules
 
-- Treat any app that ships content under `store/` (theme apps and many storefront apps) as a **content-holding app**. Its installed MAJOR version is part of the VBase storage key for every Site Editor change a merchant has ever saved.
-- Site Editor content, custom routes, templates, and per-template render caches are persisted by `vtex.pages-graphql` in VBase under keys of the form `vendor.app@MAJOR.x:template`. Examples: `acme.store-theme@0.x:store.home`, `acme.store-theme@0.x:store.product`.
-- A `patch` (`0.0.61` → `0.0.62`) and a `minor` (`0.1.0` → `0.2.0`) reuse the same VBase key. A `major` (`0.x` → `5.x`) changes the key. The new major version starts with **zero merchant content** in VBase even if the theme code is otherwise identical.
-- When `vtex.pages-graphql` cannot find content under the active major's key, it falls back to the default `vtex.store-theme` content. The site visibly degrades to "VTEX default theme" content even though the customer's app is installed and rendering.
-- Never run `vtex release major` on a content-holding app unless you have a documented content-migration plan, a current VBase backup of the previous major, and an approved rollback window. A major bump on a theme is a destructive operation from the merchant's point of view.
-- Always install and validate a new theme major in a **dev workspace with the production flag** (`vtex use saggintestprod --production`) before promoting. Linking is not enough: `vtex link` does not exercise published artifacts and does not produce the same VBase key transitions as `vtex install` + `vtex workspace promote`.
+- Treat any app that ships content under `store/` (theme apps and many storefront apps) as a **content-holding app**. Its installed MAJOR version is part of the key the platform uses to store and look up every Site Editor change a merchant has ever saved against blocks declared by that app.
+- Site Editor content, custom routes, templates, and per-template render caches are stored by `vtex.pages-graphql` under keys of the form `vendor.app@MAJOR.x:template`. Examples: `acme.store-theme@0.x:store.home`, `acme.store-theme@0.x:store.product`.
+- A `patch` (`0.0.61` → `0.0.62`) and a `minor` (`0.1.0` → `0.2.0`) reuse the same key and the new version sees the same merchant content. A `major` (`0.x` → `5.x`) changes the key. The new major starts with **zero merchant content** even if the theme code is otherwise identical.
+- When `vtex.pages-graphql` cannot find content for the active major, it falls back to the default `vtex.store-theme` content. The site visibly degrades to "VTEX default theme" content even though the customer's app is installed and rendering.
+- Avoid `vtex release major` on a content-holding app whenever possible. Prefer keeping changes within the current major as `patch` or `minor` so merchant content carries forward automatically.
+- When a major bump is unavoidable because of a structural change to blocks, routes, or templates, treat it as a **content rebuild**. The new major needs the merchant content to be re-authored under it before it goes live. There is no developer-side restore path for the previous major's content.
+- Always install and validate a new theme major in a **dev workspace with the production flag** (`vtex use rollout-workspace --production`) before promoting. Linking is not enough: `vtex link` does not exercise published artifacts and does not produce the same content-key behavior as `vtex install` + `vtex workspace promote`.
+- Use the dev workspace as the place to **rebuild Site Editor content under the new major** (Site Editor edits, routes, custom pages, banners). Site Editor content is workspace-scoped, so edits made in the dev workspace will be promoted with `vtex workspace promote`.
 - Treat `vtex workspace promote` as the atomic cutover. Smoke-test the dev workspace's full page set (home, PDP, PLP, department, search, custom routes, account, checkout entry) before promoting. If the dev workspace is broken, master will be broken.
-- Always back up the active theme's VBase content (`routes.json`, `templates.json`, `content.json`, and per-template `*_v2.json` / `*_v2_render.json` caches under `vtex.pages-graphql/userData/store/`) before any operation that changes the installed theme version on `master`.
 - Verify that the version published to the Apps Registry matches the source you expect. A common failure pattern is publishing a stripped-down boilerplate by mistake — the registry version installs cleanly, but it does not contain the custom blocks the existing Site Editor content references.
-- The CLI session token in `~/.vtex/session/session.json` (`token` field) is the same token accepted by internal VTEX APIs as the `VtexIdclientAutCookie` cookie. Use it for diagnostic VBase reads/backups during recovery; never embed it in app code.
 
 ## Hard constraints
 
-### Constraint: Major version bumps on content-holding apps orphan VBase content
+### Constraint: Major version bumps on content-holding apps require a content rebuild before promote
 
-A `vtex release major` (or any version change that crosses the `MAJOR.x` boundary) on an app that owns Store Framework content MUST NOT be installed in `master` without an explicit content-migration plan, a fresh VBase backup of the previous major, and a documented rollback. The new major starts empty in `vtex.pages-graphql` VBase.
+A `vtex release major` (or any version change that crosses the `MAJOR.x` boundary) on an app that owns Store Framework content MUST NOT be promoted to `master` without first rebuilding the merchant content under the new major in a production-flag dev workspace. The new major starts empty from `vtex.pages-graphql`'s point of view; promoting it to `master` without re-authoring the content makes the storefront fall back to default theme content for every page that depended on Site Editor edits.
 
 **Why this matters**
 
-`vtex.pages-graphql` keys all merchant-owned routes, templates, and content by `vendor.app@MAJOR.x:template`. A patch and minor bump preserve the key; a major bump invalidates it. After a major bump, every Site Editor change the merchant ever saved becomes unreachable, and the resolver falls back to default `vtex.store-theme` content. The storefront looks "wiped" even though no data was deleted — it is simply not addressable under the active major key.
+`vtex.pages-graphql` keys every merchant-owned route, template, and Site Editor edit by `vendor.app@MAJOR.x:template`. A patch and minor bump preserve the key; a major bump invalidates it. After a major bump, every Site Editor change the merchant ever saved is no longer visible to the resolver, and the storefront falls back to default `vtex.store-theme` content. Developers do not have a self-service restore path for the previous major's content, so the only safe path forward is to recreate the content under the new major before it is exposed to shoppers.
 
 **Detection**
 
-Before running any `vtex install vendor.app@X.Y.Z` on a production account, compare `X` to the major currently installed (`vtex ls --production | grep store-theme`). If `X` differs, STOP. Require an explicit migration and rollback plan before continuing.
+Before running any `vtex install vendor.app@X.Y.Z` on a production account, compare `X` to the major currently installed (`vtex ls --production | grep store-theme`). If `X` differs, STOP. Require an explicit content-rebuild plan in a production-flag dev workspace before continuing.
 
-Also STOP if a developer is about to run `vtex release major` on an app that ships any of: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`.
+Also STOP if a developer is about to run `vtex release major` on an app that ships any of: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`. Confirm the structural change cannot be modeled as a `patch` or `minor` first.
 
 **Correct**
 
 ```bash
-vtex use staging-theme --production
+vtex workspace create theme-rollout --production
+vtex use theme-rollout --production
 vtex install acme.store-theme@5.0.0
-# back up current master VBase first
-# smoke-test the staging-theme workspace end-to-end
-# only then promote
+# 1. open the storefront in this workspace
+# 2. recreate every Site Editor edit, route, banner, and custom page under the new major
+# 3. smoke-test the workspace end-to-end
+# 4. only then:
 vtex workspace promote
 ```
 
@@ -7389,7 +7392,8 @@ vtex workspace promote
 vtex release major
 vtex publish
 vtex install acme.store-theme@5.0.0
-# installed straight to master — every Site Editor edit ever saved is now orphaned
+# installed straight to master — no merchant content is visible under @5.x
+# and the storefront falls back to default vtex.store-theme content
 ```
 
 ### Constraint: Never install a content-holding app version directly to master without a dev-workspace smoke test
@@ -7398,7 +7402,7 @@ Any change that swaps the installed version of a content-holding app on `master`
 
 **Why this matters**
 
-`master` is the public storefront. Installing a theme directly to `master` makes the new version live for every shopper instantly. If the install reveals a missing block, an orphaned content key, or a stripped-down published artifact, the only recovery is rollback under load. A production-flag dev workspace renders against the same data as `master` and surfaces the same failures without exposing shoppers.
+`master` is the public storefront. Installing a theme directly to `master` makes the new version live for every shopper instantly. If the install reveals a missing block, an empty content surface under the new major, or a stripped-down published artifact, the only recovery is rollback under load. A production-flag dev workspace renders against the same data as `master` and surfaces the same failures without exposing shoppers.
 
 **Detection**
 
@@ -7423,44 +7427,9 @@ vtex install acme.store-theme@5.3.5
 # any failure is now public
 ```
 
-### Constraint: Back up VBase before any theme version change on master
-
-Before any operation that changes the installed major or replaces the active theme app on `master`, the user MUST take a snapshot of `vtex.pages-graphql/userData/store/` for the active workspace. The snapshot MUST include `routes.json`, `templates.json`, `content.json`, and the per-template `*_v2.json` and `*_v2_render.json` caches for the currently installed major.
-
-**Why this matters**
-
-VBase content is the merchant's accumulated work in Site Editor. There is no first-class undo. If the install orphans content (major bump) or the new artifact ships a different block tree, the only fast recovery is restoring the previous VBase snapshot under the previous major key. Without a snapshot, recovery requires either an older workspace that still has the data or an internal AWS investigation.
-
-**Detection**
-
-If a deploy plan for a content-holding app does not include a VBase backup step, STOP and add one before any `vtex install` or `vtex workspace promote`.
-
-**Correct**
-
-```bash
-# snapshot critical VBase files before changing the installed theme
-TKN=$(jq -r .token ~/.vtex/session/session.json)
-BUCKET="vtex.pages-graphql/userData"
-for f in store/routes.json store/templates.json store/content.json \
-         store/acme.store-theme@0.x:store.home_v2.json \
-         store/acme.store-theme@0.x:store.product_v2.json; do
-  curl -sS \
-    -H "VtexIdclientAutCookie: $TKN" \
-    "https://infra.io.vtex.com/vbase/v2/$ACCOUNT/master/buckets/$BUCKET/files/$f" \
-    -o "_vbase-backups/$(date +%F)/$f"
-done
-```
-
-**Wrong**
-
-```bash
-vtex install acme.store-theme@5.0.0
-# no backup taken; if the install orphans content, there is nothing to restore
-```
-
 ### Constraint: Verify the published artifact matches the source you expect
 
-Before installing a new published version of a content-holding app to `master`, confirm that the artifact in the Apps Registry actually contains the blocks the active VBase content references. A successful `vtex publish` does not guarantee the artifact carries the merchant's customizations.
+Before installing a new published version of a content-holding app to `master`, confirm that the artifact in the Apps Registry actually contains the blocks the active merchant content references. A successful `vtex publish` does not guarantee the artifact carries the merchant's customizations.
 
 **Why this matters**
 
@@ -7468,14 +7437,14 @@ A common failure pattern is publishing from a stripped-down repository or from a
 
 **Detection**
 
-If the published version was built from a repository that does not contain the custom blocks the active VBase `templates.json` references, STOP. Either rebuild from the correct source or treat this install as a major change requiring full content migration.
+If the published version was built from a repository that does not contain the custom blocks the active theme references, STOP. Either rebuild from the correct source or treat this install as a major change requiring a full content rebuild.
 
 **Correct**
 
 ```bash
 # pull the published artifact and confirm it ships the custom blocks
 vtex apps files acme.store-theme@5.3.5 store/ | grep -E 'umMaisUm|customHeader'
-# matches the block IDs in the active templates.json
+# matches the block IDs the active theme depends on
 ```
 
 **Wrong**
@@ -7495,8 +7464,8 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
 1. Decide the SemVer bump deliberately
    - patch  → bug fix, no block contract change
    - minor  → new optional block, backward-compatible additions
-   - major  → ANY change that breaks an existing block contract
-              OR any change that should not inherit current VBase content
+   - major  → ANY structural change that breaks an existing block contract
+              (avoid when possible; requires a content rebuild)
 
 2. vtex release [patch|minor|major]
    vtex publish
@@ -7505,11 +7474,16 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
    vtex workspace create theme-rollout-YYYY-MM-DD --production
    vtex use theme-rollout-YYYY-MM-DD --production
 
-4. Back up VBase from master
-   snapshot vtex.pages-graphql/userData/store/ → _vbase-backups/<date>/
-
-5. Install the new version in the dev workspace
+4. Install the new version in the dev workspace
    vtex install vendor.app@X.Y.Z
+
+5. If the bump is major:
+   - open the storefront for the dev workspace
+   - re-author every Site Editor change, route, banner, and custom page
+     under the new major (Site Editor changes are workspace-scoped and
+     will be promoted with the workspace)
+   - if the bump is patch/minor, the existing content carries over and
+     this step is unnecessary
 
 6. Smoke-test in the dev workspace against the full page set
    - $workspace--$account.myvtex.com/             (home)
@@ -7528,71 +7502,74 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
    If the public CDN serves stale content, validate with cache-busting
    query strings; the edge will refresh on its normal TTL.
 
-9. Keep the dev workspace and the VBase snapshot for at least one
-   business day in case rollback is needed.
+9. Keep the dev workspace for at least one business day in case a fast
+   re-promote is needed.
 ```
 
-Recommended VBase content-key map for a theme app:
+Recommended emergency rollback after a broken major install on `master`:
 
 ```text
-vtex.pages-graphql/userData/store/
-├── routes.json                                       # merchant-defined routes
-├── templates.json                                    # block tree per template
-├── content.json                                      # text/image overrides
-├── vendor.store-theme@MAJOR.x:store.home_v2.json
-├── vendor.store-theme@MAJOR.x:store.home_v2_render.json
-├── vendor.store-theme@MAJOR.x:store.product_v2.json
-├── vendor.store-theme@MAJOR.x:store.search_v2.json
-└── vendor.store-theme@MAJOR.x:store.custom#<route>_v2.json
+1. vtex workspace create rollback-YYYY-MM-DD --production
+2. vtex use rollback-YYYY-MM-DD --production
+3. vtex install vendor.store-theme@<previous major version>
+4. Re-author the merchant content under the previous major in this
+   workspace (the previous major's stored content is no longer the
+   active version on master, so treat this as a content rebuild even
+   though it is the previous code)
+5. Smoke-test the rollback workspace end-to-end
+6. vtex workspace promote
+
+If the time required to re-author content is unacceptable, escalate to
+VTEX support. Self-service recovery of previously stored merchant content
+is not part of the developer surface.
 ```
 
-When `MAJOR` changes, none of these per-template caches are reachable under the new major's key. They are not deleted; they are orphaned.
-
-Recommended emergency rollback after a broken major install:
+Recommended way to think about content-key behavior:
 
 ```text
-1. vtex use rollback-YYYY-MM-DD --production
-2. vtex install vendor.store-theme@<previous major version>
-3. Restore the VBase snapshot for the previous major
-   (PUT each file back into vtex.pages-graphql/userData/store/)
-4. Smoke-test the rollback workspace
-5. vtex workspace promote
-6. Once master is healthy, optionally clean up orphaned @NEW.x VBase
-   files to prevent confusion in future audits
+Patch / minor bump
+   acme.store-theme @ 0.0.61  →  0.0.62
+   storage key prefix unchanged: acme.store-theme@0.x:*
+   merchant content carries over automatically
+
+Major bump
+   acme.store-theme @ 0.0.61  →  5.0.0
+   storage key prefix changes: acme.store-theme@0.x:*  →  acme.store-theme@5.x:*
+   the new major starts empty from the resolver's point of view
+   merchant content must be re-authored under @5.x before promote
 ```
 
 ## Common failure modes
 
-- Running `vtex release major` on a theme to "clean up" the version number, not realizing it orphans all Site Editor content.
+- Running `vtex release major` on a theme to "clean up" the version number, not realizing it requires a full content rebuild before promote.
 - Installing a new theme major directly on `master` because the dev workspace "looked the same".
-- Publishing from a forked repository that does not contain the custom blocks the active VBase content references.
-- Treating `vtex link` as equivalent to `vtex install` for content-holding apps. `link` does not exercise the published artifact resolution path.
+- Publishing from a forked repository that does not contain the custom blocks the active theme depends on.
+- Treating `vtex link` as equivalent to `vtex install` for content-holding apps. `link` does not exercise the published artifact resolution path or the major-keyed content lookup.
 - Running `vtex workspace promote` from a workspace that was never smoke-tested end-to-end.
-- Skipping the VBase backup because "the version is so close" — minor and patch are safe; major is not, and SemVer mistakes happen.
+- Promoting a major bump without re-authoring the merchant content in the dev workspace first, so the storefront goes live with default `vtex.store-theme` content for every page that previously depended on Site Editor edits.
 - Trusting the public domain to confirm a fix immediately after promotion. CloudFront serves stale content; use `?utm_source=<value>` or another cache-busting parameter to bypass the edge during validation.
-- Using `Authorization: Bearer $TKN` against internal VTEX APIs during recovery. Internal APIs accept the same CLI token, but as the `VtexIdclientAutCookie` cookie, not as a Bearer header.
-- Counting occurrences of a string in minified VBase JSON files with `grep -c`. `grep -c` counts lines; minified JSON is one line. Use a real JSON parser or `re.findall` for accurate audits.
+- Assuming there is a developer-accessible way to restore the previous major's merchant content. Recovery is a content rebuild in a workspace; there is no self-service restore path.
 
 ## Review checklist
 
 - [ ] Is the proposed version bump correctly classified as patch, minor, or major against SemVer rules?
-- [ ] If the bump crosses a major boundary, is there a documented content-migration plan and rollback window?
+- [ ] If the bump crosses a major boundary, is there a documented content-rebuild plan in a production-flag dev workspace?
 - [ ] Is the install going to a production-flag dev workspace first, never directly to `master`?
-- [ ] Has VBase been backed up (routes, templates, content, per-template caches) before any version change on `master`?
-- [ ] Has the published artifact been verified to contain the custom blocks the active VBase content references?
+- [ ] If the bump is major, has every Site Editor change, route, banner, and custom page been re-authored in the dev workspace under the new major before promote?
+- [ ] Has the published artifact been verified to contain the custom blocks the active theme depends on?
 - [ ] Has the dev workspace been smoke-tested across home, PDP, PLP, department, search, custom routes, account, and checkout entry?
-- [ ] Is the rollback workspace and VBase snapshot retained for at least one business day after promotion?
+- [ ] Is the dev workspace retained for at least one business day after promotion in case a fast re-promote is needed?
 
 ## Related skills
 
 - [`vtex-io-app-contract`](../vtex-io-app-contract/skill.md) — When the question is what the manifest contract should declare, and why a major version bump is a contract-breaking change for content-holding apps.
-- [`vtex-io-storefront-theme-app`](../vtex-io-storefront-theme-app/skill.md) — When the question is what a theme app actually owns (`store/blocks.json`, `store/routes.json`, page templates) and how those files become VBase content.
-- [`vtex-io-render-runtime-and-blocks`](../vtex-io-render-runtime-and-blocks/skill.md) — When the question is how a block name in `templates.json` resolves to a React component, and why missing blocks under the active major cause render failures.
-- [`vtex-io-data-access-patterns`](../vtex-io-data-access-patterns/skill.md) — When the question is whether the data should live in VBase at all, or in app settings, Master Data, or another store.
+- [`vtex-io-storefront-theme-app`](../vtex-io-storefront-theme-app/skill.md) — When the question is what a theme app actually owns (`store/blocks.json`, `store/routes.json`, page templates) and how those files relate to merchant Site Editor content.
+- [`vtex-io-render-runtime-and-blocks`](../vtex-io-render-runtime-and-blocks/skill.md) — When the question is how a block name in a theme resolves to a React component, and why missing blocks under the active major cause render failures.
+- [`vtex-io-data-access-patterns`](../vtex-io-data-access-patterns/skill.md) — When the question is whether a piece of data should live behind Site Editor at all, or in app settings, Master Data, or another store.
 
 ## Reference
 
-- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) — How `vendor`, `name`, and `version` form the app identity used as the VBase content key prefix.
+- [Manifest](https://developers.vtex.com/docs/guides/vtex-io-documentation-manifest) — How `vendor`, `name`, and `version` form the app identity used in storefront content keys.
 - [Versioning an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-versioning-an-app) — `vtex release` and the SemVer rules that decide whether a bump preserves or invalidates downstream content keys.
 - [Publishing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-publishing-an-app) — How `vtex publish` produces the artifact installed by `vtex install`.
 - [Installing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-installing-an-app) — Workspace scope of `vtex install` and why dev workspaces must be production-flag for realistic testing.
