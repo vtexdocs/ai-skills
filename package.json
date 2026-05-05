@@ -1,6 +1,6 @@
 {
   "name": "vtex-skills",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "type": "module",
   "description": "VTEX External Developer Skills - AI agent skills for VTEX platform development",
   "scripts": {

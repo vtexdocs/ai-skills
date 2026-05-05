@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/vtex/skills/compare/v1.9.1...v1.10.0) (2026-05-05)
+
+
+### Features
+
+* **masterdata:** add Master Data track with storage strategy skill ([a13c55c](https://github.com/vtex/skills/commit/a13c55ce0d6e0872c41561dcb2efe4ea2ecd0cec))
+
 ## [1.9.1](https://github.com/vtex/skills/compare/v1.9.0...v1.9.1) (2026-04-23)
 
 
