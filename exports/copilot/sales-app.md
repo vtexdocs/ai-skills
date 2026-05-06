@@ -49,7 +49,7 @@ Documentation: https://beta.fast.store/sales-app/setting-up
 
 ## Decision rules
 
-Follow the mandatory 6-step workflow in order. Do not skip steps.
+Follow the mandatory 7-step workflow (Steps 0–6) in order. Do not skip steps.
 
 | Step | Purpose | Gate |
 |------|---------|------|
@@ -177,55 +177,6 @@ const { item } = useCartItem();
 return <div>{item.name}</div>;
 ```
 
-### Constraint: Never expose authentication keys in frontend code
-
-API keys in `fetch` headers are visible in the browser network tab.
-
-**Why this matters**
-Leaked keys compromise the external service.
-
-**Detection**
-Literal auth header values in `fetch()`: `'x-api-key': '...'`, `'Authorization': 'Bearer ...'`.
-
-**Correct**
-
-```typescript
-const response = await fetch('/_v/my-api/data', {
-  credentials: 'include',
-  headers: { 'Content-Type': 'application/json' },
-});
-```
-
-**Wrong**
-
-```typescript
-const response = await fetch('https://api.example.com/data', {
-  headers: { 'x-api-key': 'sk-secret-key-12345' },
-});
-```
-
-### Constraint: IO Proxy must use relative paths only
-
-The Sales App internal proxy resolves the domain automatically.
-
-**Why this matters**
-A full URL bypasses the proxy, breaking session cookies and causing CORS errors.
-
-**Detection**
-`fetch('https://{account}.myvtex.com/...')` in IO proxy components.
-
-**Correct**
-
-```typescript
-await fetch('/_v/my-loyalty-api/points', { credentials: 'include' });
-```
-
-**Wrong**
-
-```typescript
-await fetch('https://myaccount.myvtex.com/_v/my-loyalty-api/points');
-```
-
 ### Constraint: defineExtensions is required in index.tsx
 
 Entry point must use `defineExtensions` from `@vtex/sales-app`.
@@ -297,186 +248,6 @@ defineExtensions({ 'cart.cart-item.after': ItemWarranty });
 defineExtensions({ 'pdp.sidebar.after': ItemWarranty });
 ```
 
-### Constraint: Always present execution plan and wait for approval
-
-Do not generate code until the user confirms the plan.
-
-**Why this matters**
-Generating without agreement wastes effort and may produce the wrong extension.
-
-**Detection**
-Jumping from discovery to code generation without presenting a plan.
-
-**Correct**
-Discovery → Requirements → Present plan → **User approves** → Generate code.
-
-**Wrong**
-Discovery → Generate code immediately.
-
-### Constraint: Never access DOM APIs directly
-
-Extensions run in a sandboxed environment enforced by `@vtex/fsp-analyzer`. DOM APIs bypass the sandbox.
-
-**Why this matters**
-Accessing `document`, `window`, `localStorage`, `sessionStorage`, or `navigator` causes a `RESTRICTED_API` violation. The build fails.
-
-**Detection**
-Any use of these identifiers as a value: `document.querySelector`, `window.innerWidth`, `localStorage.getItem`, etc.
-
-**Correct**
-
-```typescript
-// Use React state, props, and Sales App hooks for data
-const { account } = useExtension();
-const cart = useCart();
-```
-
-**Wrong**
-
-```typescript
-const userId = localStorage.getItem('userId');
-const width = window.innerWidth;
-document.title = 'My Extension';
-```
-
-### Constraint: Never import restricted Node.js modules
-
-Extensions are browser-only React components. Node.js modules are unavailable at runtime and banned by the sandbox.
-
-**Why this matters**
-Importing `fs`, `path`, `child_process`, or `crypto` causes a `RESTRICTED_IMPORT` violation. The build fails.
-
-**Detection**
-`import fs from 'fs'`, `import { resolve } from 'path'`, `import crypto from 'crypto'`, `import child_process from 'child_process'`.
-
-**Correct**
-
-```typescript
-import { useCart } from '@vtex/sales-app';
-import React, { useState, useEffect } from 'react';
-```
-
-**Wrong**
-
-```typescript
-import fs from 'fs';
-import crypto from 'crypto';
-```
-
-### Constraint: Never use eval or the Function constructor
-
-Arbitrary code execution is banned in the sandbox.
-
-**Why this matters**
-`eval`, `new Function`, and string-form `setTimeout`/`setInterval` cause a `CODE_EXECUTION` violation. The build fails and is a critical security risk.
-
-**Detection**
-Any call to `eval(...)`, `new Function(...)`, or `setTimeout('code', delay)` / `setInterval('code', delay)` with a string first argument.
-
-**Correct**
-
-```typescript
-const result = computeValue(input); // deterministic logic only
-```
-
-**Wrong**
-
-```typescript
-eval('doSomething()');
-const fn = new Function('return 42');
-setTimeout('doSomething()', 1000);
-```
-
-### Constraint: CSS files must use plain .css extension, never .module.css
-
-The Sales App bundler does not support CSS modules. All stylesheets must use plain `.css` extension and be imported as side-effect imports.
-
-**Why this matters**
-A `.module.css` file will not be processed correctly by the bundler. Styles will not be applied and the build may fail.
-
-**Detection**
-Any file named `*.module.css` or any import like `import styles from './*.module.css'`.
-
-**Correct**
-
-```typescript
-import './CashbackWidget.css';
-// Use className strings directly
-<div className="container">
-```
-
-**Wrong**
-
-```typescript
-import styles from './CashbackWidget.module.css';
-// CSS modules object access
-<div className={styles.container}>
-```
-
-### Constraint: CSS must use namespaced selectors — no global elements
-
-Extension CSS is injected into the Sales App shell. Global selectors pollute the cascade and break containment.
-
-**Why this matters**
-Selectors like `*`, `body`, `html`, `:root`, `head`, `main`, `#root`, `#__next` cause `CSS_GLOBAL_SELECTOR` or `CSS_CONTAINMENT_BREAKOUT` violations. CSS also must not use `@import`, `position: fixed`, `z-index: 9999`, or un-namespaced `@keyframes`.
-
-**Detection**
-Any CSS rule targeting global elements, `:root`, `#root`, `#__next`, or using `@import`, `:host`, `position: fixed`, `z-index: 9999`. Any `@keyframes` name not prefixed with the extension namespace.
-
-**Correct**
-
-```css
-/* Plain CSS — use namespace prefix to scope classes */
-.container { padding: 8px; }
-.title { font-size: 16px; }
-
-@keyframes extension-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-```
-
-**Wrong**
-
-```css
-body { font-size: 14px; }
-* { box-sizing: border-box; }
-:root { --my-color: red; }
-@import './reset.css';
-.overlay { position: fixed; z-index: 9999; }
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-```
-
-### Constraint: CSS must follow Sales App Design Guidelines
-
-Generated CSS must use the approved `--sa-color-*` design tokens, `VTEX Trust` as the base font, and Phosphor Icons when icons are needed. All UI text must use sentence case.
-
-**Why this matters**
-Custom hex values and arbitrary fonts break visual consistency with the Sales App shell. All-caps text violates the adopted UX writing standards.
-
-**Detection**
-Hardcoded hex values outside the `--sa-color-*` token declarations block; missing `font-family: 'VTEX Trust'` on `.container`; ALL-CAPS strings in JSX text nodes; icons from non-Phosphor libraries.
-
-**Correct**
-
-```css
-.container {
-  --sa-color-primary: #157BF4;
-  --sa-color-text-primary: #1F1F1F;
-  font-family: 'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-.title { color: var(--sa-color-text-primary); font-size: 16px; }
-.buttonPrimary { background-color: var(--sa-color-primary); }
-```
-
-**Wrong**
-
-```css
-.container { font-family: Arial; }
-.title { color: #1a1a1a; font-size: 15px; }
-.buttonPrimary { background-color: #0066cc; }
-```
-
 ## Preferred pattern
 
 ### Workflow overview
@@ -487,59 +258,17 @@ Hardcoded hex values outside the `--sa-color-*` token declarations block; missin
 
 **Step 2** — Map requirements to extension point + hooks + template. Present plan listing the files to be created: `components/<ComponentName>.tsx`, `components/<ComponentName>.css` (plain CSS — **never** `.module.css`), and `index.tsx`. Wait for approval.
 
-**Step 3** — Generate `<ComponentName>.tsx`, `<ComponentName>.css` (plain CSS, **never** `.module.css`), and `index.tsx`. Validate against the 12-point checklist (items 1–10 from the code templates reference, static analysis compliance, and design token compliance). If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions, the [static analysis reference](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) to run sandbox security, CSS containment, and React performance checks on all generated files, and the [design guidelines reference](sales-app-sales-app-extensibility-ref-design-guidelines.md) for approved color tokens, typography, iconography, and UX writing rules. All generated CSS must use `--sa-color-*` tokens, `VTEX Trust` font family, and sentence-case text. Fix all violations before presenting code; surface warnings to the user.
+**Step 3** — Generate `<ComponentName>.tsx`, `<ComponentName>.css` (plain CSS, **never** `.module.css`), and `index.tsx`.
 
-**Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
+Required references for this step (load before generating):
+- [code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) — all component templates, the CSS template (with the full Sales App design system inlined: tokens, typography, spacing, responsive), the `index.tsx` template, type generation rules, and the custom fetch hook pattern.
+- [extension-points-hooks-and-types.md](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) — hook return types and TypeScript definitions.
+- [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`. Run these checks on all generated files.
+- [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) — load when the extension renders any UI text (sentence case rule) or uses icons (Phosphor Icons).
 
-1. **Extension name** — title matching the component name.
-2. **Overview** — one-paragraph summary of what the extension does and why it was built.
-3. **Extension point** — which extension point it registers on (e.g., `cart.cart-list.after`) and why that point was chosen.
-4. **Hooks used** — list each hook (`useCart`, `usePDP`, etc.) with a brief explanation of what data it provides to this extension.
-5. **Component structure** — description of the component tree, props, and state management.
-6. **Styling** — CSS file name and summary of key classes.
-7. **API integration** (if applicable) — endpoint, auth strategy (IO Proxy or direct), request/response shape.
-   - **Source documentation:** URL or file path of the original API documentation, if provided.
-   - **Generated types:** list of TypeScript interfaces generated from the API documentation.
-   - Note which fields are optional (`?`) vs required per the documentation.
-8. **How to test** — dev server command and URL to reach the extension.
-9. **Known constraints** — any guards, edge cases, or limitations (e.g., `useCartItem().item` may be undefined).
+If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Validate against the 12-point checklist in code-templates-and-patterns.md. Fix all violations before presenting code; surface warnings to the user.
 
-Template for the documentation file:
-
-````markdown
-# <ExtensionName>
-
-## Overview
-<One-paragraph description of the extension purpose and value.>
-
-## Extension point
-- **Point:** `<extension.point.name>`
-- **Rationale:** <Why this extension point was selected.>
-
-## Hooks used
-| Hook | Purpose |
-|------|---------|
-| `useCart` | <What data it provides here> |
-
-## Component structure
-<Describe the component tree, key props, and internal state.>
-
-## Styling
-- **File:** `<ComponentName>.css`
-- <Summary of key CSS classes and design decisions.>
-
-## API integration
-- **Endpoint:** `/_v/...`
-- **Auth strategy:** IO Proxy / Direct / None
-- **Request/Response:** <Brief shape description.>
-
-## How to test
-Run `yarn fsp dev {account}` and navigate to `https://{account}.myvtex.com/sales-app/...` to verify the extension renders.
-
-## Known constraints
-- <Guard or limitation 1>
-- <Guard or limitation 2>
-````
+**Step 4** — Generate `docs/<ExtensionName>.md` inside the Sales App package (create the `docs/` folder if needed). Load the [documentation template reference](sales-app-sales-app-extensibility-ref-documentation-template.md) for the required 9-section structure and the markdown skeleton to fill in.
 
 **Step 5** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md).
 
@@ -552,73 +281,47 @@ Load these on demand based on what the task requires. Do not load all of them up
 | File | Load when… |
 |------|-----------|
 | [references/extension-points-hooks-and-types.md](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
-| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
+| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; **CSS template with the full Sales App design system inlined (tokens, typography, spacing, responsive)**; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
 | [references/discovery-and-use-cases.md](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
 | [references/local-dev-build-and-deploy.md](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
 | [references/static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) | Validating generated code (Step 3) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`; full rule catalog with violation IDs, detection patterns, and correct/wrong examples |
-| [references/design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) | Generating CSS for any extension — approved `--sa-color-*` design tokens, VTEX Trust font, Phosphor Icons, allowed font sizes, 4px spacing grid, UX writing rules (sentence case), and responsive breakpoints |
+| [references/design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) | Writing UI text (sentence case rule) or using icons (Phosphor Icons). **CSS-related design rules — tokens, typography, spacing, responsive — are inlined directly in the CSS template inside code-templates-and-patterns.md, so this file is not needed for CSS generation.** |
+| [references/documentation-template.md](sales-app-sales-app-extensibility-ref-documentation-template.md) | Writing the `docs/<ExtensionName>.md` file in Step 4 — the 9-section structure and markdown skeleton |
 
 ## Common failure modes
 
-- **Returning null instead of empty fragment** — `return null` not allowed; use `return (<></>)`. Build fails.
-- **Accessing item.manualPrice without guard** — TypeScript "possibly undefined" error. Use `??`.
-- **Using useCartItem outside cart.cart-item.after** — Hook context only exists there. Runtime error.
-- **Hardcoding auth tokens in frontend fetch** — Keys visible in browser. Use VTEX IO proxy.
-- **Using full URL with IO Proxy** — Bypasses internal proxy. Use relative path `/_v/...`.
-- **Placing code outside packages/sales-app/src/** — Not included in build.
-- **Missing defineExtensions in index.tsx** — Extension compiles but never renders.
-- **Skipping prerequisite checks** — Generating code without FastStore/Sales App installed.
-- **Not presenting plan** — User may want a different approach. Always confirm.
-- **Invented extension point names** — `cart.list.after` instead of `cart.cart-list.after` fails silently.
-- **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Future developers won't understand the extension's purpose, hooks, or constraints.
+- **Skipping prerequisite checks** — Generating code without FastStore/Sales App installed. Always confirm both before Step 1.
+- **Not presenting plan** — User may want a different approach. Always confirm at Step 2 before generating code.
+- **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Load documentation-template.md for the required structure.
 - **Inventing API response types** — Generated interface doesn't match actual API. If documentation was provided, derive types from it; if not, ask the user for a sample JSON response.
 - **Ignoring provided API documentation** — User provided a URL or file but agent asked manual questions anyway. Always check for documentation first and use the API Documentation Ingestion flow.
 - **Inline fetch with 2+ endpoints** — Multiple `fetch` calls inside the component body. Extract into custom hook(s) in `hooks/use{Purpose}.ts`.
-- **Accessing DOM APIs directly** — `document`, `window`, `localStorage` cause a `RESTRICTED_API` violation at build time. The sandbox blocks this.
-- **Using global CSS selectors** — `body`, `html`, `:root`, `*`, `#root` in extension CSS cause `CSS_GLOBAL_SELECTOR` / `CSS_CONTAINMENT_BREAKOUT` violations. Always scope to the component container.
-- **useLayoutEffect usage** — Blocked by the sandbox (`REACT_LAYOUT_EFFECT_MISUSE`). Use `useEffect` instead.
-- **Heavyweight library imports** — Importing `lodash` or `moment` triggers `LARGE_BUNDLE_SIZE_IMPACT` warnings. Use native array methods or `date-fns` instead.
-- **Hardcoded colors instead of design tokens** — Using hex values like `#0066cc` or `#1a1a1a` directly in CSS breaks visual consistency with the Sales App shell. Declare `--sa-color-*` tokens on `.container` and reference only those.
-- **Missing VTEX Trust font** — Not setting `font-family: 'VTEX Trust', ...` on `.container` causes the extension to render with the browser default font, inconsistent with the rest of Sales App.
-- **ALL-CAPS text in UI** — Any uppercase-transformed text (via CSS `text-transform: uppercase` or hardcoded ALL-CAPS strings) violates the Sales App UX writing guidelines.
-- **Non-Phosphor icons** — Using Material Icons, Font Awesome, or any other icon library breaks the Sales App iconography system. Import icons from `@phosphor-icons/react` only.
+- **Placing code outside packages/sales-app/src/** — Files outside this path are not included in the build.
+
+> Code-level violations (DOM APIs, Node imports, eval, CSS containment, React performance, design tokens) are enforced by `@vtex/fsp-analyzer` and caught during Step 3 validation. See [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) and [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md).
 
 ## Review checklist
 
+**Workflow gates**
 - [ ] FastStore installed (biome.json, faststore.json, package.json, tsconfig.json, turbo.json)?
 - [ ] Sales App module installed (src/, package.json, tsconfig.json in sales-app directory)?
 - [ ] Discovery completed and use case identified?
 - [ ] Execution plan approved by user?
 - [ ] Extension point is valid (from the 8-point reference)?
 - [ ] Hooks compatible with chosen extension point?
+- [ ] Documentation generated at `docs/<ExtensionName>.md` (9 sections, using documentation-template.md)?
+- [ ] If API documentation was provided, TypeScript interfaces match the documented response shape?
+- [ ] If 2+ API endpoints used, fetch logic extracted into custom hook(s) in `hooks/`?
+- [ ] Build passes: `yarn fsp build {account} sales-app`?
+- [ ] Tested locally: `yarn fsp dev {account}`?
+
+**TypeScript / runtime guards** (not caught by fsp-analyzer)
 - [ ] Component returns JSX.Element, never null?
 - [ ] Optional properties guarded (manualPrice, productRefId, attachments)?
 - [ ] useCartItem().item checked for undefined?
-- [ ] No auth credentials exposed in frontend code?
-- [ ] IO Proxy uses relative path (/_v/...)?
 - [ ] defineExtensions configured in index.tsx?
-- [ ] CSS file path matches component name?
-- [ ] Documentation generated at `docs/<ExtensionName>.md`?
-- [ ] Documentation covers overview, extension point, hooks, structure, and constraints?
-- [ ] If API documentation was provided, TypeScript interfaces match the documented response shape?
-- [ ] If 2+ API endpoints used, fetch logic extracted into custom hook(s) in `hooks/`?
-- [ ] No DOM API access (document, window, localStorage, sessionStorage, navigator)?
-- [ ] No restricted Node.js imports (fs, path, child_process, crypto)?
-- [ ] No eval(), new Function(), or string-form setTimeout/setInterval?
-- [ ] CSS selectors scoped — no global *, body, html, :root, #root, #__next?
-- [ ] No @import rules in CSS?
-- [ ] No position: fixed or z-index: 9999 in CSS?
-- [ ] @keyframes names prefixed with extension namespace?
-- [ ] No useLayoutEffect (use useEffect instead)?
-- [ ] No heavyweight library imports (lodash, moment)?
-- [ ] Components under 200 lines?
-- [ ] CSS declares `--sa-color-*` design tokens on `.container` (no hardcoded hex values in rules)?
-- [ ] `font-family: 'VTEX Trust', ...` set on `.container`?
-- [ ] All CSS font sizes from the allowed scale (10, 12, 14, 16, 18, 20, 22, 24, 28, 32...)?
-- [ ] All UI text in sentence case (no ALL-CAPS, no system-like placeholders)?
-- [ ] Icons use Phosphor Icons (`@phosphor-icons/react`) if icons are present?
-- [ ] Build passes: `yarn fsp build {account} sales-app`?
-- [ ] Tested locally: `yarn fsp dev {account}`?
+
+> All other code-level rules (sandbox APIs, CSS containment, React performance, design tokens) are enforced by `@vtex/fsp-analyzer` and checked during Step 3. See [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) and [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md).
 
 ## Related skills
 

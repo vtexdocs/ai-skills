@@ -326,38 +326,73 @@ export function ${COMPONENT_NAME}(): JSX.Element {
 
 ## CSS Stylesheet
 
-All extensions use **plain CSS** (not CSS modules) with Sales App design tokens. See [design-guidelines.md](design-guidelines.md) for the full token reference.
+All extensions use **plain CSS** (not CSS modules). The full Sales App design system for CSS — tokens, typography, spacing grid, responsive breakpoints, and structure — is inlined below. **Use this template as the single source of truth for any CSS generation.**
 
 **CRITICAL — File naming:** The CSS file MUST be named `${COMPONENT_NAME}.css` — **never** `${COMPONENT_NAME}.module.css`. The Sales App bundler does not support CSS modules. Import as a side-effect: `import './${COMPONENT_NAME}.css';` — never as `import styles from './${COMPONENT_NAME}.module.css';`. Use `className="container"` string literals, not `className={styles.container}`.
+
+### Design system rules baked into this template
+
+These rules apply to **every** generated extension CSS. The template below already complies — keep it that way.
+
+| Topic | Rule |
+|-------|------|
+| Tokens | All colors must reference `--sa-color-*` tokens declared on `.container`. **Never** use hardcoded hex values anywhere else. |
+| Font family | `'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif` on `.container`, inherited by descendants. |
+| Font weights | Only Regular (400), Medium (500), Semibold (600), Bold (700). |
+| Font sizes (px) | Allowed scale only: **10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 36, 40, 44, 48**. Never `13`, `15`, `17`, etc. |
+| Typography roles | Section title = 16px/600 · Subtitle/label = 14px/500 · Body = 14px/400 · Caption = 12px/400 · Price = 18px/600. |
+| Spacing | Multiples of **4px** only (4, 8, 12, 16, 20, 24, 32, 40…). Never `10`, `14`, `18`, `22`. Applies to `padding`, `margin`, `gap`, `height`. |
+| Containment | No `position: fixed`, no `z-index: 9999`, no `:host`, no `:global`, no `@import`. `position: relative` and `sticky` are safe. |
+| Selectors | Use the unprefixed utility class names from this template (`.container`, `.content`, `.row`, `.title`, `.button`, etc.). The Sales App `fsp-analyzer` runs with `transformNonCompliant: true`, so unprefixed selectors emit a `CSS_TRANSFORMED` warning rather than a `CSS_NAMESPACE_REQUIRED` violation. Never use `*`, `body`, `html`, `:root`, `head`, `main`, `#root`, `#__next` — those are caught by `CSS_GLOBAL_SELECTOR` and remain blocking. |
+| Keyframes | Prefix with `${COMPONENT_NAME}-` (e.g., `${COMPONENT_NAME}-spin`). This raises a `CSS_TRANSFORMED` warning (build still passes) — use `sales-app-extension-${COMPONENT_NAME}-spin` if you want a clean run. |
+| `!important` | Never. |
+| Responsive | Use the breakpoint at `(max-width: 743px)` for mobile overrides. Sales App shell handles the rest. |
 
 ```css
 /**
  * ${COMPONENT_NAME} Styles
- * Design tokens follow Sales App Design Guidelines.
- * Reference: references/design-guidelines.md
+ * Sales App design system (tokens + typography + spacing + responsive) is fully inlined.
  * UX writing: Use sentence case for all UI text. Never use ALL-CAPS.
  */
 
 .container {
-  /* Sales App design tokens — do not replace with hardcoded hex values */
+  /* === Sales App design tokens — single source of truth ===
+     Always declare these on .container. Reference via var(--sa-color-*) in all other rules.
+     Never use hardcoded hex values in CSS rules. */
+
+  /* Primary action */
   --sa-color-primary:       #157BF4;   /* Light Blue 800 */
   --sa-color-primary-hover: #0366DD;   /* Light Blue 900 */
-  --sa-color-text-primary:   #1F1F1F;  /* Neutral 1200 */
-  --sa-color-text-secondary: #5C5C5C;  /* Neutral 600 */
-  --sa-color-text-tertiary:  #3D3D3D;  /* Neutral 500 */
-  --sa-color-text-muted:     #999999;  /* Neutral 700 */
-  --sa-color-bg:        #FFFFFF;
+
+  /* Text */
+  --sa-color-text-primary:   #1F1F1F;  /* Neutral 1200 — high emphasis */
+  --sa-color-text-secondary: #5C5C5C;  /* Neutral 600  — medium emphasis */
+  --sa-color-text-tertiary:  #3D3D3D;  /* Neutral 500  — low emphasis */
+  --sa-color-text-muted:     #999999;  /* Neutral 700  — disabled / hint */
+
+  /* Backgrounds */
+  --sa-color-bg:        #FFFFFF;       /* Neutral White */
   --sa-color-bg-subtle: #F5F5F5;       /* Neutral 100 */
   --sa-color-bg-muted:  #EBEBEB;       /* Neutral 200 */
+
+  /* Borders */
   --sa-color-border:       #E0E0E0;    /* Neutral 300 */
   --sa-color-border-input: #D6D6D6;    /* Neutral 400 */
+
+  /* Error (Red scale) */
   --sa-color-error-bg:     #FDF6F5;    /* Red 50 */
   --sa-color-error-border: #FFDFD9;    /* Red 200 */
   --sa-color-error-text:   #EC3727;    /* Red 800 */
+
+  /* Success (Green scale) */
   --sa-color-success-bg:   #EDFDF5;    /* Green 50 */
   --sa-color-success-text: #01905F;    /* Green 800 */
+
+  /* Warning (Yellow / Orange scale) */
   --sa-color-warning-bg:   #FBF7D4;    /* Yellow 50 */
   --sa-color-warning-text: #E57001;    /* Orange 700 */
+
+  /* Info (Light Blue scale) */
   --sa-color-info-bg:   #F1F8FD;       /* Light Blue 50 */
   --sa-color-info-text: #157BF4;       /* Light Blue 800 */
 
@@ -365,10 +400,16 @@ All extensions use **plain CSS** (not CSS modules) with Sales App design tokens.
   background-color: var(--sa-color-bg);
   font-family: 'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif;
 }
+
+/* Layout */
 .content { display: flex; flex-direction: column; gap: 12px; }
-.title { font-size: 16px; font-weight: 600; color: var(--sa-color-text-primary); margin: 0; }
-.subtitle { font-size: 14px; color: var(--sa-color-text-secondary); margin: 0; }
-.text { font-size: 14px; color: var(--sa-color-text-tertiary); line-height: 1.5; }
+.row { display: flex; align-items: center; gap: 12px; }
+.spaceBetween { justify-content: space-between; }
+
+/* Typography — uses approved size scale (10, 12, 14, 16, 18, 20, 22, 24...) */
+.title    { font-size: 16px; font-weight: 600; color: var(--sa-color-text-primary);   margin: 0; }
+.subtitle { font-size: 14px; font-weight: 500; color: var(--sa-color-text-secondary); margin: 0; }
+.text     { font-size: 14px; color: var(--sa-color-text-tertiary); line-height: 1.5; }
 
 /* Loading state */
 .loading {
@@ -414,7 +455,7 @@ All extensions use **plain CSS** (not CSS modules) with Sales App design tokens.
 }
 .badgeSuccess { background-color: var(--sa-color-success-bg); color: var(--sa-color-success-text); }
 .badgeWarning { background-color: var(--sa-color-warning-bg); color: var(--sa-color-warning-text); }
-.badgeInfo { background-color: var(--sa-color-info-bg); color: var(--sa-color-info-text); }
+.badgeInfo    { background-color: var(--sa-color-info-bg);    color: var(--sa-color-info-text); }
 
 /* Input */
 .input {
@@ -424,20 +465,33 @@ All extensions use **plain CSS** (not CSS modules) with Sales App design tokens.
 }
 .input:focus { border-color: var(--sa-color-primary); }
 
-/* Row/flex helpers */
-.row { display: flex; align-items: center; gap: 12px; }
-.spaceBetween { justify-content: space-between; }
-
 /* Price display */
-.price { font-size: 18px; font-weight: 600; color: var(--sa-color-text-primary); }
-.priceOld { font-size: 14px; color: var(--sa-color-text-muted); text-decoration: line-through; }
-.priceDiscount { font-size: 14px; color: var(--sa-color-success-text); font-weight: 500; }
+.price          { font-size: 18px; font-weight: 600; color: var(--sa-color-text-primary); }
+.priceOld       { font-size: 14px; color: var(--sa-color-text-muted); text-decoration: line-through; }
+.priceDiscount  { font-size: 14px; color: var(--sa-color-success-text); font-weight: 500; }
 
-/* Responsive — Sales App breakpoints */
+/* Responsive — Sales App breakpoints
+   Small (mobile)  320–743px  → margin: 24px, no column grid
+   Medium (tablet) 744–1279px → host gutters: 16px (no override needed)
+   Large (desktop) 1280–1919px → host gutters: 20px (no override needed)
+   Extra large     1920px+    → host gutters: 20px (no override needed) */
 @media (max-width: 743px) {
   .container { padding: 12px; margin: 0 24px; }
 }
 ```
+
+### CSS file structure
+
+Every extension CSS must follow this order:
+
+1. **Token declarations** — `--sa-color-*` on `.container`
+2. **Layout helpers** — `.container`, `.content`, `.row`, `.spaceBetween`
+3. **Typography** — `.title`, `.subtitle`, `.text`
+4. **State** — `.loading`, `.spinner`, `@keyframes`, `.error`
+5. **Component classes** — `.button`, `.card`, `.badge`, `.input`, `.price`
+6. **Responsive** — `@media` queries at the bottom
+
+For UX writing rules (sentence case) and iconography (Phosphor Icons) used in `.tsx`, see [design-guidelines.md](design-guidelines.md).
 
 ## index.tsx with defineExtensions
 
@@ -481,7 +535,7 @@ After generating code, validate for these issues:
 9. **CSS class usage** — CSS classes defined in the stylesheet should be used in the component
 10. **defineExtensions in index.tsx** — entry point must import and call `defineExtensions`
 11. **Static analysis compliance** — generated code must pass all fsp-analyzer sandbox security, CSS containment, and React performance rules. Load the [static analysis reference](static-analysis-rules.md) to run the full check. Fix all violations before presenting code to the user; flag warnings to the user for review.
-12. **Design token compliance** — the CSS file must declare `--sa-color-*` custom properties on `.container` and use only those tokens for all colors. No hardcoded hex values outside the token block. Font family must be `'VTEX Trust', -apple-system, BlinkMacSystemFont, sans-serif`. All UI text in sentence case. Icons from Phosphor Icons only. Load the [design guidelines reference](design-guidelines.md) for the full token table.
+12. **Design system compliance** — the CSS file must follow the rules table at the top of the "CSS Stylesheet" section above: `--sa-color-*` custom properties declared on `.container` and used in all rules, `'VTEX Trust'` font family, allowed font sizes (10, 12, 14, 16, 18, 20, 22, 24, 28, 32…), 4px-multiple spacing, scoped selectors, and the responsive override at `(max-width: 743px)`. For UI text (sentence case) and icons (Phosphor), see [design-guidelines.md](design-guidelines.md).
 
 ## API Type Generation from Documentation
 
