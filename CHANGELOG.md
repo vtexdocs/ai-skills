@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.11.0](https://github.com/vtex/skills/compare/v1.10.0...v1.11.0) (2026-05-07)
+
+
+### Features
+
+* **sales-app:** add design guidelines to sales-app-extensibility skill ([d57f4ca](https://github.com/vtex/skills/commit/d57f4ca33c638a84faf69920dbc832258987dc59))
+* **sales-app:** add static analysis to sales-app-extensibility skill ([5506814](https://github.com/vtex/skills/commit/55068140816470cde5e273fa8dd3b2da49a0eec4))
+* **sales-app:** add static analysis to sales-app-extensibility skill ([9621cee](https://github.com/vtex/skills/commit/9621ceede5b0bfb859b9398be2c08299fecf46c2))
+* **vtex-io:** add rootpath and rbac skills; enrich performance, session, and masterdata ([4b9df7b](https://github.com/vtex/skills/commit/4b9df7bc6fa1033954eeb42babf6121fda1acdd8))
+
+
+### Bug Fixes
+
+* **sales-app:** creating plain css style at sales-app-extensibility skill ([a26d95b](https://github.com/vtex/skills/commit/a26d95bf3312f181588cdc63802f3b0f40486f23))
+* **sales-app:** streamlining the skill, fixing pr reviews and optimizing static analysis rules ([c07c8a0](https://github.com/vtex/skills/commit/c07c8a05862e5ccf9694756464282ea50f6dfed2))
+
 ## [1.10.0](https://github.com/vtex/skills/compare/v1.9.1...v1.10.0) (2026-05-05)
 
 
