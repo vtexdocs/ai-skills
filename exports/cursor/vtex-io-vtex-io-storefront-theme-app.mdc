@@ -288,7 +288,7 @@ Recommended Site Editor-editable surface:
 }
 ```
 
-Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that includes the theme app's MAJOR version. See `vtex-io-storefront-theme-versioning` for what happens to that content on a major bump.
+Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that includes the theme app's MAJOR version. See `vtex-io-storefront-theme-versioning` for what happens to that content on a major bump and how to migrate it with the `updateThemeIds` mutation.
 
 ## Common failure modes
 
@@ -297,7 +297,7 @@ Merchant edits to `text` are persisted by `vtex.pages-graphql` under a key that 
 - Declaring the same block ID in two different apps and getting non-deterministic resolution at render time.
 - Putting Site Editor-editable copy directly in `store/blocks.json` `props` without `contentSchemas.json`, so merchants cannot change it.
 - Adding a custom route to `store/routes.json` without adding the matching `store.custom#<id>` template in `store/blocks.json`.
-- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which leaves the new major with no merchant content and forces a full content rebuild before promote (see `vtex-io-storefront-theme-versioning`).
+- Treating the theme app's version as developer-facing and bumping the major to "tidy up", which leaves the new major with no merchant content and forces an `updateThemeIds` migration in `vtex.pages-graphql@2.x` before promote (see `vtex-io-storefront-theme-versioning`).
 - Putting React component code in the theme app instead of in a dedicated component app, which mixes block declaration with block consumption and complicates reuse.
 - Storing operational or shopper-specific data in theme `store/` files. The theme is global; per-shopper or per-segment data belongs elsewhere.
 

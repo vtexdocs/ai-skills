@@ -1,4 +1,4 @@
-This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when installing, publishing, upgrading, or rolling back a vtex io storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentschemas.json`). covers how site editor and theme content are scoped by the app's major version, why a major version bump leaves the new major with no merchant content and silently falls back to default theme content, and the safe install-in-workspace, recreate-content, smoke-test, then promote workflow. use for any operation that changes which version of a content-holding app is installed in `master`.
+This skill provides guidance for AI agents working with VTEX Custom VTEX IO Apps. Apply these constraints and patterns when assisting developers with apply when installing, publishing, upgrading, or rolling back a vtex io storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentschemas.json`). covers how site editor and theme content are scoped by the app's major version, why a major version bump leaves the new major with no merchant content and silently falls back to default theme content, and the safe install-in-workspace, migrate-content with the `updatethemeids` mutation, smoke-test, then promote workflow. use for any operation that changes which version of a content-holding app is installed in `master`.
 
 # Storefront Theme Versioning, Install, and Rollback
 
@@ -27,38 +27,47 @@ Do not use this skill for:
 - A `patch` (`0.0.61` → `0.0.62`) and a `minor` (`0.1.0` → `0.2.0`) reuse the same key and the new version sees the same merchant content. A `major` (`0.x` → `5.x`) changes the key. The new major starts with **zero merchant content** even if the theme code is otherwise identical.
 - When `vtex.pages-graphql` cannot find content for the active major, it falls back to the default `vtex.store-theme` content. The site visibly degrades to "VTEX default theme" content even though the customer's app is installed and rendering.
 - Avoid `vtex release major` on a content-holding app whenever possible. Prefer keeping changes within the current major as `patch` or `minor` so merchant content carries forward automatically.
-- When a major bump is unavoidable because of a structural change to blocks, routes, or templates, treat it as a **content rebuild**. The new major needs the merchant content to be re-authored under it before it goes live. There is no developer-side restore path for the previous major's content.
-- Always install and validate a new theme major in a **dev workspace with the production flag** (`vtex use rollout-workspace --production`) before promoting. Linking is not enough: `vtex link` does not exercise published artifacts and does not produce the same content-key behavior as `vtex install` + `vtex workspace promote`.
-- Use the dev workspace as the place to **rebuild Site Editor content under the new major** (Site Editor edits, routes, custom pages, banners). Site Editor content is workspace-scoped, so edits made in the dev workspace will be promoted with `vtex workspace promote`.
-- Treat `vtex workspace promote` as the atomic cutover. Smoke-test the dev workspace's full page set (home, PDP, PLP, department, search, custom routes, account, checkout entry) before promoting. If the dev workspace is broken, master will be broken.
-- Verify that the version published to the Apps Registry matches the source you expect. A common failure pattern is publishing a stripped-down boilerplate by mistake — the registry version installs cleanly, but it does not contain the custom blocks the existing Site Editor content references.
+- When a major bump is unavoidable because of a structural change to blocks, routes, or templates, **migrate the merchant content from the old major to the new major** with the `updateThemeIds` mutation in `vtex.pages-graphql@2.x` before promoting. The mutation rekeys all Site Editor edits, Pages, and Redirects from `vendor.app@{oldMajor}.x` to `vendor.app@{newMajor}.x` in one operation. This is the official developer-accessible recovery surface; do not assume content has to be re-authored manually.
+- Always install and validate a new theme major in a **production-flag dev workspace** (`vtex use rollout-workspace --production`, which both creates and switches to the workspace in one step) before promoting. Linking is not enough: `vtex link` does not exercise published artifacts and does not produce the same content-key behavior as `vtex install` + `vtex workspace promote`.
+- Run `updateThemeIds` against `vtex.pages-graphql@2.x` from the GraphQL Admin IDE (`vtex install vtex.admin-graphql-ide@3.x`, then `vtex browse admin/graphql-ide`) inside the production-flag dev workspace, after `vtex install` of the new major and before `vtex workspace promote`. Site Editor, Pages, and Redirects in that workspace will then resolve under the new major and be carried with the workspace at promote time.
+- Treat `vtex workspace promote` as the atomic cutover. Smoke-test the dev workspace's full page set (home, PDP, PLP, department, search, custom routes, account, checkout entry) after running `updateThemeIds`. If the dev workspace is broken, master will be broken.
+- Verify that the version published to the Apps Registry matches the source you expect. A common failure pattern is publishing a stripped-down boilerplate by mistake — the registry version installs cleanly, but it does not contain the custom blocks the existing Site Editor content references. `updateThemeIds` cannot fix a missing-block problem; it only rekeys existing content.
+- The same `updateThemeIds` step is required when **downgrading** to a previous major (for example `5.x` → `4.x`). The mutation moves content in either direction across MAJOR boundaries.
 
 ## Hard constraints
 
-### Constraint: Major version bumps on content-holding apps require a content rebuild before promote
+### Constraint: Major version bumps on content-holding apps require an `updateThemeIds` migration before promote
 
-A `vtex release major` (or any version change that crosses the `MAJOR.x` boundary) on an app that owns Store Framework content MUST NOT be promoted to `master` without first rebuilding the merchant content under the new major in a production-flag dev workspace. The new major starts empty from `vtex.pages-graphql`'s point of view; promoting it to `master` without re-authoring the content makes the storefront fall back to default theme content for every page that depended on Site Editor edits.
+A `vtex release major` (or any version change that crosses the `MAJOR.x` boundary) on an app that owns Store Framework content MUST NOT be promoted to `master` without first migrating merchant content from the old major to the new major in a production-flag dev workspace, using the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`. The new major starts empty from `vtex.pages-graphql`'s point of view; promoting it to `master` without running `updateThemeIds` makes the storefront fall back to default theme content for every page that depended on Site Editor edits.
 
 **Why this matters**
 
-`vtex.pages-graphql` keys every merchant-owned route, template, and Site Editor edit by `vendor.app@MAJOR.x:template`. A patch and minor bump preserve the key; a major bump invalidates it. After a major bump, every Site Editor change the merchant ever saved is no longer visible to the resolver, and the storefront falls back to default `vtex.store-theme` content. Developers do not have a self-service restore path for the previous major's content, so the only safe path forward is to recreate the content under the new major before it is exposed to shoppers.
+`vtex.pages-graphql` keys every merchant-owned route, template, Site Editor edit, and Page/Redirect entry by `vendor.app@MAJOR.x:template`. A patch and minor bump preserve the key; a major bump invalidates it. After a major bump, every Site Editor change the merchant ever saved is no longer visible to the resolver under the new major, and the storefront falls back to default `vtex.store-theme` content. The official developer-accessible fix is the `updateThemeIds` mutation, which rekeys all Site Editor edits, Pages, and Redirects from the old major to the new one in a single operation. Skipping it (or assuming developers must re-author content manually) leaves the storefront degraded for shoppers.
 
 **Detection**
 
-Before running any `vtex install vendor.app@X.Y.Z` on a production account, compare `X` to the major currently installed (`vtex ls --production | grep store-theme`). If `X` differs, STOP. Require an explicit content-rebuild plan in a production-flag dev workspace before continuing.
+Before running any `vtex install vendor.app@X.Y.Z` on a production account, compare `X` to the major currently installed (`vtex ls --production | grep store-theme`). If `X` differs, STOP. Require the `updateThemeIds` migration to be executed in a production-flag dev workspace, after the new major is installed and before promote.
 
-Also STOP if a developer is about to run `vtex release major` on an app that ships any of: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`. Confirm the structural change cannot be modeled as a `patch` or `minor` first.
+Also STOP if a developer is about to run `vtex release major` on an app that ships any of: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`. Confirm the structural change cannot be modeled as a `patch` or `minor` first; if the major is unavoidable, plan the `updateThemeIds` step explicitly.
 
 **Correct**
 
 ```bash
-vtex workspace create theme-rollout --production
-vtex use theme-rollout --production
+vtex use theme-rollout --production            # creates and switches to a production-flag dev workspace
 vtex install acme.store-theme@5.0.0
-# 1. open the storefront in this workspace
-# 2. recreate every Site Editor edit, route, banner, and custom page under the new major
-# 3. smoke-test the workspace end-to-end
-# 4. only then:
+vtex install vtex.admin-graphql-ide@3.x        # required to access the GraphQL IDE
+vtex browse admin/graphql-ide
+# In the IDE, select the app `vtex.pages-graphql@2.x` from the dropdown and run:
+#
+# mutation {
+#   updateThemeIds(
+#     from: "acme.store-theme@0.x",
+#     to:   "acme.store-theme@5.x"
+#   )
+# }
+#
+# Expected response: { "data": { "updateThemeIds": true } }
+# Validate Site Editor, Pages, and Redirects in this workspace, then:
 vtex workspace promote
 ```
 
@@ -87,9 +96,9 @@ If a developer's command sequence runs `vtex install` while the active workspace
 **Correct**
 
 ```bash
-vtex workspace create theme-rollout-2026-04 --production
-vtex use theme-rollout-2026-04 --production
+vtex use theme-rollout-2026-04 --production    # creates and switches to a production-flag dev workspace
 vtex install acme.store-theme@5.3.5
+# if this install crosses a MAJOR boundary, run updateThemeIds before smoke tests.
 # fetch home, PDP, PLP, search, custom routes from $workspace--$account.myvtex.com
 # only after smoke tests pass:
 vtex workspace promote
@@ -113,7 +122,7 @@ A common failure pattern is publishing from a stripped-down repository or from a
 
 **Detection**
 
-If the published version was built from a repository that does not contain the custom blocks the active theme references, STOP. Either rebuild from the correct source or treat this install as a major change requiring a full content rebuild.
+If the published version was built from a repository that does not contain the custom blocks the active theme references, STOP. Republish from the correct source. The `updateThemeIds` migration only rekeys content; it cannot resolve missing block IDs, so a stripped-down artifact will still fall back to default content even after a successful migration.
 
 **Correct**
 
@@ -141,25 +150,34 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
    - patch  → bug fix, no block contract change
    - minor  → new optional block, backward-compatible additions
    - major  → ANY structural change that breaks an existing block contract
-              (avoid when possible; requires a content rebuild)
+              (avoid when possible; requires the updateThemeIds migration)
 
 2. vtex release [patch|minor|major]
    vtex publish
 
-3. Create a production-flag dev workspace
-   vtex workspace create theme-rollout-YYYY-MM-DD --production
+3. Switch to a production-flag dev workspace
+   (vtex use both creates and switches in one step)
    vtex use theme-rollout-YYYY-MM-DD --production
 
 4. Install the new version in the dev workspace
    vtex install vendor.app@X.Y.Z
 
-5. If the bump is major:
-   - open the storefront for the dev workspace
-   - re-author every Site Editor change, route, banner, and custom page
-     under the new major (Site Editor changes are workspace-scoped and
-     will be promoted with the workspace)
-   - if the bump is patch/minor, the existing content carries over and
-     this step is unnecessary
+5. If the bump crosses a MAJOR boundary (including downgrades such as 5.x → 4.x):
+   a. vtex install vtex.admin-graphql-ide@3.x   (if not already installed)
+   b. vtex browse admin/graphql-ide
+   c. In the IDE, select the app `vtex.pages-graphql@2.x` from the dropdown
+   d. Run:
+        mutation {
+          updateThemeIds(
+            from: "{appVendor}.{appName}@{oldMajor}.x",
+            to:   "{appVendor}.{appName}@{newMajor}.x"
+          )
+        }
+      Keep the literal "x" in both keys; do not replace it with a minor or
+      patch number or the mutation silently fails.
+   e. Expected response: { "data": { "updateThemeIds": true } }
+   If the bump is patch or minor inside the same major, skip this step —
+   content keys are preserved automatically.
 
 6. Smoke-test in the dev workspace against the full page set
    - $workspace--$account.myvtex.com/             (home)
@@ -168,6 +186,7 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
    - $workspace--$account.myvtex.com/<dept>       (department)
    - $workspace--$account.myvtex.com/<search>?_q  (search)
    - any /institucional/* or other custom routes
+   - VTEX Admin → Storefront → Site Editor, Pages, Redirects
    - account, login, cart, checkout entry
 
 7. If anything is wrong: stop. Do not promote. Investigate.
@@ -185,19 +204,29 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
 Recommended emergency rollback after a broken major install on `master`:
 
 ```text
-1. vtex workspace create rollback-YYYY-MM-DD --production
-2. vtex use rollback-YYYY-MM-DD --production
-3. vtex install vendor.store-theme@<previous major version>
-4. Re-author the merchant content under the previous major in this
-   workspace (the previous major's stored content is no longer the
-   active version on master, so treat this as a content rebuild even
-   though it is the previous code)
-5. Smoke-test the rollback workspace end-to-end
-6. vtex workspace promote
+1. vtex use rollback-YYYY-MM-DD --production
+   (vtex use both creates and switches; there is no `vtex workspace create`)
+2. vtex install vendor.store-theme@<previous major version>
+3. If the rollback crosses a MAJOR boundary (it almost always does), run
+   updateThemeIds in vtex.pages-graphql@2.x to migrate stored Site Editor
+   edits, Pages, and Redirects from the broken major back to the previous
+   major:
 
-If the time required to re-author content is unacceptable, escalate to
-VTEX support. Self-service recovery of previously stored merchant content
-is not part of the developer surface.
+     mutation {
+       updateThemeIds(
+         from: "{appVendor}.{appName}@{brokenMajor}.x",
+         to:   "{appVendor}.{appName}@{previousMajor}.x"
+       )
+     }
+
+4. Smoke-test the rollback workspace end-to-end (storefront pages and
+   VTEX Admin → Storefront → Site Editor, Pages, Redirects).
+5. vtex workspace promote
+
+If updateThemeIds returns false, the GraphQL IDE shows an error, or
+content does not appear after migration, escalate to VTEX support
+before promoting; do not promote a workspace whose Site Editor content
+has not been validated.
 ```
 
 Recommended way to think about content-key behavior:
@@ -212,28 +241,33 @@ Major bump
    acme.store-theme @ 0.0.61  →  5.0.0
    storage key prefix changes: acme.store-theme@0.x:*  →  acme.store-theme@5.x:*
    the new major starts empty from the resolver's point of view
-   merchant content must be re-authored under @5.x before promote
+   run updateThemeIds in vtex.pages-graphql@2.x inside the production-flag
+   dev workspace to rekey Site Editor edits, Pages, and Redirects from
+   acme.store-theme@0.x to acme.store-theme@5.x, then promote
 ```
 
 ## Common failure modes
 
-- Running `vtex release major` on a theme to "clean up" the version number, not realizing it requires a full content rebuild before promote.
+- Running `vtex release major` on a theme to "clean up" the version number, not realizing it requires the `updateThemeIds` migration before promote.
 - Installing a new theme major directly on `master` because the dev workspace "looked the same".
-- Publishing from a forked repository that does not contain the custom blocks the active theme depends on.
+- Publishing from a forked repository that does not contain the custom blocks the active theme depends on. `updateThemeIds` rekeys content but cannot resolve missing block IDs.
 - Treating `vtex link` as equivalent to `vtex install` for content-holding apps. `link` does not exercise the published artifact resolution path or the major-keyed content lookup.
 - Running `vtex workspace promote` from a workspace that was never smoke-tested end-to-end.
-- Promoting a major bump without re-authoring the merchant content in the dev workspace first, so the storefront goes live with default `vtex.store-theme` content for every page that previously depended on Site Editor edits.
+- Promoting a major bump without running `updateThemeIds` first, so the storefront goes live with default `vtex.store-theme` content for every page that previously depended on Site Editor edits.
+- Reaching for a non-existent `vtex workspace create` command. The CLI creates a workspace as a side effect of `vtex use {workspaceName} --production`; that single command both creates and switches.
+- Replacing the literal `x` in `updateThemeIds` arguments with a minor or patch number (`acme.store-theme@5.0.0` instead of `acme.store-theme@5.x`). The mutation requires the major-with-x form and silently no-ops otherwise.
+- Running `updateThemeIds` against the wrong app in the GraphQL IDE dropdown. The mutation only exists in `vtex.pages-graphql@2.x`.
 - Trusting the public domain to confirm a fix immediately after promotion. CloudFront serves stale content; use `?utm_source=<value>` or another cache-busting parameter to bypass the edge during validation.
-- Assuming there is a developer-accessible way to restore the previous major's merchant content. Recovery is a content rebuild in a workspace; there is no self-service restore path.
+- Forgetting that downgrades (for example `5.x` → `4.x`) also cross a MAJOR boundary and need their own `updateThemeIds` run before promote.
 
 ## Review checklist
 
 - [ ] Is the proposed version bump correctly classified as patch, minor, or major against SemVer rules?
-- [ ] If the bump crosses a major boundary, is there a documented content-rebuild plan in a production-flag dev workspace?
-- [ ] Is the install going to a production-flag dev workspace first, never directly to `master`?
-- [ ] If the bump is major, has every Site Editor change, route, banner, and custom page been re-authored in the dev workspace under the new major before promote?
+- [ ] If the bump crosses a major boundary, is there a documented `updateThemeIds` migration step in the production-flag dev workspace (in either direction, including downgrades)?
+- [ ] Is the install going to a production-flag dev workspace first (`vtex use $name --production`), never directly to `master`?
+- [ ] If the bump is major, has `updateThemeIds` been run against `vtex.pages-graphql@2.x` from the GraphQL Admin IDE, and has the response been `{ "updateThemeIds": true }`?
 - [ ] Has the published artifact been verified to contain the custom blocks the active theme depends on?
-- [ ] Has the dev workspace been smoke-tested across home, PDP, PLP, department, search, custom routes, account, and checkout entry?
+- [ ] Has the dev workspace been smoke-tested across home, PDP, PLP, department, search, custom routes, account, checkout entry, and the Storefront module (Site Editor, Pages, Redirects)?
 - [ ] Is the dev workspace retained for at least one business day after promotion in case a fast re-promote is needed?
 
 ## Related skills
@@ -249,5 +283,7 @@ Major bump
 - [Versioning an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-versioning-an-app) — `vtex release` and the SemVer rules that decide whether a bump preserves or invalidates downstream content keys.
 - [Publishing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-publishing-an-app) — How `vtex publish` produces the artifact installed by `vtex install`.
 - [Installing an App](https://developers.vtex.com/docs/guides/vtex-io-documentation-installing-an-app) — Workspace scope of `vtex install` and why dev workspaces must be production-flag for realistic testing.
-- [Workspaces](https://developers.vtex.com/docs/guides/vtex-io-documentation-workspaces) — Production vs development workspaces, `vtex workspace promote`, and the master cutover model.
+- [Creating a Production Workspace](https://developers.vtex.com/docs/guides/vtex-io-documentation-creating-a-production-workspace) — `vtex use {workspaceName} --production` is the single command that both creates and switches to a production-flag workspace.
+- [Promoting a Workspace to Master](https://developers.vtex.com/docs/guides/vtex-io-documentation-promoting-a-workspace-to-master) — `vtex workspace promote` as the atomic cutover from a production-flag dev workspace to `master`.
+- [Migrating CMS settings after a major theme update](https://developers.vtex.com/docs/guides/vtex-io-documentation-migrating-cms-settings-after-major-update) — Official procedure for the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`, including the GraphQL IDE setup and the literal `MAJOR.x` argument format.
 - [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) — Why theme apps own `store/` content and how Store Framework consumes it at render time.

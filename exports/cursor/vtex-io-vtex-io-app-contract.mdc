@@ -140,11 +140,11 @@ If the app ships any of `store/blocks.json`, `store/routes.json`, `store/templat
 
 **Why this matters**
 
-`vtex.pages-graphql` keys merchant content by `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, none of the previously authored content is visible to the resolver under the active major key, and the storefront falls back to default `vtex.store-theme` content until the merchant content is re-authored under the new major. There is no developer-side restore for the previous major's content; the only safe path is to recreate the content in a production-flag dev workspace before promoting.
+`vtex.pages-graphql` keys merchant content by `vendor.app@MAJOR.x:template`. A patch and a minor bump preserve the key. A major bump changes it. After the major bump, none of the previously authored content is visible to the resolver under the active major key, and the storefront falls back to default `vtex.store-theme` content. The official recovery path is the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`, executed in a production-flag dev workspace after installing the new major and before promoting; it rekeys all Site Editor edits, Pages, and Redirects from the old major to the new one.
 
 **Detection**
 
-Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit content-rebuild plan in a production-flag dev workspace. The same rule applies before installing any new MAJOR of such an app on a production account.
+Before approving `vtex release major` on an app whose manifest declares `"store"` in `builders` (or that ships any file under `store/`), STOP and require an explicit `updateThemeIds` migration plan in a production-flag dev workspace. The same rule applies before installing any new MAJOR of such an app on a production account.
 
 **Correct**
 
@@ -157,14 +157,17 @@ vtex release minor
 **Wrong**
 
 ```bash
-# major bump on a content-holding app makes every Site Editor edit invisible
-# to the resolver until the content is re-authored under the new major
+# major bump on a content-holding app installed straight to master:
+# every Site Editor edit becomes invisible to the resolver and the
+# storefront falls back to default vtex.store-theme content. The fix
+# is to install the new major in a production-flag dev workspace and
+# run updateThemeIds in vtex.pages-graphql@2.x before promote.
 vtex release major
 vtex publish
 vtex install acme.store-theme@5.0.0
 ```
 
-See `vtex-io-storefront-theme-versioning` for the safe install, smoke-test, promote, and rollback flow for content-holding apps.
+See `vtex-io-storefront-theme-versioning` for the safe install, `updateThemeIds` migration, smoke-test, promote, and rollback flow for content-holding apps.
 
 ### Constraint: Dependencies and peerDependencies must express installation intent correctly
 
