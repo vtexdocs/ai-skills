@@ -5806,6 +5806,419 @@ async function proactiveRateManagement(
 
 ---
 
+# Master Data Storage & Schema Design
+
+# Master Data storage strategy
+
+## When this skill applies
+
+Use this skill **before creating any new Master Data entity** or when auditing existing usage. It helps you answer:
+
+- Is Master Data the **right** storage for this data, or would Catalog, OMS, VBase, or an external database serve better?
+- How should I design the **JSON Schema** for performance and security?
+- Which fields should I **index** (`v-indexed`), and which should I **not**?
+- Should I enable or disable **caching** (`v-cache`)?
+- Do I need **triggers** (`v-triggers`), or is an event-driven IO approach better?
+- How do I plan for **capacity** and **lifecycle** of schemas and documents?
+
+Do not use this skill for:
+
+- VTEX IO app integration patterns (MasterDataClient, `masterdata` builder, CRUD in code) — use `vtex-io-masterdata`
+- Performance patterns for IO services (LRU, VBase caching layers) — use `vtex-io-application-performance`
+
+## Decision rules
+
+### When to use Master Data
+
+Master Data is a good fit when **all** of the following are true:
+
+1. **Document-oriented access** — Your data is naturally key-value or document-shaped (JSON documents with variable schemas). You query by indexed fields and retrieve full or partial documents.
+2. **Platform-integrated** — You benefit from VTEX-native features: `v-triggers` for automated workflows, `v-security` for per-field public access, `v-indexed` for search/filter, and the `masterdata` builder for schema-as-code.
+3. **Moderate volume** — Your entity will hold thousands to low millions of documents. MD handles this well with proper indexing.
+4. **Not on the purchase critical path** — MD is not optimized for sub-10ms latency. Synchronous MD reads in checkout/cart/payment flows risk conversion if MD is slow.
+5. **No better native fit** — The data doesn't belong in Catalog (product/SKU attributes), OMS (order data), CL/AD (customer profiles/addresses), or VBase (app-specific cache/state).
+
+### When NOT to use Master Data
+
+| Data type                          | Better storage                                     | Why                                                        |
+| ---------------------------------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| Product attributes, specifications | **Catalog** (specifications, unstructured specs)   | Native indexing, search integration, catalog APIs          |
+| Order data, order history          | **OMS** (via OMS APIs + BFF cache)                 | Single source of truth; duplicating to MD creates drift    |
+| Customer profiles, addresses       | **CL/AD native entities**                          | Platform-managed, already indexed and cached               |
+| App-specific cache or temp state   | **VBase**                                          | Designed for per-app ephemeral storage, no schema overhead |
+| Application logs, debug traces     | **`ctx.vtex.logger`**                              | Structured logging infrastructure, not a database          |
+| High-throughput time-series data   | **External database** (SQL, NoSQL, time-series DB) | MD is not designed for millions of writes/day              |
+| Relational data with joins         | **External SQL database**                          | MD has no join support; denormalize or use a relational DB |
+| Data requiring strong consistency  | **External database**                              | MD is eventually consistent for indexed fields             |
+
+### Schema design principles
+
+- **One entity per concept** — Don't mix unrelated data in a single entity. Each entity should represent a clear business concept (e.g. `reviews`, `wishlists`, `legacyOrders`).
+- **Index what you query** — Only fields in `v-indexed` can be used in `where` clauses. But **don't over-index**: each indexed field increases write latency and storage because the index is updated on every document change.
+- **Minimal `v-default-fields`** — Return only the fields most consumers need by default. Large default payloads waste bandwidth.
+- **`v-cache` matches the workload** — Leave `true` (default) for read-heavy entities. Set to `false` for entities with high write frequency where consumers need immediate consistency after writes.
+- **`v-security` is explicit** — Set `allowGetAll: false` unless unauthenticated list access is intentional. Use `publicRead`, `publicWrite`, `publicFilter` only for fields that must be accessible without authentication.
+
+### VTEX schema extensions (`v-*` fields) — reference
+
+Master Data v2 extends standard JSON Schema with `v-*` properties that control indexing, caching, security, defaults, triggers, and schema inheritance. These are **VTEX-specific**; standard JSON Schema validators ignore them.
+
+#### `v-indexed`
+
+Array of field names that Master Data will create secondary indexes for.
+
+- **Only** indexed fields can appear in `where` clauses for `searchDocuments` and `scrollDocuments`. Queries on non-indexed fields trigger **full document scans** that time out on large datasets.
+- Each index is updated on **every** document write. Over-indexing increases write latency and storage cost proportionally.
+- **When to index**: fields used in `where` filters, sort expressions, or `publicFilter`. **When not to index**: large text fields (`description`, `notes`), fields never queried, or fields only read by document ID (indexing adds no benefit for `getDocument`).
+
+```json
+{ "v-indexed": ["email", "status", "createdAt"] }
+```
+
+#### `v-cache`
+
+Boolean (default `true`). Controls whether Master Data caches GET responses for individual documents.
+
+- **`true` (default)** — Read-heavy entities benefit from caching. Most entities should leave this as default.
+- **`false`** — Use for entities with **high write frequency** where consumers need **fresh reads** immediately after writes (e.g. real-time counters, configuration flags, session-like state).
+
+```json
+{ "v-cache": false }
+```
+
+#### `v-default-fields`
+
+Array of field names returned when the caller does **not** specify a `fields` parameter in the API request.
+
+- Keep this **minimal** — only the fields most consumers need by default.
+- Reduces payload size for common queries.
+
+```json
+{ "v-default-fields": ["email", "status", "score", "createdAt"] }
+```
+
+#### `v-security`
+
+Object controlling **unauthenticated** (public) access to fields. By default, all fields require authentication.
+
+| Property       | Type       | Description                                                                                                   |
+| -------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| `allowGetAll`  | `boolean`  | If `true`, unauthenticated users can list all documents. **Default `false`; keep it off unless intentional.** |
+| `publicRead`   | `string[]` | Fields readable without authentication                                                                        |
+| `publicWrite`  | `string[]` | Fields writable without authentication                                                                        |
+| `publicFilter` | `string[]` | Fields usable in `where` clauses without authentication (must also be in `v-indexed`)                         |
+
+```json
+{
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "displayName", "rating"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**Never** include PII (email, phone, addresses), internal IDs, or business-sensitive data in `publicRead` or `publicFilter`.
+
+#### `v-triggers`
+
+Array of trigger objects that define automated actions executed when documents are created or updated and meet specified conditions.
+
+| Property          | Type      | Description                                                                       |
+| ----------------- | --------- | --------------------------------------------------------------------------------- |
+| `name`            | `string`  | Unique trigger name                                                               |
+| `active`          | `boolean` | Enable/disable the trigger                                                        |
+| `condition`       | `string`  | `where`-style filter (e.g. `"approved=false"`, `"status=pending AND priority>3"`) |
+| `action.type`     | `string`  | `"email"`, `"http"` (webhook), or `"action"`                                      |
+| `action.provider` | `string`  | Email provider name (for email type)                                              |
+| `action.uri`      | `string`  | Webhook URL (for http type)                                                       |
+| `action.method`   | `string`  | HTTP method for webhook (for http type)                                           |
+| `retry.times`     | `number`  | Retry count on failure                                                            |
+| `retry.delay`     | `object`  | Delay between retries (e.g. `{ "addMinutes": 5 }`)                                |
+
+```json
+{
+  "v-triggers": [
+    {
+      "name": "notify-on-creation",
+      "active": true,
+      "condition": "status=new",
+      "action": {
+        "type": "email",
+        "provider": "default",
+        "subject": "New record: {{title}}",
+        "to": ["admin@mystore.com"],
+        "body": "Record {{id}} created by {{author}}"
+      },
+      "retry": { "times": 3, "delay": { "addMinutes": 5 } }
+    },
+    {
+      "name": "webhook-on-approval",
+      "active": true,
+      "condition": "approved=true",
+      "action": {
+        "type": "http",
+        "uri": "https://my-integration.example.com/webhook",
+        "method": "POST",
+        "headers": { "X-Custom-Header": "value" }
+      },
+      "retry": { "times": 2, "delay": { "addMinutes": 10 } }
+    }
+  ]
+}
+```
+
+#### `v-canonicalto`
+
+URL pointing to another schema in the **same** entity for **schema inheritance**. The current schema inherits properties and constraints from the target.
+
+```json
+{
+  "v-canonicalto": "https://{host}/api/dataentities/{entity}/schemas/{base-schema}"
+}
+```
+
+#### `additionalProperties`
+
+Standard JSON Schema property, but worth noting: set to `false` to **reject** fields not declared in `properties`. By default Master Data preserves extra fields without validation.
+
+## Hard constraints
+
+### Constraint: Index only fields used in where clauses or sort expressions
+
+Every field in `v-indexed` creates a secondary index that is updated on **every** document write. Indexing fields that are never queried wastes write throughput and storage.
+
+**Why this matters** — Over-indexing a high-write entity (e.g. indexing 15 fields when only 3 are queried) can double or triple write latency. On entities with millions of documents, unnecessary indexes also increase storage costs.
+
+**Detection** — Compare `v-indexed` fields with actual `where` clauses in the codebase. Any indexed field not referenced in a `where` or sort is likely unnecessary.
+
+**Correct** — Index only the fields you filter or sort on.
+
+```json
+{
+  "properties": {
+    "email": { "type": "string" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "notes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "createdAt"]
+}
+```
+
+**Wrong** — Indexing every field "just in case."
+
+```json
+{
+  "properties": {
+    "email": { "type": "string" },
+    "status": { "type": "string" },
+    "score": { "type": "integer" },
+    "notes": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "v-indexed": ["email", "status", "score", "notes", "createdAt"]
+}
+```
+
+### Constraint: Do not expose sensitive fields via v-security publicRead
+
+The `v-security.publicRead` array makes fields accessible **without any authentication**. Never include PII (email, phone, addresses), internal IDs, or business-sensitive data in this list.
+
+**Why this matters** — Public fields are accessible to anyone with the entity name and a document ID or search query. Exposing PII violates data protection regulations and creates security vulnerabilities.
+
+**Detection** — Check `v-security.publicRead` and `publicFilter` for fields containing user data, internal references, or anything that should require authentication.
+
+**Correct** — Expose only non-sensitive, display-oriented fields.
+
+```json
+{
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": ["status", "displayName", "rating"],
+    "publicWrite": [],
+    "publicFilter": ["status"]
+  }
+}
+```
+
+**Wrong** — Exposing PII and internal fields publicly.
+
+```json
+{
+  "v-security": {
+    "allowGetAll": true,
+    "publicRead": ["email", "phone", "cpf", "internalScore", "organizationId"],
+    "publicWrite": ["email"],
+    "publicFilter": ["email", "phone"]
+  }
+}
+```
+
+### Constraint: Respect the 60-schema-per-entity limit
+
+Master Data v2 entities have a hard limit of **60 schemas**. The `masterdata` builder creates a **new schema per app version** linked or installed. Once the limit is reached, new versions fail to deploy.
+
+**Why this matters** — During active development with frequent `vtex link` cycles, schemas accumulate quickly. Hitting the limit blocks deployment until old schemas are manually deleted.
+
+**Detection** — Apps with many link/publish cycles. Check schema count via `GET /api/dataentities/{entity}/schemas`.
+
+**Correct** — Periodically clean up unused schemas. Automate cleanup in CI/CD.
+
+```bash
+# List schemas to identify stale ones
+curl "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/schemas" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+
+# Delete unused schemas
+curl -X DELETE "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/schemas/{old-schema}" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+```
+
+**Wrong** — Never cleaning up schemas during development until the limit blocks deployment.
+
+## Preferred pattern
+
+### Complete schema example with all VTEX extensions
+
+```json
+{
+  "$schema": "http://json-schema.org/schema#",
+  "title": "product-review-v1",
+  "type": "object",
+  "properties": {
+    "productId": { "type": "string" },
+    "author": { "type": "string" },
+    "email": { "type": "string", "format": "email" },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "title": { "type": "string", "maxLength": 200 },
+    "text": { "type": "string", "maxLength": 5000 },
+    "approved": { "type": "boolean" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["productId", "rating", "title", "text"],
+  "v-indexed": ["productId", "approved", "rating", "createdAt"],
+  "v-default-fields": [
+    "productId",
+    "author",
+    "rating",
+    "title",
+    "approved",
+    "createdAt"
+  ],
+  "v-cache": true,
+  "v-security": {
+    "allowGetAll": false,
+    "publicRead": [
+      "productId",
+      "author",
+      "rating",
+      "title",
+      "text",
+      "approved"
+    ],
+    "publicWrite": [],
+    "publicFilter": ["productId", "approved", "rating"]
+  },
+  "v-triggers": [
+    {
+      "name": "notify-moderator",
+      "active": true,
+      "condition": "approved=false",
+      "action": {
+        "type": "email",
+        "provider": "default",
+        "subject": "New review pending moderation",
+        "to": ["moderator@mystore.com"],
+        "body": "Review for product {{productId}} by {{author}}: {{title}}"
+      },
+      "retry": {
+        "times": 3,
+        "delay": { "addMinutes": 5 }
+      }
+    }
+  ]
+}
+```
+
+### Triggers: when to use and when not to
+
+**Use triggers when:**
+
+- You need email notifications on document changes (e.g. moderation alerts)
+- You need to call an external webhook when a document meets a condition
+- The action is simple, fire-and-forget, and doesn't need complex error handling
+
+**Do NOT use triggers when:**
+
+- You need complex orchestration, retries with backoff, or error recovery — use IO events instead
+- You need sub-second response to changes — triggers have built-in delay
+- The action modifies other MD entities in a chain — risk of cascading trigger loops
+- You need conditional logic more complex than a `where`-style filter
+
+### Document counting without full fetch
+
+Use the `REST-Content-Range` header to get document counts efficiently:
+
+```bash
+# Count documents without fetching them
+curl "https://{account}.vtexcommercestable.com.br/api/dataentities/{entity}/search?_fields=id" \
+  -H "REST-Range: resources=0-0" \
+  -H "X-VTEX-API-AppKey: {key}" -H "X-VTEX-API-AppToken: {token}"
+# Response header: REST-Content-Range: resources 0-0/12345
+# The number after "/" is the total document count
+```
+
+### Search vs Scroll
+
+| Use               | When                                                 | Max page size      |
+| ----------------- | ---------------------------------------------------- | ------------------ |
+| `searchDocuments` | Bounded result sets, UI pagination, known small size | 100 per page       |
+| `scrollDocuments` | Large exports, bulk operations, unbounded iteration  | Configurable batch |
+
+## Common failure modes
+
+- **Over-indexing** — Indexing 10+ fields on a high-write entity. Every write updates all indexes, increasing latency and storage.
+- **Missing indexes** — Querying on non-indexed fields triggers full scans. Works in dev with 100 docs, times out in production with 100k.
+- **`v-cache: false` by default** — Disabling cache on read-heavy entities forces every GET to hit the database. Only disable for high-write entities.
+- **`allowGetAll: true` with PII** — Unauthenticated users can list all documents including sensitive data.
+- **Schema accumulation** — 60 schemas from development cycles blocks production deployments.
+- **Trigger chains** — Trigger A modifies entity B, which has a trigger that modifies entity A — infinite loop.
+- **MD as a log store** — Entities growing unboundedly with traffic volume. Use `ctx.vtex.logger` instead.
+- **MD on critical path** — Synchronous MD read in checkout with no timeout or fallback.
+
+## Review checklist
+
+- [ ] Has a **storage fit review** been done? (MD vs Catalog vs OMS vs VBase vs external DB)
+- [ ] Are **only queried fields** in `v-indexed`? No unnecessary indexes?
+- [ ] Is `v-cache` set appropriately for the entity's read/write ratio?
+- [ ] Does `v-security` restrict public access to non-sensitive fields only?
+- [ ] Is `allowGetAll` set to `false` unless explicitly needed?
+- [ ] Are triggers simple and non-chaining? No risk of trigger loops?
+- [ ] Is there a **schema cleanup** strategy for the 60-schema limit?
+- [ ] Is the entity **off** the purchase critical path (checkout, cart, payment)?
+- [ ] For large datasets (100k+ docs), is `scrollDocuments` used instead of paginated search?
+- [ ] Are `v-default-fields` minimal (not returning everything by default)?
+
+## Related skills
+
+- [vtex-io-masterdata](../../../vtex-io/skills/vtex-io-masterdata/skill.md) — IO app integration: MasterDataClient, `masterdata` builder, CRUD patterns
+- [vtex-io-application-performance](../../../vtex-io/skills/vtex-io-application-performance/skill.md) — Caching layers and BFF patterns when exposing MD data
+- [architecture-well-architected-commerce](../../../architecture/skills/architecture-well-architected-commerce/skill.md) — Cross-cutting storage and architecture principles
+
+## Reference
+
+- [Working with JSON Schemas in Master Data v2](https://developers.vtex.com/docs/guides/working-with-json-schemas-in-master-data-v2) — v-indexed, v-cache, v-security, v-triggers configuration
+- [Master Data v2 Basics](https://developers.vtex.com/docs/guides/master-data-v2-basics) — Core concepts and data model
+- [Master Data Schema Lifecycle](https://developers.vtex.com/docs/guides/master-data-schema-lifecycle) — Schema versioning and the 60-schema limit
+- [Setting Up Triggers on Master Data v2](https://developers.vtex.com/docs/guides/setting-up-triggers-on-master-data-v2) — Trigger configuration and patterns
+- [Master Data v2 API Reference](https://developers.vtex.com/docs/api-reference/master-data-api-v2#overview) — Complete API specification
+- [Master Data v2 Document Saving Flow](https://developers.vtex.com/docs/guides/master-data-v2-document-saving-flow) — Validation, indexing, and trigger execution order
+
+---
+
 # Payment Connector Development
 
 # Asynchronous Payment Flows & Callbacks
@@ -7818,7 +8231,7 @@ async settle(settlement: SettlementRequest) {
 ```json
 {
   "builders": {
-    "node": "6.x",
+    "node": "7.x",
     "paymentProvider": "1.x"
   },
   "policies": [
@@ -8581,14 +8994,14 @@ Documentation: https://beta.fast.store/sales-app/setting-up
 
 ## Decision rules
 
-Follow the mandatory 6-step workflow in order. Do not skip steps.
+Follow the mandatory 7-step workflow (Steps 0–6) in order. Do not skip steps.
 
 | Step | Purpose | Gate |
 |------|---------|------|
 | 0 | Check prerequisites | FastStore + Sales App installed → proceed; otherwise STOP |
 | 1 | Discovery | Understand what the user wants to build |
 | 2 | Requirements & Plan | Map requirements → generate plan → **wait for user approval** |
-| 3 | Code Generation & Validation | Generate component + CSS + index.tsx → validate |
+| 3 | Code Generation & Validation | Generate `Component.tsx` + `Component.css` (plain CSS, never `.module.css`) + `index.tsx` → validate |
 | 4 | Documentation | Generate `docs/<ExtensionName>.md` explaining the extension |
 | 5 | Local Testing | Provide dev commands and URLs |
 | 6 | Build & Deploy | Build command → deployment guide |
@@ -8709,55 +9122,6 @@ const { item } = useCartItem();
 return <div>{item.name}</div>;
 ```
 
-### Constraint: Never expose authentication keys in frontend code
-
-API keys in `fetch` headers are visible in the browser network tab.
-
-**Why this matters**
-Leaked keys compromise the external service.
-
-**Detection**
-Literal auth header values in `fetch()`: `'x-api-key': '...'`, `'Authorization': 'Bearer ...'`.
-
-**Correct**
-
-```typescript
-const response = await fetch('/_v/my-api/data', {
-  credentials: 'include',
-  headers: { 'Content-Type': 'application/json' },
-});
-```
-
-**Wrong**
-
-```typescript
-const response = await fetch('https://api.example.com/data', {
-  headers: { 'x-api-key': 'sk-secret-key-12345' },
-});
-```
-
-### Constraint: IO Proxy must use relative paths only
-
-The Sales App internal proxy resolves the domain automatically.
-
-**Why this matters**
-A full URL bypasses the proxy, breaking session cookies and causing CORS errors.
-
-**Detection**
-`fetch('https://{account}.myvtex.com/...')` in IO proxy components.
-
-**Correct**
-
-```typescript
-await fetch('/_v/my-loyalty-api/points', { credentials: 'include' });
-```
-
-**Wrong**
-
-```typescript
-await fetch('https://myaccount.myvtex.com/_v/my-loyalty-api/points');
-```
-
 ### Constraint: defineExtensions is required in index.tsx
 
 Entry point must use `defineExtensions` from `@vtex/sales-app`.
@@ -8829,22 +9193,6 @@ defineExtensions({ 'cart.cart-item.after': ItemWarranty });
 defineExtensions({ 'pdp.sidebar.after': ItemWarranty });
 ```
 
-### Constraint: Always present execution plan and wait for approval
-
-Do not generate code until the user confirms the plan.
-
-**Why this matters**
-Generating without agreement wastes effort and may produce the wrong extension.
-
-**Detection**
-Jumping from discovery to code generation without presenting a plan.
-
-**Correct**
-Discovery → Requirements → Present plan → **User approves** → Generate code.
-
-**Wrong**
-Discovery → Generate code immediately.
-
 ## Preferred pattern
 
 ### Workflow overview
@@ -8853,61 +9201,19 @@ Discovery → Generate code immediately.
 
 **Step 1** — Discovery. Detect use case from keywords, ask follow-up questions, determine API auth strategy. If the user provides API documentation (URL, OpenAPI/Swagger file, Markdown, or inline text), ingest it to extract endpoint details and response shapes — skip the equivalent manual questions. Validate extracted information with the user. Load the [discovery reference](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) for detailed question flows and the API Documentation Ingestion section.
 
-**Step 2** — Map requirements to extension point + hooks + template. Present plan. Wait for approval.
+**Step 2** — Map requirements to extension point + hooks + template. Present plan listing the files to be created: `components/<ComponentName>.tsx`, `components/<ComponentName>.css` (plain CSS — **never** `.module.css`), and `index.tsx`. Wait for approval.
 
-**Step 3** — Generate component, CSS, and index.tsx. Validate against the 10-point checklist. If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Load the [code templates reference](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) for all template patterns, the type generation rules, the custom fetch hook pattern, and the [types reference](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) for hook return types and TypeScript definitions.
+**Step 3** — Generate `<ComponentName>.tsx`, `<ComponentName>.css` (plain CSS, **never** `.module.css`), and `index.tsx`.
 
-**Step 4** — Generate documentation file at `docs/<ExtensionName>.md` inside the Sales App package. Create the `docs/` folder if it does not exist. The document must contain:
+Required references for this step (load before generating):
+- [code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) — all component templates, the CSS template (with the full Sales App design system inlined: tokens, typography, spacing, responsive), the `index.tsx` template, type generation rules, and the custom fetch hook pattern.
+- [extension-points-hooks-and-types.md](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) — hook return types and TypeScript definitions.
+- [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`. Run these checks on all generated files.
+- [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) — load when the extension renders any UI text (sentence case rule) or uses icons (Phosphor Icons).
 
-1. **Extension name** — title matching the component name.
-2. **Overview** — one-paragraph summary of what the extension does and why it was built.
-3. **Extension point** — which extension point it registers on (e.g., `cart.cart-list.after`) and why that point was chosen.
-4. **Hooks used** — list each hook (`useCart`, `usePDP`, etc.) with a brief explanation of what data it provides to this extension.
-5. **Component structure** — description of the component tree, props, and state management.
-6. **Styling** — CSS module file name and summary of key classes.
-7. **API integration** (if applicable) — endpoint, auth strategy (IO Proxy or direct), request/response shape.
-   - **Source documentation:** URL or file path of the original API documentation, if provided.
-   - **Generated types:** list of TypeScript interfaces generated from the API documentation.
-   - Note which fields are optional (`?`) vs required per the documentation.
-8. **How to test** — dev server command and URL to reach the extension.
-9. **Known constraints** — any guards, edge cases, or limitations (e.g., `useCartItem().item` may be undefined).
+If API documentation was ingested in Step 1, generate TypeScript interfaces from the extracted response shapes and use them in the component instead of the `${DATA_INTERFACE}` placeholder. If the extension calls 2+ endpoints, extract fetch logic into custom hook(s). Validate against the 12-point checklist in code-templates-and-patterns.md. Fix all violations before presenting code; surface warnings to the user.
 
-Template for the documentation file:
-
-````markdown
-# <ExtensionName>
-
-## Overview
-<One-paragraph description of the extension purpose and value.>
-
-## Extension point
-- **Point:** `<extension.point.name>`
-- **Rationale:** <Why this extension point was selected.>
-
-## Hooks used
-| Hook | Purpose |
-|------|---------|
-| `useCart` | <What data it provides here> |
-
-## Component structure
-<Describe the component tree, key props, and internal state.>
-
-## Styling
-- **File:** `<ComponentName>.module.css`
-- <Summary of key CSS classes and design decisions.>
-
-## API integration
-- **Endpoint:** `/_v/...`
-- **Auth strategy:** IO Proxy / Direct / None
-- **Request/Response:** <Brief shape description.>
-
-## How to test
-Run `yarn fsp dev {account}` and navigate to `https://{account}.myvtex.com/sales-app/...` to verify the extension renders.
-
-## Known constraints
-- <Guard or limitation 1>
-- <Guard or limitation 2>
-````
+**Step 4** — Generate `docs/<ExtensionName>.md` inside the Sales App package (create the `docs/` folder if needed). Load the [documentation template reference](sales-app-sales-app-extensibility-ref-documentation-template.md) for the required 9-section structure and the markdown skeleton to fill in.
 
 **Step 5** — Provide local dev commands and test URLs. Load the [dev/build/deploy reference](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md).
 
@@ -8920,48 +9226,47 @@ Load these on demand based on what the task requires. Do not load all of them up
 | File | Load when… |
 |------|-----------|
 | [references/extension-points-hooks-and-types.md](sales-app-sales-app-extensibility-ref-extension-points-hooks-and-types.md) | Choosing an extension point, selecting hooks, looking up TypeScript types (`CartItem`, `ProductSku`, `Totalizers`, `Attachment`), or checking hook return values and availability per extension point |
-| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; CSS module pattern; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
+| [references/code-templates-and-patterns.md](sales-app-sales-app-extensibility-ref-code-templates-and-patterns.md) | Generating extension code — simple, hook, API, IO Proxy, or Direct Auth templates; **CSS template with the full Sales App design system inlined (tokens, typography, spacing, responsive)**; `index.tsx` with `defineExtensions`; hook initialization; validation checklist |
 | [references/discovery-and-use-cases.md](sales-app-sales-app-extensibility-ref-discovery-and-use-cases.md) | Running Step 1 (Discovery) — use case detection keywords, follow-up questions, API auth decision tree, IO Proxy vs Direct Auth flow |
 | [references/local-dev-build-and-deploy.md](sales-app-sales-app-extensibility-ref-local-dev-build-and-deploy.md) | Running Steps 5–6 — dev server commands, test URLs, build command, common build errors, FastStore WebOps deployment, monitoring, rollback |
+| [references/static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) | Validating generated code (Step 3) — sandbox security, CSS containment, and React performance rules from `@vtex/fsp-analyzer`; full rule catalog with violation IDs, detection patterns, and correct/wrong examples |
+| [references/design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md) | Writing UI text (sentence case rule) or using icons (Phosphor Icons). **CSS-related design rules — tokens, typography, spacing, responsive — are inlined directly in the CSS template inside code-templates-and-patterns.md, so this file is not needed for CSS generation.** |
+| [references/documentation-template.md](sales-app-sales-app-extensibility-ref-documentation-template.md) | Writing the `docs/<ExtensionName>.md` file in Step 4 — the 9-section structure and markdown skeleton |
 
 ## Common failure modes
 
-- **Returning null instead of empty fragment** — `return null` not allowed; use `return (<></>)`. Build fails.
-- **Accessing item.manualPrice without guard** — TypeScript "possibly undefined" error. Use `??`.
-- **Using useCartItem outside cart.cart-item.after** — Hook context only exists there. Runtime error.
-- **Hardcoding auth tokens in frontend fetch** — Keys visible in browser. Use VTEX IO proxy.
-- **Using full URL with IO Proxy** — Bypasses internal proxy. Use relative path `/_v/...`.
-- **Placing code outside packages/sales-app/src/** — Not included in build.
-- **Missing defineExtensions in index.tsx** — Extension compiles but never renders.
-- **Skipping prerequisite checks** — Generating code without FastStore/Sales App installed.
-- **Not presenting plan** — User may want a different approach. Always confirm.
-- **Invented extension point names** — `cart.list.after` instead of `cart.cart-list.after` fails silently.
-- **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Future developers won't understand the extension's purpose, hooks, or constraints.
+- **Skipping prerequisite checks** — Generating code without FastStore/Sales App installed. Always confirm both before Step 1.
+- **Not presenting plan** — User may want a different approach. Always confirm at Step 2 before generating code.
+- **Skipping documentation** — Extension generated without `docs/<ExtensionName>.md`. Load documentation-template.md for the required structure.
 - **Inventing API response types** — Generated interface doesn't match actual API. If documentation was provided, derive types from it; if not, ask the user for a sample JSON response.
 - **Ignoring provided API documentation** — User provided a URL or file but agent asked manual questions anyway. Always check for documentation first and use the API Documentation Ingestion flow.
 - **Inline fetch with 2+ endpoints** — Multiple `fetch` calls inside the component body. Extract into custom hook(s) in `hooks/use{Purpose}.ts`.
+- **Placing code outside packages/sales-app/src/** — Files outside this path are not included in the build.
+
+> Code-level violations (DOM APIs, Node imports, eval, CSS containment, React performance, design tokens) are enforced by `@vtex/fsp-analyzer` and caught during Step 3 validation. See [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) and [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md).
 
 ## Review checklist
 
+**Workflow gates**
 - [ ] FastStore installed (biome.json, faststore.json, package.json, tsconfig.json, turbo.json)?
 - [ ] Sales App module installed (src/, package.json, tsconfig.json in sales-app directory)?
 - [ ] Discovery completed and use case identified?
 - [ ] Execution plan approved by user?
 - [ ] Extension point is valid (from the 8-point reference)?
 - [ ] Hooks compatible with chosen extension point?
-- [ ] Component returns JSX.Element, never null?
-- [ ] Optional properties guarded (manualPrice, productRefId, attachments)?
-- [ ] useCartItem().item checked for undefined?
-- [ ] No auth credentials exposed in frontend code?
-- [ ] IO Proxy uses relative path (/_v/...)?
-- [ ] defineExtensions configured in index.tsx?
-- [ ] CSS file path matches component name?
-- [ ] Documentation generated at `docs/<ExtensionName>.md`?
-- [ ] Documentation covers overview, extension point, hooks, structure, and constraints?
+- [ ] Documentation generated at `docs/<ExtensionName>.md` (9 sections, using documentation-template.md)?
 - [ ] If API documentation was provided, TypeScript interfaces match the documented response shape?
 - [ ] If 2+ API endpoints used, fetch logic extracted into custom hook(s) in `hooks/`?
 - [ ] Build passes: `yarn fsp build {account} sales-app`?
 - [ ] Tested locally: `yarn fsp dev {account}`?
+
+**TypeScript / runtime guards** (not caught by fsp-analyzer)
+- [ ] Component returns JSX.Element, never null?
+- [ ] Optional properties guarded (manualPrice, productRefId, attachments)?
+- [ ] useCartItem().item checked for undefined?
+- [ ] defineExtensions configured in index.tsx?
+
+> All other code-level rules (sandbox APIs, CSS containment, React performance, design tokens) are enforced by `@vtex/fsp-analyzer` and checked during Step 3. See [static-analysis-rules.md](sales-app-sales-app-extensibility-ref-static-analysis-rules.md) and [design-guidelines.md](sales-app-sales-app-extensibility-ref-design-guidelines.md).
 
 ## Related skills
 
@@ -9848,7 +10153,7 @@ Do not use this skill for:
 - **Parallel requests** — When resolvers need **independent** upstream calls, run them **in parallel**; combine only when outputs depend on each other.
 - **Timeouts on every outbound call** — Every `ctx.clients` call and external HTTP request **must** have an explicit **timeout**. Use `@vtex/api` client options (`timeout`, `retries`, `exponentialTimeoutCoefficient`) to tune per-client behavior. Unbounded waits are the top cause of cascading failures in distributed systems.
 - **Graceful degradation** — When an upstream is slow or down, **fail open** where the business allows (return cached/default data, skip optional enrichment) rather than blocking the response. Consider **circuit breaker** patterns for chronically failing dependencies.
-- **Never cache real-time transactional state** — **Order forms**, **cart simulations**, **payment responses**, **full session state**, and **commitment pricing** must never be served from cache. They reflect live, mutable state that changes on every interaction. Caching these creates stale prices, phantom inventory, or duplicate charges.
+- **Be deliberate with transactional data caching** — **Payment responses** and **active transaction state** must **never** be cached. For other transactional data (**order forms**, **cart simulations**, **session state**), the default is no cache, but **short-lived** caches (TTL < 5 min) can be acceptable when the consumer tolerates brief staleness. Confirm the use case explicitly before caching—long TTLs on transactional data create stale prices, phantom inventory, or inconsistent state.
 - **Resolver chain deduplication** — When a resolver chain calls the **same** client method **multiple times** (e.g. `getCostCenter` in the resolver and again inside a helper), **deduplicate**: call once, pass the result through, or stash in `ctx.state`. Serial waterfalls of 7+ calls that could be 3 parallel + 1 sequential are the top performance sink.
 - **Phased `Promise.all`** — Group independent calls into **parallel phases**. Phase 1: `Promise.all([getOrderForm(), getCostCenter(), getSession()])`. Phase 2 (depends on Phase 1): `getSkuMetadata()`. Phase 3 (depends on Phase 2): `generatePrice()`. Never `await` six calls sequentially when only two depend on each other.
 - **Batch mutations** — When setting multiple values (e.g. `setManualPrice` per cart item), use `Promise.all` instead of a sequential loop. Each `await` in a loop adds a full round-trip.
@@ -9866,11 +10171,11 @@ Do not use this skill for:
 - **`timeout`** — Maximum seconds before the platform kills a request. Set based on the longest expected operation; do not leave at the default if your resolver calls slow upstreams.
 - **`memory`** — MB per worker. Increase if LRU caches or large payloads cause OOM; monitor actual usage before over-provisioning.
 - **`workers`** — Concurrent request handlers per replica. More workers handle more concurrent requests but each shares the memory budget and in-process LRU.
-- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling. For payment-critical or high-throughput apps, set `minReplicas >= 2` so cold starts don't hit production traffic.
+- **`minReplicas` / `maxReplicas`** — Controls horizontal scaling under load. Note: **all pods scale to zero** when the app receives no requests for the duration of its `ttl` (max 60 minutes). `minReplicas` only governs the floor while traffic exists—it does **not** keep pods alive indefinitely. Design for cold starts: first request after idle spins up a new pod, so keep LRU warm-up cost low and avoid relying on in-memory state surviving idle periods.
 
 ### Tenancy and in-memory caches
 
-IO runs **per app version per shard**, with pods **shared across accounts**: every request is still resolved in **`{account, workspace}`** context. **VBase**, app buckets, and related platform stores **partition data** by account/workspace. **In-process** LRU/module `Map` **does not**—you must **key** explicitly with **`ctx.vtex.account`** and **`ctx.vtex.workspace`** (plus entity id) so **two** consecutive requests for **different** accounts on the **same pod** cannot read each other’s entries.
+Pods **can** be shared across accounts, but **every request is always scoped** to a specific **`{account, workspace}`** by the platform—`ctx.vtex.account` and `ctx.vtex.workspace` are set by the runtime, not by the developer. All platform APIs (**VBase**, app buckets, Master Data, etc.) **automatically partition data** by account/workspace, so their responses are tenant-safe by design. The **only** risk is **in-process** state: LRU caches, module-level `Map`s, or global variables that **you** manage—these are **not** partitioned by the platform and must be **keyed** explicitly with **`ctx.vtex.account`** and **`ctx.vtex.workspace`** (plus entity id) so **two** consecutive requests for **different** accounts on the **same pod** cannot read each other’s entries.
 
 ## Hard constraints
 
@@ -9897,52 +10202,69 @@ function cacheKey(ctx: Context, subjectId: string) {
 
 When VBase serves as an **idempotency store** (e.g. payment connectors storing transaction state) or a **data-integrity store**, writes **must** be **awaited**. Fire-and-forget writes risk silent failure: a successful upstream operation (e.g. a charge) whose VBase record is lost causes a **duplicate** on the next retry.
 
-**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization, the connector cannot find the previous result and sends **another** payment request—causing a **duplicate charge**.
+For **payment connectors**, the first line of defense is the **acquirer/gateway idempotency feature**: pass the **VTEX `paymentId`** as the idempotency key to the external payment provider (e.g. via an `Idempotency-Key` HTTP header). This ensures the provider itself rejects duplicate charges even if VBase state is lost. VBase remains essential for local state tracking and for returning the correct response to VTEX Gateway retries, but the external idempotency key prevents the worst outcome (double charge) at the provider level.
 
-**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution.
+**Why this matters** — VTEX Gateway **retries** payment calls with the same `paymentId`. If VBase write fails silently after a successful authorization and the acquirer has no idempotency key, the connector sends **another** payment request—causing a **duplicate charge**. With the acquirer idempotency key in place, the provider rejects the duplicate; without it, VBase is the only safeguard.
 
-**Correct** — Await the write; accept the latency cost for correctness.
+**Detection** — A VBase `saveJSON` or `saveOrUpdate` call **without** `await` in a payment, settlement, refund, or any flow where the stored value is the **only** record preventing re-execution. Also check whether the external payment call includes an idempotency key header.
+
+**Correct** — Use acquirer idempotency key **and** await VBase writes.
 
 ```typescript
-// Critical path: await guarantees the idempotency record is persisted
+const { paymentId } = authorization
+
+// Pass VTEX paymentId as idempotency key to the acquirer
+const response = await ctx.clients.paymentProvider.authorize(paymentData, {
+  headers: { 'Idempotency-Key': paymentId },
+})
+
+// Await VBase write for local state tracking
 await ctx.clients.vbase.saveJSON<Transaction>('transactions', paymentId, transactionData)
 return Authorizations.approve(authorization, { ... })
 ```
 
-**Wrong** — Fire-and-forget in a payment flow.
+**Wrong** — No acquirer idempotency key and fire-and-forget VBase write.
 
 ```typescript
-// No await — if this fails silently, the next retry creates a duplicate charge
+const { paymentId } = authorization
+// No idempotency key to the acquirer + no await on VBase
+const response = await ctx.clients.paymentProvider.authorize(paymentData)
 ctx.clients.vbase.saveJSON('transactions', paymentId, transactionData)
 return Authorizations.approve(authorization, { ... })
 ```
 
-### Constraint: Do not cache real-time transactional data
+### Constraint: Be deliberate when caching transactional or near-real-time data
 
-**Order forms**, **cart simulation responses**, **payment statuses**, **full session state**, and **commitment prices** must **never** be served from LRU, VBase, or any cache layer. They reflect live mutable state.
+**Payment statuses** and **active transaction state** must **never** be cached—they are strictly real-time. For other transactional data like **order forms**, **cart simulations**, and **session state**, the default is **no cache**, but **short-lived caches** (e.g. 1–5 minutes) can be acceptable when the use case tolerates brief staleness. This is a **case-by-case** decision: explicitly confirm that the consumer can handle stale data for the chosen TTL before caching.
 
-**Why this matters** — Serving a cached order form shows phantom items, stale prices, or wrong quantities. Caching payment responses could return a previous transaction's status for a different payment. Caching cart simulations returns stale availability and pricing.
+**Why this matters** — Serving a cached order form may show phantom items or stale prices. Caching payment responses could return a previous transaction's status. However, for read-heavy scenarios where the same data is requested repeatedly within seconds (e.g. a product listing page fetching simulation data for multiple components), a short-lived cache can dramatically reduce load on upstream APIs without meaningful user impact.
 
-**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching. Or a resolver that caches the result of `checkout.orderForm()`.
+**Detection** — LRU or VBase keys like `orderForm:{id}`, `cartSim:{hash}`, `paymentResponse:{id}`, or `session:{token}` used for read-through caching **without** an explicit TTL decision or justification. Long TTLs (>5 min) on transactional data are almost always wrong. Any cache on payment responses or active transaction state is wrong.
 
-**Correct** — Always call the live API for transactional data; cache **reference data** (org, cost center, config, seller lists) around it.
+**Correct** — Separate reference data (always cache) from transactional data (default no cache, short TTL only with explicit justification).
 
 ```typescript
 // Reference data: cached (changes rarely)
-const costCenter = await getCostCenterCached(ctx, costCenterId)
-const sellerList = await getSellerListCached(ctx)
+const costCenter = await getCostCenterCached(ctx, costCenterId);
+const sellerList = await getSellerListCached(ctx);
 
-// Transactional data: always live
-const orderForm = await ctx.clients.checkout.orderForm()
-const simulation = await ctx.clients.checkout.simulation(payload)
+// Transactional data: default live, but short cache is acceptable if justified
+const orderForm = await ctx.clients.checkout.orderForm();
+const simulation = await ctx.clients.checkout.simulation(payload);
+
+// Acceptable: short-lived cache for a read-heavy page (e.g. simulation results
+// reused across multiple components within the same page render, TTL < 60s)
+// Only after confirming staleness is acceptable for this specific consumer.
 ```
 
-**Wrong** — Caching the order form or cart simulation.
+**Wrong** — Long-lived cache on transactional data, or any cache on payment state.
 
 ```typescript
-const cacheKey = `orderForm:${orderFormId}`
-const cached = orderFormCache.get(cacheKey)
-if (cached) return cached // Stale cart state served to user
+// Never cache payment responses or transaction status
+const paymentCache = lru({ max: 1000, ttl: 300_000 });
+
+// Avoid: long TTL on order form without explicit justification
+const orderFormCache = lru({ max: 500, ttl: 600_000 }); // 10 min is too long
 ```
 
 ### Constraint: Do not block the purchase path on slow or unbounded cache refresh
@@ -9970,62 +10292,62 @@ if (cached) return cached // Stale cart state served to user
 
 ```typescript
 // BEFORE: 7 sequential awaits, 2 duplicate calls
-const settings = await getAppSettings(ctx)          // 1
-const session = await getSessions(ctx)               // 2
-const costCenter = await getCostCenter(ctx, ccId)    // 3
-const orderForm = await getOrderForm(ctx)            // 4
-const skus = await getSkuById(ctx, skuIds)           // 5
-const price = await generatePrice(ctx, costCenter)   // 6 (calls getCostCenter AGAIN + getSession AGAIN)
+const settings = await getAppSettings(ctx); // 1
+const session = await getSessions(ctx); // 2
+const costCenter = await getCostCenter(ctx, ccId); // 3
+const orderForm = await getOrderForm(ctx); // 4
+const skus = await getSkuById(ctx, skuIds); // 5
+const price = await generatePrice(ctx, costCenter); // 6 (calls getCostCenter AGAIN + getSession AGAIN)
 for (const item of items) {
-  await setManualPrice(ctx, item)                    // 7, 8, 9... (sequential loop)
+  await setManualPrice(ctx, item); // 7, 8, 9... (sequential loop)
 }
 
 // AFTER: 3 phases, no duplicates, parallel mutations
-const settings = await getAppSettings(ctx)
+const settings = await getAppSettings(ctx);
 const [session, costCenter, orderForm] = await Promise.all([
   getSessions(ctx),
   getCostCenter(ctx, ccId),
   getOrderForm(ctx),
-])
-const skus = await getSkuMetadataBatch(ctx, skuIds)  // per-entity VBase cache
-const price = await generatePrice(ctx, costCenter, session)  // reuse, no re-fetch
-await Promise.all(items.map(item => setManualPrice(ctx, item)))
+]);
+const skus = await getSkuMetadataBatch(ctx, skuIds); // per-entity VBase cache
+const price = await generatePrice(ctx, costCenter, session); // reuse, no re-fetch
+await Promise.all(items.map((item) => setManualPrice(ctx, item)));
 ```
 
 ### Per-entity VBase caching
 
 ```typescript
 interface SkuMetadata {
-  skuId: string
-  mappedSku: string | null
-  isSpecialItem: boolean
+  skuId: string;
+  mappedSku: string | null;
+  isSpecialItem: boolean;
 }
 
 async function getSkuMetadataBatch(
   ctx: Context,
   skuIds: string[],
 ): Promise<Map<string, SkuMetadata>> {
-  const { vbase, search } = ctx.clients
-  const results = new Map<string, SkuMetadata>()
+  const { vbase, search } = ctx.clients;
+  const results = new Map<string, SkuMetadata>();
 
   // Phase 1: check VBase for each SKU in parallel
   const lookups = await Promise.allSettled(
-    skuIds.map(id => vbase.getJSON<SkuMetadata>('sku-metadata', `sku:${id}`))
-  )
+    skuIds.map((id) => vbase.getJSON<SkuMetadata>("sku-metadata", `sku:${id}`)),
+  );
 
-  const missing: string[] = []
+  const missing: string[] = [];
   lookups.forEach((result, i) => {
-    if (result.status === 'fulfilled' && result.value) {
-      results.set(skuIds[i], result.value)
+    if (result.status === "fulfilled" && result.value) {
+      results.set(skuIds[i], result.value);
     } else {
-      missing.push(skuIds[i])
+      missing.push(skuIds[i]);
     }
-  })
+  });
 
-  if (missing.length === 0) return results
+  if (missing.length === 0) return results;
 
   // Phase 2: fetch only missing SKUs from API
-  const products = await search.getSkuById(missing)
+  const products = await search.getSkuById(missing);
 
   // Phase 3: cache ALL sibling SKUs (prewarm)
   for (const product of products) {
@@ -10034,14 +10356,16 @@ async function getSkuMetadataBatch(
         skuId: sku.itemId,
         mappedSku: extractMapping(sku),
         isSpecialItem: checkSpecial(sku),
-      }
-      results.set(sku.itemId, metadata)
+      };
+      results.set(sku.itemId, metadata);
       // Fire-and-forget for prewarming (not idempotency-critical)
-      vbase.saveJSON('sku-metadata', `sku:${sku.itemId}`, metadata).catch(() => {})
+      vbase
+        .saveJSON("sku-metadata", `sku:${sku.itemId}`, metadata)
+        .catch(() => {});
     }
   }
 
-  return results
+  return results;
 }
 ```
 
@@ -10053,7 +10377,7 @@ async function getSkuMetadataBatch(
 - **Serial awaits** — Three **independent** Janus calls **awaited** one after another; total latency = sum of all instead of max.
 - **Duplicate calls in resolver chains** — `getCostCenter` called in the resolver and again inside a helper; `getSession` called twice in the same flow. Each duplicate adds a full round-trip.
 - **Blob VBase keys** — Keying VBase by `sortedCartSkuIds` means adding 1 item to a cart of 10 requires a full re-fetch instead of 1 lookup.
-- **Caching transactional data** — Order forms, cart simulations, payment responses served from cache; stale prices, phantom items, or duplicate charges.
+- **Long-lived cache on transactional data** — Order forms or cart simulations cached with long TTLs without explicit justification; payment responses or transaction state cached at all.
 - **Fire-and-forget writes in critical paths** — Unawaited VBase writes for idempotency stores; silent failure causes duplicates on retry.
 - **No explicit timeouts** — Relying on default or infinite timeouts for upstream calls; one slow dependency stalls the whole request chain.
 - **Global mutable singletons** — Module-level mutable objects (e.g. token cache metadata) modified by concurrent requests cause race conditions and incorrect behavior.
@@ -10072,7 +10396,7 @@ async function getSkuMetadataBatch(
 - [ ] Does every outbound call have an explicit **timeout** (via `@vtex/api` client options or equivalent)?
 - [ ] For unreliable upstreams, is there a **degradation** path (cached fallback, skip, circuit breaker)?
 - [ ] Are VBase writes **awaited** in financial or idempotency-critical paths?
-- [ ] Is **transactional data** (order form, cart sim, payment) always fetched live, never from cache?
+- [ ] Is **payment/transaction state** always fetched live? For other transactional data (order form, cart sim), is any cache **short-lived** with explicit justification?
 - [ ] Are VBase keys **per-entity** (not blob) for high-cardinality data like SKUs?
 - [ ] Are `service.json` resource limits (`timeout`, `memory`, `workers`, `replicas`) tuned for the workload?
 - [ ] Is logging done via `ctx.vtex.logger` (not `console.log`) with sensitive data redacted?
@@ -10083,7 +10407,7 @@ async function getSkuMetadataBatch(
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms (caching patterns apply inside transforms)
 - [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Clients, middleware, Service
 - [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL caching
-- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, policies
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, policies
 
 ## Reference
 
@@ -12215,6 +12539,18 @@ When importing, exporting, or migrating large datasets:
 - Use `searchDocuments` for bounded result sets (known small size, max page size 100). Use `scrollDocuments` for large/unbounded result sets.
 - The `masterdata` builder creates a new schema per app version. Clean up unused schemas to avoid the 60-schema-per-entity hard limit.
 
+### `v-*` schema extensions (v-indexed, v-cache, v-security, v-triggers, etc.)
+
+Master Data v2 extends standard JSON Schema with `v-*` properties that control indexing, caching, security, defaults, triggers, and schema inheritance. For the **complete reference** on each extension—when to use, when not to, and detailed configuration—see the [vtex-io-masterdata-strategy](../vtex-io-masterdata-strategy/skill.md) skill.
+
+The essentials for IO app development:
+
+- **`v-indexed`** — All fields used in `where` clauses **must** be listed here. Don't over-index; each index increases write latency.
+- **`v-cache`** — Leave `true` (default) for read-heavy entities. Set `false` for high-write entities needing immediate read consistency.
+- **`v-default-fields`** — Keep minimal. Controls what's returned when the caller omits `fields`.
+- **`v-security`** — Set `allowGetAll: false` and never expose PII in `publicRead`/`publicFilter`.
+- **`v-triggers`** — For simple automated actions (email, webhook). Use IO events for complex orchestration.
+
 MasterDataClient methods:
 
 | Method                              | Description                                          |
@@ -12462,10 +12798,10 @@ Entities used for application **logging**, **caching** (IO app state, query resu
 
 ```typescript
 // Logs: use structured logger
-ctx.vtex.logger.info({ action: 'priceUpdate', skuId, newPrice })
+ctx.vtex.logger.info({ action: "priceUpdate", skuId, newPrice });
 
 // Cache: use VBase
-await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
+await ctx.clients.vbase.saveJSON("my-cache", cacheKey, data);
 ```
 
 **Wrong**
@@ -12473,9 +12809,13 @@ await ctx.clients.vbase.saveJSON('my-cache', cacheKey, data)
 ```typescript
 // Using MD as a log store — creates millions of documents
 await ctx.clients.masterdata.createDocument({
-  dataEntity: 'appLogs',
-  fields: { level: 'info', message: `Price updated for ${skuId}`, timestamp: new Date() },
-})
+  dataEntity: "appLogs",
+  fields: {
+    level: "info",
+    message: `Price updated for ${skuId}`,
+    timestamp: new Date(),
+  },
+});
 ```
 
 ### Constraint: Do not create a parallel source of truth in Master Data without justification
@@ -12765,6 +13105,7 @@ export default new Service<Clients, RecorderState, ParamsContext>({
 
 ## Related skills
 
+- [vtex-io-masterdata-strategy](../vtex-io-masterdata-strategy/skill.md) — When to use MD, `v-*` schema extensions reference, indexing strategy, triggers, capacity planning
 - [vtex-io-application-performance](../vtex-io-application-performance/skill.md) — IO performance patterns (cache layers, BFF-facing behavior)
 - [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Public vs private routes for MD-backed APIs
 - [vtex-io-session-apps](../vtex-io-session-apps/skill.md) — Session transforms that may read from or complement MD-stored state
@@ -13437,6 +13778,265 @@ Use observability to shorten diagnosis time, not just to create more logs.
 
 ---
 
+# VTEX IO access control (RBAC)
+
+## When this skill applies
+
+Use this skill when you need to **control who can access** your VTEX IO app's routes and resources:
+
+- Deciding between **role-based** (`policies.json`) and **resource-based** (`service.json` policies) access control
+- Securing **REST endpoints** so only specific apps, users, or API keys can call them
+- Setting up **GraphQL authorization** with the `@auth` directive
+- Understanding **VRN** (VTEX Resource Name) syntax for declaring principals
+- Debugging **403 Forbidden** errors caused by missing or misconfigured policies
+
+Do not use this skill for:
+
+- General service architecture (use `vtex-io-service-apps`)
+- PCI compliance and payment security (use `payment-pci-security`)
+- Route prefix and CDN behavior (use `vtex-io-service-paths-and-cdn`)
+
+## Decision rules
+
+### Role-based vs resource-based policies
+
+|                            | Role-based (`policies.json`)                                            | Resource-based (`service.json` policies)                                   |
+| -------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Who can call?**          | Only other IO apps (by themselves or on behalf of other apps)           | Apps, users, and integrations (API keys)                                   |
+| **API types**              | GraphQL and REST                                                        | REST only                                                                  |
+| **How callers get access** | Must declare required policies in their `manifest.json`                 | No policy declaration needed; just call with auth token                    |
+| **Where configured**       | `policies.json` in app root                                             | `policies` array inside route definition in `service.json`                 |
+| **Use when**               | Exposing GraphQL endpoints; exposing REST endpoints for app-to-app only | Controlling access for users, API keys, or specific apps to REST endpoints |
+
+### Choosing the right approach
+
+- **GraphQL endpoints** → Use **role-based** policies (`policies.json`) **and/or** the **`@auth` directive** in the schema for user-level authorization.
+- **REST endpoint called only by other IO apps** → Use **role-based** policies (`policies.json`). Consuming apps must declare the policy in their `manifest.json`.
+- **REST endpoint called by users or API keys** → Use **resource-based** policies in `service.json`. Set the route as `"public": false` and define principals.
+- **Public REST endpoint (no auth)** → Set `"public": true` in `service.json`. No policies needed, but be aware this means **anyone** can call it.
+
+### VRN syntax
+
+VRNs (VTEX Resource Names) identify resources and principals:
+
+```text
+vrn:{service}:{region}:{account}:{workspace}:{path}
+```
+
+- **Apps**: `vrn:apps:*:*:*:app/{vendor}.{app-name}@{version}`
+- **Users**: `vrn:vtex.vtex-id:*:*:*:user/{email}`
+- **API keys**: `vrn:vtex.vtex-id:*:*:*:user/vtexappkey-{account}-{hash}`
+- **Wildcards**: `*` matches any value in a segment. `app/*` matches all apps. `user/*@gmail.com` matches all Gmail users.
+
+## Hard constraints
+
+### Constraint: Use resource-based policies when users or API keys need access
+
+Role-based policies only work for **app-to-app** communication. If users (admin or storefront) or integrations (API keys) need to call your endpoint, you **must** use resource-based policies in `service.json` with the route set to `"public": false`.
+
+**Why this matters** — Setting up a role-based policy for a route that users or API keys call results in 403 Forbidden for those callers, because role-based policies don't evaluate user/integration tokens.
+
+**Detection** — A private route that should be callable by admin users or external integrations, but only has `policies.json` configuration and no `policies` array in `service.json`.
+
+**Correct** — Resource-based policy in `service.json` for user/integration access.
+
+```json
+{
+  "routes": {
+    "orders": {
+      "path": "/_v/private/my-app/orders",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["GET", "POST"],
+          "principals": [
+            "vrn:vtex.vtex-id:*:*:*:user/*@mycompany.com",
+            "vrn:apps:*:*:*:app/partner.integration-app@*"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+**Wrong** — Only `policies.json` for a route that users need.
+
+```json
+// policies.json — this only covers app-to-app, not users
+[
+  {
+    "name": "access-orders",
+    "statements": [
+      {
+        "effect": "allow",
+        "actions": ["GET"],
+        "resources": ["vrn:my-app:*:*:*:/_v/private/my-app/orders"]
+      }
+    ]
+  }
+]
+// Users calling this route still get 403
+```
+
+### Constraint: Deny policies take precedence over allow policies
+
+When resource-based policies have overlapping principals between an `allow` and a `deny` rule, the **deny** always wins. Be careful with wildcards in allow rules that intersect with specific deny rules.
+
+**Why this matters** — A broad `allow` for `app/*` combined with a specific `deny` for `app/vendor.bad-app@*` correctly blocks `bad-app`. But the reverse—a broad `deny` with a specific `allow`—blocks everything including what you wanted to allow.
+
+**Detection** — Multiple policy entries for the same route with conflicting effects and overlapping principals.
+
+**Correct** — Allow broadly, deny specifically.
+
+```json
+{
+  "policies": [
+    {
+      "effect": "allow",
+      "actions": ["POST"],
+      "principals": ["vrn:apps:*:*:*:app/*"]
+    },
+    {
+      "effect": "deny",
+      "actions": ["POST"],
+      "principals": ["vrn:apps:*:*:*:app/untrusted.app@*"]
+    }
+  ]
+}
+```
+
+**Wrong** — Deny broadly, try to allow specifically (the allow is overridden).
+
+```json
+{
+  "policies": [
+    {
+      "effect": "deny",
+      "actions": ["POST"],
+      "principals": ["vrn:apps:*:*:*:app/*"]
+    },
+    {
+      "effect": "allow",
+      "actions": ["POST"],
+      "principals": ["vrn:apps:*:*:*:app/trusted.app@*"]
+    }
+  ]
+}
+```
+
+## Preferred pattern
+
+### Role-based policy (`policies.json`)
+
+```json
+[
+  {
+    "name": "resolve-graphql",
+    "description": "Allows apps to resolve GraphQL requests",
+    "statements": [
+      {
+        "effect": "allow",
+        "actions": ["POST"],
+        "resources": [
+          "vrn:vtex.store-graphql:{{region}}:{{account}}:{{workspace}}:/_v/graphql"
+        ]
+      }
+    ]
+  }
+]
+```
+
+The consuming app declares the policy in its `manifest.json`:
+
+```json
+{
+  "policies": [
+    {
+      "name": "resolve-graphql"
+    }
+  ]
+}
+```
+
+### Resource-based policy for mixed access
+
+```json
+{
+  "routes": {
+    "webhook": {
+      "path": "/_v/private/my-app/webhook",
+      "public": false,
+      "policies": [
+        {
+          "effect": "allow",
+          "actions": ["POST"],
+          "principals": [
+            "vrn:apps:*:*:*:app/vtex.orders-broadcast@*",
+            "vrn:vtex.vtex-id:*:*:*:user/vtexappkey-myaccount-*"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+### GraphQL `@auth` directive
+
+For GraphQL endpoints, use the `@auth` directive for user-level authorization:
+
+```graphql
+type Query {
+  orders: [Order] @auth(productCode: "10", resourceCode: "list-orders")
+  adminSettings: Settings
+    @auth(productCode: "10", resourceCode: "admin-settings")
+}
+
+type Mutation {
+  updateSettings(input: SettingsInput!): Settings
+    @auth(productCode: "10", resourceCode: "admin-settings")
+}
+```
+
+The `@auth` directive checks the caller's License Manager role for the specified `productCode` and `resourceCode`.
+
+## Common failure modes
+
+- **403 for users on role-based routes** — Route only has `policies.json`; users and API keys get 403 because role-based policies don't apply to them.
+- **Overly broad `public: true`** — Route set to public when it should be private. Anyone can call it without auth.
+- **Missing policy in consumer manifest** — App tries to call a role-based protected route but didn't declare the policy in its `manifest.json`. Results in 403.
+- **VRN typo** — Misspelled vendor, app name, or principal format in VRN. Silently fails to match, resulting in 403.
+- **Wildcard in deny** — Broad deny with `app/*` blocks all apps including trusted ones. Deny takes precedence.
+- **No `@auth` on GraphQL mutations** — Mutations that modify data accessible without role checks.
+
+## Review checklist
+
+- [ ] Is the access control type (role-based vs resource-based) correct for the callers (apps vs users/integrations)?
+- [ ] Are private routes set to `"public": false` with appropriate policies?
+- [ ] Are VRNs correctly formatted for the principal type (apps, users, API keys)?
+- [ ] Do consuming apps declare required role-based policies in their `manifest.json`?
+- [ ] Are deny rules used carefully (they override allow rules for intersecting principals)?
+- [ ] Do GraphQL mutations have `@auth` directives with correct `productCode` and `resourceCode`?
+- [ ] Are wildcard principals scoped as narrowly as possible?
+
+## Related skills
+
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Service class, clients, and route configuration
+- [vtex-io-app-contract](../vtex-io-app-contract/skill.md) — Manifest, builders, and policy declarations
+- [vtex-io-graphql-api](../vtex-io-graphql-api/skill.md) — GraphQL schema and `@auth` directive details
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefix patterns
+
+## Reference
+
+- [Controlling Access to App Resources](https://developers.vtex.com/docs/guides/controlling-access-to-app-resources) — Role-based and resource-based policies, VRN syntax, principal types
+- [App Authentication Using Auth Tokens](https://developers.vtex.com/docs/guides/app-authentication-using-auth-tokens) — Auth token types for app-to-app and user-to-app communication
+- [GraphQL Authorization in IO Apps](https://developers.vtex.com/docs/guides/graphql-authorization-in-io-apps) — @auth directive usage
+- [VTEX IO VRN](https://developers.vtex.com/docs/guides/vtex-io-documentation-vrn) — VTEX Resource Name format and examples
+
+---
+
 # Frontend React Components & Hooks
 
 ## When this skill applies
@@ -14103,6 +14703,237 @@ This wiring makes the block name visible in the theme, maps it to a real React e
 
 - [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) - Block and theme context
 - [Interfaces](https://developers.vtex.com/docs/guides/vtex-io-documentation-interface) — How `interfaces.json` maps block IDs to React components and how block IDs are namespaced by app major.
+
+---
+
+# VTEX IO rootPath for multi-binding stores
+
+## When this skill applies
+
+Use this skill when building VTEX IO apps that must work in stores with **multi-binding** configurations—typically **cross-border** stores where multiple bindings share a single domain with **path prefixes** (e.g. `store.com/us/`, `store.com/br/`, `store.com/mx/`).
+
+- Your app generates **URLs** (links, redirects, API endpoints, canonical URLs) that must include the binding's path prefix
+- Your app loads **assets** (images, scripts, stylesheets) that break when the store uses a sub-path binding
+- Your **backend routes** need to construct URLs for sitemaps, canonical links, or cross-binding references
+- You're debugging **404s** or **wrong links** that only appear in multi-binding stores but work fine in single-binding
+
+Do not use this skill for:
+
+- Single-binding stores with a dedicated domain per locale (no path prefix needed)
+- General IO backend patterns (use `vtex-io-service-apps`)
+- CDN/edge caching configuration (use `vtex-io-service-paths-and-cdn`)
+
+## Decision rules
+
+- **Single-domain multi-binding** (e.g. `store.com/us/`, `store.com/br/`) → `rootPath` is **required**. Every generated URL must be prefixed with the binding's root path.
+- **Multi-domain single-binding** (e.g. `store.us`, `store.com.br`) → `rootPath` is typically **empty** or `/`. URLs work without prefixing, but code should still handle `rootPath` gracefully (use it if non-empty, skip if empty).
+- **Backend (Node)** → The platform sends the binding's path prefix in the `x-vtex-root-path` request header. Your app needs an **early middleware** (typically called `prepare`) that reads this header, sanitizes it, and stores it on `ctx.state.rootPath`. Once set up, all downstream handlers read `ctx.state.rootPath` directly. The middleware must also set `Vary: x-vtex-root-path` so CDN caching works correctly per binding.
+- **Frontend (React)** → Use `useRuntime().rootPath` from `vtex.render-runtime` to get the current binding's path prefix in components.
+- **Always prefix, never hardcode** — Never hardcode a path prefix like `/us/`. Always use the runtime-provided `rootPath` so the same code works across all bindings.
+
+## Hard constraints
+
+### Constraint: Always use rootPath when constructing URLs in multi-binding stores
+
+Every URL your app generates—links, redirects, API endpoints, canonical URLs, sitemap entries—must include the `rootPath` prefix when the store uses path-based bindings.
+
+**Why this matters** — Without `rootPath`, a link to `/my-account/orders` in the `/br/` binding points to the wrong binding (or 404s). Sitemaps with unprefixed URLs break SEO by pointing search engines to the wrong locale. Redirects without the prefix send users to the default binding instead of their current one.
+
+**Detection** — URLs constructed as string literals (e.g. `/${slug}`) without prepending `rootPath`. Or `navigate()` calls that omit the `rootPath` prefix.
+
+**Correct** — Prepend rootPath (parsed by prepare middleware) to all generated paths.
+
+```typescript
+// Backend: use ctx.state.rootPath (parsed by prepare middleware)
+const { rootPath, forwardedHost } = ctx.state;
+
+const canonicalUrl = `https://${forwardedHost}${rootPath}/product/${slug}`;
+const sitemapEntry = `${rootPath}/${categoryPath}`;
+```
+
+```tsx
+// Frontend: use runtime hook
+import { useRuntime } from "vtex.render-runtime";
+
+const MyLink = ({ slug }: { slug: string }) => {
+  const { rootPath } = useRuntime();
+  return <a href={`${rootPath}/product/${slug}`}>View product</a>;
+};
+```
+
+**Wrong** — Hardcoded paths without rootPath.
+
+```typescript
+// Backend: missing rootPath — breaks in multi-binding
+const canonicalUrl = `https://${host}/product/${slug}`
+
+// Frontend: hardcoded path
+const MyLink = ({ slug }: { slug: string }) => {
+  return <a href={`/product/${slug}`}>View product</a>
+}
+```
+
+### Constraint: Sanitize rootPath to avoid double slashes
+
+When `rootPath` is `"/"` (single-binding or default binding), using it directly produces double slashes in URLs (e.g. `//product/shoes`). Normalize: if `rootPath === "/"`, treat it as `""`.
+
+**Why this matters** — Double slashes in URLs cause redirect loops, broken canonical URLs, and SEO penalties. Some CDN layers treat `//path` differently from `/path`.
+
+**Detection** — URL construction that concatenates `rootPath + "/" + path` without checking for `rootPath === "/"`.
+
+**Correct**
+
+```typescript
+// In the prepare middleware, sanitize before storing on state:
+let rootPath = ctx.get("x-vtex-root-path");
+if (rootPath && !rootPath.startsWith("/")) {
+  rootPath = `/${rootPath}`;
+}
+if (rootPath === "/") {
+  rootPath = "";
+}
+ctx.state.rootPath = rootPath;
+
+// Downstream: ctx.state.rootPath is already sanitized
+const { rootPath } = ctx.state;
+const url = `${rootPath}/${path}`;
+```
+
+**Wrong**
+
+```typescript
+const rootPath = ctx.get("x-vtex-root-path") || "/";
+const url = `${rootPath}/${path}`; // Produces "//path" for default binding
+```
+
+## Preferred pattern
+
+### State interface with rootPath
+
+Declare `rootPath` and related binding state on your `State` interface so all handlers have typed access:
+
+```typescript
+// node/typings.d.ts
+declare global {
+  interface State extends RecorderState {
+    binding: Binding;
+    rootPath: string;
+    forwardedHost: string;
+    forwardedPath: string;
+    isCrossBorder: boolean;
+    matchingBindings: Binding[];
+  }
+
+  type Context = ServiceContext<Clients, State>;
+}
+```
+
+### Prepare middleware (parses rootPath from header)
+
+Wire a `prepare` middleware early in every route's middleware chain. It reads the `x-vtex-root-path` header, sanitizes it, resolves the current binding, and sets `Vary` headers so the CDN caches responses per binding:
+
+```typescript
+// node/middlewares/prepare.ts
+const FORWARDED_HOST_HEADER = "x-forwarded-host";
+const VTEX_ROOT_PATH_HEADER = "x-vtex-root-path";
+
+export async function prepare(ctx: Context, next: () => Promise<void>) {
+  const forwardedHost = ctx.get(FORWARDED_HOST_HEADER);
+
+  let rootPath = ctx.get(VTEX_ROOT_PATH_HEADER);
+
+  // Defend against malformed root path — must start with /
+  if (rootPath && !rootPath.startsWith("/")) {
+    rootPath = `/${rootPath}`;
+  }
+
+  // Normalize "/" to "" to avoid double slashes in URL construction
+  if (rootPath === "/") {
+    rootPath = "";
+  }
+
+  const [forwardedPath] = ctx.get("x-forwarded-path").split("?");
+
+  ctx.state = {
+    ...ctx.state,
+    forwardedHost,
+    forwardedPath,
+    rootPath,
+    // ... resolve binding, matchingBindings, etc.
+  };
+
+  await next();
+
+  // Vary on these headers so CDN caches separate responses per binding
+  ctx.vary(FORWARDED_HOST_HEADER);
+  ctx.vary(VTEX_ROOT_PATH_HEADER);
+}
+```
+
+Downstream handlers then use `ctx.state.rootPath` directly — no header parsing needed:
+
+```typescript
+// node/middlewares/generateSitemap.ts
+export async function generateSitemap(ctx: Context, next: () => Promise<void>) {
+  const { rootPath, binding } = ctx.state;
+  const canonicalUrl = `https://${ctx.state.forwardedHost}${rootPath}/${slug}`;
+  // ...
+}
+```
+
+### Frontend utility
+
+```tsx
+import { useRuntime } from "vtex.render-runtime";
+
+function usePrefixedPath(path: string): string {
+  const { rootPath = "" } = useRuntime();
+  const prefix = rootPath === "/" ? "" : rootPath;
+  return `${prefix}${path.startsWith("/") ? path : `/${path}`}`;
+}
+```
+
+### Binding-aware API calls from frontend
+
+```tsx
+const { rootPath, binding } = useRuntime();
+// binding.id — current binding ID
+// binding.canonicalBaseAddress — e.g. "store.com/br"
+// rootPath — e.g. "/br"
+
+// When calling backend APIs, the platform handles rootPath automatically
+// for IO-internal calls. For external URLs or custom redirects, prefix manually.
+```
+
+## Common failure modes
+
+- **Links break in multi-binding** — Navigation links constructed without `rootPath` send users to the wrong binding or 404.
+- **Sitemap has wrong URLs** — Sitemap generator omits `rootPath`, causing search engines to index unprefixed URLs that resolve to the default binding.
+- **Double slashes** — `rootPath === "/"` concatenated with `/path` produces `//path`. Normalize to empty string.
+- **Hardcoded locale paths** — Using `/us/` or `/br/` instead of dynamic `rootPath`. Breaks when bindings are reconfigured.
+- **Backend ignores header** — Node service constructs URLs without reading `x-vtex-root-path`, producing wrong canonicals in multi-binding.
+- **Missing Vary header** — Response doesn't set `Vary: x-vtex-root-path` and `Vary: x-forwarded-host`, causing the CDN to serve the same cached response for different bindings.
+
+## Review checklist
+
+- [ ] Does the app have a `prepare` middleware that reads `x-vtex-root-path` into `ctx.state.rootPath` (backend) or use `useRuntime()` (frontend)?
+- [ ] Does the response set `Vary: x-vtex-root-path` and `Vary: x-forwarded-host` so CDN caches per binding?
+- [ ] Are **all** generated URLs (links, redirects, canonicals, sitemaps) prefixed with `rootPath`?
+- [ ] Is `rootPath === "/"` normalized to `""` to avoid double slashes?
+- [ ] Are there **no** hardcoded locale path prefixes (e.g. `/us/`, `/br/`)?
+- [ ] Does the app work correctly in both single-binding and multi-binding stores?
+
+## Related skills
+
+- [vtex-io-service-paths-and-cdn](../vtex-io-service-paths-and-cdn/skill.md) — Route prefixes and CDN behavior
+- [vtex-io-service-apps](../vtex-io-service-apps/skill.md) — Backend middleware patterns
+- [vtex-io-react-apps](../vtex-io-react-apps/skill.md) — Frontend component patterns
+
+## Reference
+
+- [Cross-Border Store Content Internationalization](https://developers.vtex.com/docs/guides/cross-border-custom-urls-1) — Multi-binding setup for cross-border stores
+- [Service Path Patterns](https://developers.vtex.com/docs/guides/service-path-patterns) — Public, segment, and private path prefixes
+- [App Development](https://developers.vtex.com/docs/app-development) — VTEX IO app development hub
 
 ---
 
@@ -15517,7 +16348,13 @@ Your session transform must output **only** fields that come from **your** compu
 {
   "my-session-app": {
     "output": {
-      "myapp": ["costcenter", "organization", "postalCode", "priceTable", "storeNumber"]
+      "myapp": [
+        "costcenter",
+        "organization",
+        "postalCode",
+        "priceTable",
+        "storeNumber"
+      ]
     }
   }
 }
@@ -15571,11 +16408,11 @@ Storefront components and middleware must read session data from the **authorita
 ```typescript
 // Read from the authoritative namespace
 const { data } = useSessionItems([
-  'myapp.storeNumber',
-  'myapp.priceTable',
-  'storefront-permissions.costcenter',
-  'storefront-permissions.organization',
-])
+  "myapp.storeNumber",
+  "myapp.priceTable",
+  "storefront-permissions.costcenter",
+  "storefront-permissions.organization",
+]);
 ```
 
 **Wrong**
@@ -15583,10 +16420,10 @@ const { data } = useSessionItems([
 ```typescript
 // Reading from public as if it were the source of truth
 const { data } = useSessionItems([
-  'public.storeNumber',
-  'public.organization',
-  'public.costCenter',
-])
+  "public.storeNumber",
+  "public.organization",
+  "public.costCenter",
+]);
 ```
 
 ## Preferred pattern
@@ -15599,7 +16436,11 @@ Declare your transform's input dependencies and output fields:
 {
   "my-session-app": {
     "input": {
-      "storefront-permissions": ["costcenter", "organization", "costCenterAddressId"]
+      "storefront-permissions": [
+        "costcenter",
+        "organization",
+        "costCenterAddressId"
+      ]
     },
     "output": {
       "myapp": ["storeNumber", "priceTable"]
@@ -15613,22 +16454,22 @@ Declare your transform's input dependencies and output fields:
 ```typescript
 // node/handlers/transform.ts
 export async function transform(ctx: Context) {
-  const { costcenter, organization } = parseSfpInputs(ctx.request.body)
+  const { costcenter, organization } = parseSfpInputs(ctx.request.body);
 
   if (!costcenter) {
-    ctx.body = { myapp: {} }
-    return
+    ctx.body = { myapp: {} };
+    return;
   }
 
-  const costCenterData = await getCostCenterCached(ctx, costcenter)
-  const pricing = await resolvePricing(ctx, costCenterData)
+  const costCenterData = await getCostCenterCached(ctx, costcenter);
+  const pricing = await resolvePricing(ctx, costCenterData);
 
   ctx.body = {
     myapp: {
       storeNumber: pricing.storeNumber,
       priceTable: pricing.priceTable,
     },
-  }
+  };
 }
 ```
 
@@ -15636,25 +16477,28 @@ export async function transform(ctx: Context) {
 
 ```typescript
 // Two-layer cache: LRU (sub-ms) -> VBase (persistent, SWR) -> API
-const costCenterLRU = new LRU<string, CostCenterData>({ max: 1000, ttl: 600_000 })
+const costCenterLRU = new LRU<string, CostCenterData>({
+  max: 1000,
+  ttl: 600_000,
+});
 
 async function getCostCenterCached(ctx: Context, costCenterId: string) {
-  const { account, workspace } = ctx.vtex
-  const key = `${account}:${workspace}:${costCenterId}`
+  const { account, workspace } = ctx.vtex;
+  const key = `${account}:${workspace}:${costCenterId}`;
 
-  const lruHit = costCenterLRU.get(key)
-  if (lruHit) return lruHit
+  const lruHit = costCenterLRU.get(key);
+  if (lruHit) return lruHit;
 
   const result = await staleFromVBaseWhileRevalidate(
     ctx.clients.vbase,
-    'cost-centers',
+    "cost-centers",
     costCenterId,
     () => fetchCostCenterFromAPI(ctx, costCenterId),
-    { ttlMs: 1_800_000 }
-  )
+    { ttlMs: 1_800_000 },
+  );
 
-  costCenterLRU.set(key, result)
-  return result
+  costCenterLRU.set(key, result);
+  return result;
 }
 ```
 
@@ -16232,6 +17076,8 @@ Do not use this skill for:
 - Treat `vtex workspace promote` as the atomic cutover. Smoke-test the dev workspace's full page set (home, PDP, PLP, department, search, custom routes, account, checkout entry) after running `updateThemeIds`. If the dev workspace is broken, master will be broken.
 - Verify that the version published to the Apps Registry matches the source you expect. A common failure pattern is publishing a stripped-down boilerplate by mistake — the registry version installs cleanly, but it does not contain the custom blocks the existing Site Editor content references. `updateThemeIds` cannot fix a missing-block problem; it only rekeys existing content.
 - The same `updateThemeIds` step is required when **downgrading** to a previous major (for example `5.x` → `4.x`). The mutation moves content in either direction across MAJOR boundaries.
+- `vtex workspace promote` does **not** wipe master's `vtex.pages-graphql` VBase content. The service merges with `MineWinsConflictsResolver`: a 3-way merge of `base` (the master state the dev workspace forked from), `master` (current master), and `mine` (the dev workspace). Master keys not touched by the dev workspace are preserved; conflicting keys are resolved in favor of the dev workspace ("mine wins"). Plan the rollout so that conflicting writes to master during the rollout window are minimized — for example, by pausing merchant Site Editor edits in master while the dev workspace is being prepared.
+- Whenever `MineWinsConflictsResolver` resolves a conflict in production, `vtex.pages-graphql` automatically writes a per-minute snapshot of `base`, `master`, and `mine` to a sibling `userData_backup` VBase bucket. This is logged with `subject: "conflicts_resolution"` in the `io_vtex_logs` index. The snapshot is the recovery source if a promote merges in something unwanted; it is **not** a substitute for the smoke-test step (no backup is written when there is no conflict to resolve). Treat the backup as a safety net for VTEX support escalations, not a routine self-service restore.
 
 ## Hard constraints
 
@@ -16340,6 +17186,50 @@ vtex install acme.store-theme@5.3.5
 # referenced in the merchant's stored content
 ```
 
+### Constraint: Treat `vtex workspace promote` as a 3-way mine-wins merge of pages-graphql VBase, not a wipe
+
+`vtex workspace promote` MUST be planned as a merge between the dev workspace and master, not as a destructive replacement of master's `vtex.pages-graphql` VBase content. The service uses `MineWinsConflictsResolver` from `@vtex/api`: it diffs `base` (the master state the dev workspace forked from), `master` (current master), and `mine` (the dev workspace), and resolves conflicts in favor of the dev workspace.
+
+**Why this matters**
+
+Master keys that the dev workspace never touched are preserved on promote. Conflicting keys (something edited in both master and the dev workspace after the fork point) are overwritten by the dev workspace's value. Two practical consequences for a theme rollout:
+
+1. If merchants continue to edit Site Editor in master while the dev workspace is being prepared, those edits to keys the dev workspace also touches will be lost on promote.
+2. After `updateThemeIds` runs in the dev workspace, the dev workspace owns the new-major content map; promoting it cleanly transfers the rekeyed Site Editor edits, Pages, and Redirects into master via mine-wins.
+
+In production, every conflict resolution writes a per-minute snapshot of `base`, `master`, and `mine` to the sibling `userData_backup` VBase bucket inside `vtex.pages-graphql`, logged with `subject: "conflicts_resolution"`. No backup is written when there is no conflict to resolve, so smoke-testing remains the primary safety net.
+
+**Detection**
+
+If a rollout plan assumes promote will "replace" master content, STOP and rephrase as a merge plan: which keys does the dev workspace touch, which keys is master likely to touch in the same window, and how will conflicts be reconciled. If merchants are actively editing Site Editor in master during the rollout window, STOP and either pause those edits, narrow the rollout window, or document which keys will be overwritten.
+
+**Correct**
+
+```text
+Coordinate the rollout window with the merchant ops team:
+- Pause Site Editor edits on master from the moment `updateThemeIds`
+  runs in the dev workspace until `vtex workspace promote` completes.
+- Smoke-test in the dev workspace, then promote.
+- After promote, validate Storefront → Site Editor, Pages, Redirects
+  on master.
+
+If a conflict-resolution log appears (subject: "conflicts_resolution"),
+record the backup paths surfaced by pages-graphql in `io_vtex_logs`.
+The snapshot lives in the `userData_backup` bucket of vtex.pages-graphql
+and can be fetched via the VBase v2 API for support escalation.
+```
+
+**Wrong**
+
+```text
+"Promote will replace master, so we don't need to coordinate."
+- Merchants keep editing Site Editor in master during the rollout.
+- Promote merges those edits with mine-wins; every conflicting key is
+  silently overwritten by the dev workspace value.
+- Without a smoke-test or coordination, the lost edits are not noticed
+  until shoppers report missing content.
+```
+
 ## Preferred pattern
 
 Recommended deploy flow for any change to a content-holding app installed on `master`:
@@ -16390,11 +17280,22 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
 
 7. If anything is wrong: stop. Do not promote. Investigate.
    If everything renders correctly:
-   vtex workspace promote
+   - Coordinate the promote window with the merchant ops team so that
+     no Site Editor edits land on master between `updateThemeIds` in
+     the dev workspace and `vtex workspace promote`. Promote performs
+     a 3-way mine-wins merge against pages-graphql VBase, so any
+     conflicting master edit will be overwritten by the dev workspace.
+   - vtex workspace promote
 
 8. Re-test on $account.myvtex.com (master) and the public domain.
-   If the public CDN serves stale content, validate with cache-busting
-   query strings; the edge will refresh on its normal TTL.
+   - Validate Storefront → Site Editor, Pages, Redirects on master.
+   - If the public CDN serves stale content, validate with cache-busting
+     query strings; the edge will refresh on its normal TTL.
+   - If `io_vtex_logs` shows a `subject: "conflicts_resolution"` entry
+     for `vtex.pages-graphql` in this account around the promote time,
+     record the listed backup paths. They live in the `userData_backup`
+     bucket of pages-graphql and can be fetched via the VBase v2 API
+     if a recovery is needed later.
 
 9. Keep the dev workspace for at least one business day in case a fast
    re-promote is needed.
@@ -16422,10 +17323,26 @@ Recommended emergency rollback after a broken major install on `master`:
    VTEX Admin → Storefront → Site Editor, Pages, Redirects).
 5. vtex workspace promote
 
-If updateThemeIds returns false, the GraphQL IDE shows an error, or
+If `updateThemeIds` returns false, the GraphQL IDE shows an error, or
 content does not appear after migration, escalate to VTEX support
 before promoting; do not promote a workspace whose Site Editor content
 has not been validated.
+
+If a previous promote merged in something unwanted, before re-promoting
+check `io_vtex_logs` for a `subject: "conflicts_resolution"` entry on
+`vtex.pages-graphql` for this account around the original promote
+time. The entry lists per-minute snapshot paths inside the
+`userData_backup` bucket (`store/templates.{base|master|mine}.<TS>.json`,
+`store/content.{...}.json`, `store/routes.{...}.json`) which can be
+fetched through the VBase v2 API:
+
+   GET https://infra.io.vtex.com/vbase/v2/{account}/{workspace}/
+       buckets/vtex.pages-graphql/userData_backup/files/{path}
+
+This recovery path requires an admin auth token and is documented in
+`vtex/pages-graphql` `TROUBLESHOOTING.md`. Treat it as a support-led
+escalation, not a routine self-service step, and always test the
+restored payload in a non-master workspace first.
 ```
 
 Recommended way to think about content-key behavior:
@@ -16458,6 +17375,8 @@ Major bump
 - Running `updateThemeIds` against the wrong app in the GraphQL IDE dropdown. The mutation only exists in `vtex.pages-graphql@2.x`.
 - Trusting the public domain to confirm a fix immediately after promotion. CloudFront serves stale content; use `?utm_source=<value>` or another cache-busting parameter to bypass the edge during validation.
 - Forgetting that downgrades (for example `5.x` → `4.x`) also cross a MAJOR boundary and need their own `updateThemeIds` run before promote.
+- Assuming `vtex workspace promote` wipes master `vtex.pages-graphql` VBase content and re-fills it from the dev workspace. It does not — it 3-way merges with mine-wins, so master keys not touched by the dev workspace survive, and master keys that *are* also touched by the dev workspace get overwritten silently. Coordinate the rollout window with merchant ops to avoid losing concurrent Site Editor edits in master.
+- Treating the `userData_backup` bucket inside `vtex.pages-graphql` as a routine restore endpoint. It is only written when conflicts are resolved (no conflict, no backup), it requires admin-level auth and the VBase v2 API, and it is a support-led TROUBLESHOOTING surface — not a substitute for smoke-testing or for the `updateThemeIds` flow.
 
 ## Review checklist
 
@@ -16467,6 +17386,8 @@ Major bump
 - [ ] If the bump is major, has `updateThemeIds` been run against `vtex.pages-graphql@2.x` from the GraphQL Admin IDE, and has the response been `{ "updateThemeIds": true }`?
 - [ ] Has the published artifact been verified to contain the custom blocks the active theme depends on?
 - [ ] Has the dev workspace been smoke-tested across home, PDP, PLP, department, search, custom routes, account, checkout entry, and the Storefront module (Site Editor, Pages, Redirects)?
+- [ ] Has the rollout window been coordinated so that no concurrent Site Editor edits land on master between the dev workspace's `updateThemeIds` and `vtex workspace promote`, given the 3-way mine-wins merge?
+- [ ] After promote, has `io_vtex_logs` been checked for a `subject: "conflicts_resolution"` entry on `vtex.pages-graphql` for this account, and (if present) have the listed `userData_backup` paths been recorded for support escalation?
 - [ ] Is the dev workspace retained for at least one business day after promotion in case a fast re-promote is needed?
 
 ## Related skills
@@ -16485,4 +17406,5 @@ Major bump
 - [Creating a Production Workspace](https://developers.vtex.com/docs/guides/vtex-io-documentation-creating-a-production-workspace) — `vtex use {workspaceName} --production` is the single command that both creates and switches to a production-flag workspace.
 - [Promoting a Workspace to Master](https://developers.vtex.com/docs/guides/vtex-io-documentation-promoting-a-workspace-to-master) — `vtex workspace promote` as the atomic cutover from a production-flag dev workspace to `master`.
 - [Migrating CMS settings after a major theme update](https://developers.vtex.com/docs/guides/vtex-io-documentation-migrating-cms-settings-after-major-update) — Official procedure for the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`, including the GraphQL IDE setup and the literal `MAJOR.x` argument format.
+- [`vtex/pages-graphql` `TROUBLESHOOTING.md`](https://github.com/vtex/pages-graphql/blob/master/TROUBLESHOOTING.md) — How `MineWinsConflictsResolver` writes per-minute `base`, `master`, and `mine` snapshots into the `userData_backup` bucket of `vtex.pages-graphql` and how to fetch them via the VBase v2 API for support-led recovery (internal VTEX repo).
 - [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) — Why theme apps own `store/` content and how Store Framework consumes it at render time.

@@ -430,6 +430,7 @@ function formatTrackTitle(trackName: string): string {
     "vtex-io": "Custom VTEX IO Apps",
     marketplace: "Marketplace Integration",
     headless: "Headless Front-End Development",
+    masterdata: "Master Data Storage & Schema Design",
   };
   return titles[trackName] || trackName;
 }

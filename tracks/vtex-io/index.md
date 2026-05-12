@@ -6,7 +6,7 @@ Guide to building custom VTEX IO applications, covering builders, policies, `@vt
 
 VTEX IO is a serverless platform for building custom applications that extend VTEX Commerce. This track teaches developers how to scaffold VTEX IO apps, configure builders (`node`, `react`, `graphql`, `admin`, `pixel`, `messages`, `store`), declare policies for API access, implement backend services with the `Service` class and client system, build frontend React components and Store Framework blocks, expose APIs, and manage data and configuration safely.
 
-The VTEX IO track is being reorganized into smaller, more decision-oriented skills. The source files now mix stable skills and newer draft splits while the track converges on the grouped model below.
+The VTEX IO track is being reorganized into smaller, more decision-oriented skills. The current source files still reflect the older structure in some places, but the intended model is grouped as follows.
 
 ## Planned Grouping
 
@@ -29,25 +29,22 @@ The VTEX IO track is being reorganized into smaller, more decision-oriented skil
 - `vtex-io-storefront-react`
 - `vtex-io-admin-react`
 - `vtex-io-render-runtime-and-blocks`
-- `vtex-io-messages-and-i18n`
 
 ### Group 4: Data and config
 
 - `vtex-io-app-settings`
-- `vtex-io-service-configuration-apps`
 - `vtex-io-masterdata-strategy`
 - `vtex-io-data-access-patterns`
 
 ### Group 5: Security and operations
 
-- `vtex-io-auth-tokens-and-context`
 - `vtex-io-auth-and-policies`
 - `vtex-io-security-boundaries`
 - `vtex-io-observability-and-ops`
 
 ## Skills
 
-The table below reflects the VTEX IO skills currently tracked in source, including newer draft splits that refine the older broader skills.
+The table below reflects the currently published VTEX IO skills in this repository. It will evolve toward the grouped structure above.
 
 | Skill | Description | Link |
 |-------|-------------|------|
@@ -62,7 +59,7 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 | **Application performance** | Improve latency and resilience with LRU, VBase, stale-while-revalidate, AppSettings loading, parallel client calls, resolver deduplication, per-entity VBase keys, and service.json tuning—plus rules on what must never be cached (transactional data) and when VBase writes must be awaited (financial flows). | [skills/vtex-io-application-performance/skill.md](skills/vtex-io-application-performance/skill.md) |
 | **Session transform apps** | Build or debug session transforms: namespace ownership, input-vs-output fields, transform ordering (DAG), public-as-input vs private-as-read, cross-namespace propagation, and caching inside transforms for B2B, pricing, or regionalization context. | [skills/vtex-io-session-apps/skill.md](skills/vtex-io-session-apps/skill.md) |
 | **Storefront Theme App** | Decide what a theme app owns: `store/blocks.json`, `store/routes.json`, `store/templates/`, `store/contentSchemas.json`, base-theme extension, and how block IDs from component apps are composed into pages. | [skills/vtex-io-storefront-theme-app/skill.md](skills/vtex-io-storefront-theme-app/skill.md) |
-| **Storefront Theme Versioning, Install & Rollback** | Safely version, install, promote, and roll back a content-holding storefront app. Covers content keying by `vendor.app@MAJOR.x`, why a major bump leaves the new major with no merchant content and falls back to default theme content, the production-flag dev workspace install + `updateThemeIds` migration + smoke-test + promote workflow, and emergency rollback. | [skills/vtex-io-storefront-theme-versioning/skill.md](skills/vtex-io-storefront-theme-versioning/skill.md) |
+| **Storefront Theme Versioning, Install & Rollback** | Safely version, install, promote, and roll back a content-holding storefront app. Covers content keying by `vendor.app@MAJOR.x`, why a major bump leaves the new major with no merchant content and falls back to default theme content, the production-flag dev workspace install + `updateThemeIds` migration + smoke-test + promote workflow, the 3-way mine-wins merge that `vtex workspace promote` performs against `vtex.pages-graphql` VBase (with automatic per-minute backups in `userData_backup`), and emergency rollback. | [skills/vtex-io-storefront-theme-versioning/skill.md](skills/vtex-io-storefront-theme-versioning/skill.md) |
 | **Storefront React Components** | Build shopper-facing VTEX IO React components with css-handles, storefront-safe rendering, and localized UI behavior. | [skills/vtex-io-storefront-react/skill.md](skills/vtex-io-storefront-react/skill.md) |
 | **Admin React Interfaces** | Build VTEX Admin experiences with Styleguide, explicit operational states, and safe admin interaction patterns. | [skills/vtex-io-admin-react/skill.md](skills/vtex-io-admin-react/skill.md) |
 | **Render Runtime & Block Registration** | Register and compose Store Framework blocks through `interfaces.json` and render-runtime contracts. | [skills/vtex-io-render-runtime-and-blocks/skill.md](skills/vtex-io-render-runtime-and-blocks/skill.md) |
@@ -78,6 +75,8 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 | **Authorization & Policy Design** | Decide which VTEX IO permissions and outbound-access rules an app needs, and keep policies explicit and minimal. | [skills/vtex-io-auth-and-policies/skill.md](skills/vtex-io-auth-and-policies/skill.md) |
 | **Security Boundaries & Exposure Review** | Review trust boundaries, public versus private exposure, sensitive data handling, and tenant/context isolation in VTEX IO services. | [skills/vtex-io-security-boundaries/skill.md](skills/vtex-io-security-boundaries/skill.md) |
 | **Observability & Operational Readiness** | Improve production visibility with better logging, metrics, failure surfacing, and rate-limit-aware operational guidance. | [skills/vtex-io-observability-and-ops/skill.md](skills/vtex-io-observability-and-ops/skill.md) |
+| **rootPath for multi-binding** | Build IO apps that work correctly in multi-binding stores with path prefixes (e.g. `store.com/us/`). Extract rootPath from headers or runtime, prefix all generated URLs, and handle sanitization. | [skills/vtex-io-rootpath/skill.md](skills/vtex-io-rootpath/skill.md) |
+| **Access control (RBAC)** | Secure IO app routes with role-based (`policies.json`) or resource-based (`service.json` policies) access control. VRN syntax for principals, `@auth` directive for GraphQL, and choosing the right policy type for apps vs users vs integrations. | [skills/vtex-io-rbac/skill.md](skills/vtex-io-rbac/skill.md) |
 
 ## Recommended Learning Order
 
@@ -95,7 +94,7 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 2. **API exposure** — Choose between `graphql`, `http-routes`, and `events-and-workers` based on the integration shape.
 3. **Frontend** — Split storefront React, admin React, and render/runtime concerns.
 4. **Data and config** — Separate app settings, Master Data strategy, and general data access patterns.
-5. **Security and operations** — Finish with auth tokens, policy boundaries, and operational visibility.
+5. **Security and operations** — Finish with auth, policy boundaries, and operational visibility.
 
 ## Choosing The API Exposure Skill
 
@@ -110,11 +109,14 @@ The table below reflects the VTEX IO skills currently tracked in source, includi
 - **Policies are required for external access** — Declare policies for outbound-access (external URLs) and VTEX resources. Missing policies cause 403 Forbidden errors.
 - **Always use `ctx.clients` for API access** — Never instantiate clients directly. The `ctx.clients` pattern provides caching, retry, and metrics.
 - **Match route prefix to data scope** — Public vs `/_v/segment` vs `/_v/private` controls cookies and edge caching ([Service path patterns](https://developers.vtex.com/docs/guides/service-path-patterns)); do not CDN-cache private or auth-scoped JSON.
-- **Layer application performance patterns deliberately** — LRU for hot keys, VBase for shared stale-while-revalidate, **tenant-scoped** in-memory keys (`account` + `workspace`) on shared pods. Every outbound call needs an **explicit timeout**; degrade gracefully when upstreams are slow. Never cache transactional data (order forms, cart simulations, payment responses). Await VBase writes in financial/idempotency-critical paths.
+- **Layer application performance patterns deliberately** — LRU for hot keys, VBase for shared stale-while-revalidate, **tenant-scoped** in-memory keys (`account` + `workspace`) on shared pods. Every outbound call needs an **explicit timeout**; degrade gracefully when upstreams are slow. Never cache payment state or active transactions; other transactional data (order forms, cart simulations) may use short-lived caches (1–5 min) only with explicit justification. Await VBase writes in financial/idempotency-critical paths.
 - **Session transforms: own your namespace** — Each session app owns its output namespace; never write to another app's output namespace. Use `public.*` for input propagation only, not as a read model. Frontend reads private namespaces for business state.
-- **Use VTEX design systems in admin apps** — Admin apps should use official VTEX design systems such as `vtex.styleguide` or `@vtex/shoreline`. Generic third-party UI libraries break consistency and are not supported.
+- **Use rootPath in multi-binding stores** — All generated URLs (links, redirects, canonicals, sitemaps) must include `rootPath` from `x-vtex-root-path` header (backend) or `useRuntime()` (frontend). Sanitize `"/"` to `""` to avoid double slashes.
+- **Choose the correct access control type** — Role-based (`policies.json`) for app-to-app only; resource-based (`service.json` policies) when users or API keys need access. Deny policies override allow for overlapping principals.
+- **Never use third-party UI libraries in admin apps** — Admin apps MUST use VTEX Styleguide. Third-party libraries break consistency and are not supported.
 - **Use css-handles for storefront styling** — Never hardcode class names. Use `useCssHandles()` to expose safe CSS classes for customization.
 - **Major version bumps on content-holding apps require an `updateThemeIds` migration** — `vtex.pages-graphql` keys merchant routes, templates, Site Editor edits, Pages, and Redirects by `vendor.app@MAJOR.x:template`. A major bump on any app that ships `store/blocks.json`, `store/routes.json`, `store/templates/`, or `store/contentSchemas.json` makes the previously authored content invisible to the resolver under the new major, so the storefront falls back to default `vtex.store-theme` content. The official fix is the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`, run from the GraphQL Admin IDE in a production-flag dev workspace (`vtex use $name --production`) after `vtex install` of the new major and before `vtex workspace promote`. Smoke-test, then promote — see `vtex-io-storefront-theme-versioning`.
+- **`vtex workspace promote` 3-way merges pages-graphql VBase, mine-wins** — Promote does not wipe master `vtex.pages-graphql` content. It runs `MineWinsConflictsResolver`: keys not touched by the dev workspace are preserved on master, conflicting keys are resolved in favor of the dev workspace, and `vtex.pages-graphql` writes per-minute `base`/`master`/`mine` snapshots to its `userData_backup` bucket whenever conflicts are resolved in production. Coordinate the rollout window so concurrent Site Editor edits in master are paused between `updateThemeIds` and promote.
 - **Block IDs are scoped by the declaring app's installed major** — A block declared in `acme.product-widgets@0.x` is not the same block as one declared in `acme.product-widgets@5.x`, even with the same ID. Consumer themes must match the declaring app's installed major or the resolver returns `Missing block`.
 - **Master Data has a 60-schema-per-entity hard limit** — Plan your schema versioning strategy to avoid hitting this limit.
 

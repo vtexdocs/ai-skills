@@ -1,6 +1,6 @@
 ---
 name: vtex-io-storefront-theme-versioning
-description: "Apply when installing, publishing, upgrading, or rolling back a VTEX IO storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentSchemas.json`). Covers how Site Editor and theme content are scoped by the app's MAJOR version, why a major version bump leaves the new major with no merchant content and silently falls back to default theme content, and the safe install-in-workspace, migrate-content with the `updateThemeIds` mutation, smoke-test, then promote workflow. Use for any operation that changes which version of a content-holding app is installed in `master`."
+description: "Apply when installing, publishing, upgrading, or rolling back a VTEX IO storefront theme app (`vendor.store-theme` or any app that owns `store/blocks.json`, `store/routes.json`, and `store/contentSchemas.json`). Covers how Site Editor and theme content are scoped by the app's MAJOR version, why a major version bump leaves the new major with no merchant content and silently falls back to default theme content, the safe install-in-workspace, migrate- content with the `updateThemeIds` mutation, smoke-test, then promote workflow, the 3-way mine-wins merge that `vtex workspace promote` performs against `vtex.pages-graphql` VBase (with automatic per-minute `userData_backup` snapshots when conflicts are resolved), and the support-led recovery path. Use for any operation that changes which version of a content-holding app is installed in `master`."
 ---
 
 # Storefront Theme Versioning, Install, and Rollback
@@ -36,6 +36,8 @@ Do not use this skill for:
 - Treat `vtex workspace promote` as the atomic cutover. Smoke-test the dev workspace's full page set (home, PDP, PLP, department, search, custom routes, account, checkout entry) after running `updateThemeIds`. If the dev workspace is broken, master will be broken.
 - Verify that the version published to the Apps Registry matches the source you expect. A common failure pattern is publishing a stripped-down boilerplate by mistake — the registry version installs cleanly, but it does not contain the custom blocks the existing Site Editor content references. `updateThemeIds` cannot fix a missing-block problem; it only rekeys existing content.
 - The same `updateThemeIds` step is required when **downgrading** to a previous major (for example `5.x` → `4.x`). The mutation moves content in either direction across MAJOR boundaries.
+- `vtex workspace promote` does **not** wipe master's `vtex.pages-graphql` VBase content. The service merges with `MineWinsConflictsResolver`: a 3-way merge of `base` (the master state the dev workspace forked from), `master` (current master), and `mine` (the dev workspace). Master keys not touched by the dev workspace are preserved; conflicting keys are resolved in favor of the dev workspace ("mine wins"). Plan the rollout so that conflicting writes to master during the rollout window are minimized — for example, by pausing merchant Site Editor edits in master while the dev workspace is being prepared.
+- Whenever `MineWinsConflictsResolver` resolves a conflict in production, `vtex.pages-graphql` automatically writes a per-minute snapshot of `base`, `master`, and `mine` to a sibling `userData_backup` VBase bucket. This is logged with `subject: "conflicts_resolution"` in the `io_vtex_logs` index. The snapshot is the recovery source if a promote merges in something unwanted; it is **not** a substitute for the smoke-test step (no backup is written when there is no conflict to resolve). Treat the backup as a safety net for VTEX support escalations, not a routine self-service restore.
 
 ## Hard constraints
 
@@ -144,6 +146,50 @@ vtex install acme.store-theme@5.3.5
 # referenced in the merchant's stored content
 ```
 
+### Constraint: Treat `vtex workspace promote` as a 3-way mine-wins merge of pages-graphql VBase, not a wipe
+
+`vtex workspace promote` MUST be planned as a merge between the dev workspace and master, not as a destructive replacement of master's `vtex.pages-graphql` VBase content. The service uses `MineWinsConflictsResolver` from `@vtex/api`: it diffs `base` (the master state the dev workspace forked from), `master` (current master), and `mine` (the dev workspace), and resolves conflicts in favor of the dev workspace.
+
+**Why this matters**
+
+Master keys that the dev workspace never touched are preserved on promote. Conflicting keys (something edited in both master and the dev workspace after the fork point) are overwritten by the dev workspace's value. Two practical consequences for a theme rollout:
+
+1. If merchants continue to edit Site Editor in master while the dev workspace is being prepared, those edits to keys the dev workspace also touches will be lost on promote.
+2. After `updateThemeIds` runs in the dev workspace, the dev workspace owns the new-major content map; promoting it cleanly transfers the rekeyed Site Editor edits, Pages, and Redirects into master via mine-wins.
+
+In production, every conflict resolution writes a per-minute snapshot of `base`, `master`, and `mine` to the sibling `userData_backup` VBase bucket inside `vtex.pages-graphql`, logged with `subject: "conflicts_resolution"`. No backup is written when there is no conflict to resolve, so smoke-testing remains the primary safety net.
+
+**Detection**
+
+If a rollout plan assumes promote will "replace" master content, STOP and rephrase as a merge plan: which keys does the dev workspace touch, which keys is master likely to touch in the same window, and how will conflicts be reconciled. If merchants are actively editing Site Editor in master during the rollout window, STOP and either pause those edits, narrow the rollout window, or document which keys will be overwritten.
+
+**Correct**
+
+```text
+Coordinate the rollout window with the merchant ops team:
+- Pause Site Editor edits on master from the moment `updateThemeIds`
+  runs in the dev workspace until `vtex workspace promote` completes.
+- Smoke-test in the dev workspace, then promote.
+- After promote, validate Storefront → Site Editor, Pages, Redirects
+  on master.
+
+If a conflict-resolution log appears (subject: "conflicts_resolution"),
+record the backup paths surfaced by pages-graphql in `io_vtex_logs`.
+The snapshot lives in the `userData_backup` bucket of vtex.pages-graphql
+and can be fetched via the VBase v2 API for support escalation.
+```
+
+**Wrong**
+
+```text
+"Promote will replace master, so we don't need to coordinate."
+- Merchants keep editing Site Editor in master during the rollout.
+- Promote merges those edits with mine-wins; every conflicting key is
+  silently overwritten by the dev workspace value.
+- Without a smoke-test or coordination, the lost edits are not noticed
+  until shoppers report missing content.
+```
+
 ## Preferred pattern
 
 Recommended deploy flow for any change to a content-holding app installed on `master`:
@@ -194,11 +240,22 @@ Recommended deploy flow for any change to a content-holding app installed on `ma
 
 7. If anything is wrong: stop. Do not promote. Investigate.
    If everything renders correctly:
-   vtex workspace promote
+   - Coordinate the promote window with the merchant ops team so that
+     no Site Editor edits land on master between `updateThemeIds` in
+     the dev workspace and `vtex workspace promote`. Promote performs
+     a 3-way mine-wins merge against pages-graphql VBase, so any
+     conflicting master edit will be overwritten by the dev workspace.
+   - vtex workspace promote
 
 8. Re-test on $account.myvtex.com (master) and the public domain.
-   If the public CDN serves stale content, validate with cache-busting
-   query strings; the edge will refresh on its normal TTL.
+   - Validate Storefront → Site Editor, Pages, Redirects on master.
+   - If the public CDN serves stale content, validate with cache-busting
+     query strings; the edge will refresh on its normal TTL.
+   - If `io_vtex_logs` shows a `subject: "conflicts_resolution"` entry
+     for `vtex.pages-graphql` in this account around the promote time,
+     record the listed backup paths. They live in the `userData_backup`
+     bucket of pages-graphql and can be fetched via the VBase v2 API
+     if a recovery is needed later.
 
 9. Keep the dev workspace for at least one business day in case a fast
    re-promote is needed.
@@ -226,10 +283,26 @@ Recommended emergency rollback after a broken major install on `master`:
    VTEX Admin → Storefront → Site Editor, Pages, Redirects).
 5. vtex workspace promote
 
-If updateThemeIds returns false, the GraphQL IDE shows an error, or
+If `updateThemeIds` returns false, the GraphQL IDE shows an error, or
 content does not appear after migration, escalate to VTEX support
 before promoting; do not promote a workspace whose Site Editor content
 has not been validated.
+
+If a previous promote merged in something unwanted, before re-promoting
+check `io_vtex_logs` for a `subject: "conflicts_resolution"` entry on
+`vtex.pages-graphql` for this account around the original promote
+time. The entry lists per-minute snapshot paths inside the
+`userData_backup` bucket (`store/templates.{base|master|mine}.<TS>.json`,
+`store/content.{...}.json`, `store/routes.{...}.json`) which can be
+fetched through the VBase v2 API:
+
+   GET https://infra.io.vtex.com/vbase/v2/{account}/{workspace}/
+       buckets/vtex.pages-graphql/userData_backup/files/{path}
+
+This recovery path requires an admin auth token and is documented in
+`vtex/pages-graphql` `TROUBLESHOOTING.md`. Treat it as a support-led
+escalation, not a routine self-service step, and always test the
+restored payload in a non-master workspace first.
 ```
 
 Recommended way to think about content-key behavior:
@@ -262,6 +335,8 @@ Major bump
 - Running `updateThemeIds` against the wrong app in the GraphQL IDE dropdown. The mutation only exists in `vtex.pages-graphql@2.x`.
 - Trusting the public domain to confirm a fix immediately after promotion. CloudFront serves stale content; use `?utm_source=<value>` or another cache-busting parameter to bypass the edge during validation.
 - Forgetting that downgrades (for example `5.x` → `4.x`) also cross a MAJOR boundary and need their own `updateThemeIds` run before promote.
+- Assuming `vtex workspace promote` wipes master `vtex.pages-graphql` VBase content and re-fills it from the dev workspace. It does not — it 3-way merges with mine-wins, so master keys not touched by the dev workspace survive, and master keys that *are* also touched by the dev workspace get overwritten silently. Coordinate the rollout window with merchant ops to avoid losing concurrent Site Editor edits in master.
+- Treating the `userData_backup` bucket inside `vtex.pages-graphql` as a routine restore endpoint. It is only written when conflicts are resolved (no conflict, no backup), it requires admin-level auth and the VBase v2 API, and it is a support-led TROUBLESHOOTING surface — not a substitute for smoke-testing or for the `updateThemeIds` flow.
 
 ## Review checklist
 
@@ -271,6 +346,8 @@ Major bump
 - [ ] If the bump is major, has `updateThemeIds` been run against `vtex.pages-graphql@2.x` from the GraphQL Admin IDE, and has the response been `{ "updateThemeIds": true }`?
 - [ ] Has the published artifact been verified to contain the custom blocks the active theme depends on?
 - [ ] Has the dev workspace been smoke-tested across home, PDP, PLP, department, search, custom routes, account, checkout entry, and the Storefront module (Site Editor, Pages, Redirects)?
+- [ ] Has the rollout window been coordinated so that no concurrent Site Editor edits land on master between the dev workspace's `updateThemeIds` and `vtex workspace promote`, given the 3-way mine-wins merge?
+- [ ] After promote, has `io_vtex_logs` been checked for a `subject: "conflicts_resolution"` entry on `vtex.pages-graphql` for this account, and (if present) have the listed `userData_backup` paths been recorded for support escalation?
 - [ ] Is the dev workspace retained for at least one business day after promotion in case a fast re-promote is needed?
 
 ## Related skills
@@ -289,4 +366,5 @@ Major bump
 - [Creating a Production Workspace](https://developers.vtex.com/docs/guides/vtex-io-documentation-creating-a-production-workspace) — `vtex use {workspaceName} --production` is the single command that both creates and switches to a production-flag workspace.
 - [Promoting a Workspace to Master](https://developers.vtex.com/docs/guides/vtex-io-documentation-promoting-a-workspace-to-master) — `vtex workspace promote` as the atomic cutover from a production-flag dev workspace to `master`.
 - [Migrating CMS settings after a major theme update](https://developers.vtex.com/docs/guides/vtex-io-documentation-migrating-cms-settings-after-major-update) — Official procedure for the `updateThemeIds` mutation in `vtex.pages-graphql@2.x`, including the GraphQL IDE setup and the literal `MAJOR.x` argument format.
+- [`vtex/pages-graphql` `TROUBLESHOOTING.md`](https://github.com/vtex/pages-graphql/blob/master/TROUBLESHOOTING.md) — How `MineWinsConflictsResolver` writes per-minute `base`, `master`, and `mine` snapshots into the `userData_backup` bucket of `vtex.pages-graphql` and how to fetch them via the VBase v2 API for support-led recovery (internal VTEX repo).
 - [Store Framework](https://developers.vtex.com/docs/guides/vtex-io-documentation-store-framework) — Why theme apps own `store/` content and how Store Framework consumes it at render time.

@@ -9,12 +9,12 @@ This guide covers everything you need to add skills, tracks, and export platform
 
 The workflow is always: **edit `tracks/` → validate → export → commit both.**
 
-| Path | What it is | Editable? |
-|---|---|---|
-| `tracks/{track}/skills/{name}/skill.md` | Skill source of truth | ✅ Edit here |
-| `exports/` | All platform exports (cursor, copilot, agents-md, etc.) | ❌ Auto-generated |
-| `skills/` *(root-level)* | OpenCode exports | ❌ Auto-generated |
-| `rules/` | Cursor `.mdc` exports | ❌ Auto-generated |
+| Path                                    | What it is                                              | Editable?         |
+| --------------------------------------- | ------------------------------------------------------- | ----------------- |
+| `tracks/{track}/skills/{name}/skill.md` | Skill source of truth                                   | ✅ Edit here      |
+| `exports/`                              | All platform exports (cursor, copilot, agents-md, etc.) | ❌ Auto-generated |
+| `skills/` _(root-level)_                | OpenCode exports                                        | ❌ Auto-generated |
+| `rules/`                                | Cursor `.mdc` exports                                   | ❌ Auto-generated |
 
 > **Common trap**: There is a `skills/` directory at the repository root that looks like source
 > files. It is not — it is the auto-generated OpenCode export. Source files live under
@@ -27,6 +27,7 @@ The workflow is always: **edit `tracks/` → validate → export → commit both
 - [Adding a New Track](#adding-a-new-track)
 - [Adding a New Export Platform](#adding-a-new-export-platform)
 - [Quality Checklist](#quality-checklist)
+- [Public Documentation Sync](#public-documentation-sync)
 - [Naming Conventions](#naming-conventions)
 
 ---
@@ -98,20 +99,20 @@ See [Skill Template Reference](#skill-template-reference) for what goes in each 
 
 ### Step 5: Annotate all code blocks
 
-Every opening code fence must have a language annotation. The validator will fail on bare fences.
+Every opening code fence must have a language annotation. The validator will fail on bare fences. The examples below use a 4-backtick outer fence so the inner 3-backtick fence (and its bare closing fence) are rendered literally:
 
+````markdown
 ```typescript
-// Good
-```typescript
-const x = 1
+const x = 1;
 ```
+````
 
-```text
-// Also good for diagrams and directory trees
+````markdown
 ```text
 src/
   components/
 ```
+````
 
 Closing fences are always bare (just ` ``` `). Only opening fences need the annotation.
 
@@ -188,11 +189,13 @@ Cross-skill links use a relative path from the current skill's directory:
 ```
 
 Add `Related skills` when:
+
 - the skill sits near a real decision boundary, such as `graphql` vs `http-routes`
 - the user or AI would plausibly pick the wrong adjacent skill without guidance
 - another skill is a natural companion needed right after this one
 
 Skip `Related skills` when:
+
 - the links would only restate the obvious track structure
 - there is no meaningful ambiguity about when to use the skill
 - the section would become a second reference list instead of a decision aid
@@ -296,6 +299,63 @@ Before submitting a pull request, verify all of these:
 - [ ] The `metadata.vtex_docs_verified` date reflects when you last checked the docs
 - [ ] The track `index.md` includes the new skill in its table and learning order
 - [ ] The `exports/` directory is updated (run `bun run export` and commit the output)
+- [ ] [Public documentation sync](#public-documentation-sync) considered — either confirmed not needed, or a follow-up is linked in the PR
+
+---
+
+## Public Documentation Sync
+
+This repository is mirrored on the official VTEX developer portal (`developers.vtex.com`) and referenced from the help center (`help.vtex.com`). When user-facing behavior changes here, every public page that references the affected concepts must be updated so external developers see consistent information.
+
+### Example pages that commonly mirror this repository
+
+The list below is **not exhaustive** — treat it as a starting point. Always search `developers.vtex.com` and `help.vtex.com` for any other page that references the affected tracks, skills, install commands, supported platforms, or the repository URL.
+
+- [VTEX Skills guide](https://developers.vtex.com/docs/guides/vtex-skills) — install commands, supported platforms, track and skill counts, behavior overview
+- [Release notes — VTEX Developer MCP and Skills](https://developers.vtex.com/updates/release-notes/2026-04-09-vtex-developer-mcp-and-skills) — historical announcement; only correct factual errors here, do not rewrite history
+
+Other places to check before opening the docs follow-up:
+
+- The AI-assisted development overview / index page on `developers.vtex.com`
+- Any track-specific guide that links into this catalog (FastStore, Payment, VTEX IO, Marketplace, Headless, Architecture)
+- More recent release notes that mention VTEX Skills or the VTEX Developer MCP
+- Any internal portals or onboarding material that embed install snippets
+
+The source for the developer portal pages lives in [`vtex/dev-portal-content`](https://github.com/vtex/dev-portal-content). Help center articles are managed by the docs team. Documentation changes are landed via a PR or ticket in the appropriate repository.
+
+> **Tip — use the `vtex-docs` MCP if you have it.** The [`vtex-docs` MCP server](https://developers.vtex.com/docs/guides/vtex-developer-mcp) (and the broader VTEX Developer MCP) indexes both `developers.vtex.com` and `help.vtex.com`. From any MCP-aware AI assistant you can call `search_documentation` with track names, skill names, or install snippet strings to discover every page that references the affected behavior, then `fetch_document` to read the current content and propose precise edits. AI agents working on this repo are instructed to use it automatically — see [`AGENTS.md`](AGENTS.md#use-the-vtex-docs-mcp-for-discovery-and-diffing).
+
+### When a docs update is required
+
+Open a follow-up in `vtex/dev-portal-content` (or flag it in the PR description) when this PR does any of the following:
+
+- **Adds, removes, or renames a track** — update the "Tracks and skills" table and the per-track skill counts.
+- **Changes the total number of skills** — update the count in the page intro and the per-track totals.
+- **Adds or removes a supported export platform** — update both the "Installation" and "Supported platforms" sections.
+- **Changes any install command** — `npx`, `curl`, `git clone`, paths, or release asset names.
+- **Renames a release asset or changes the GitHub release layout** — every `curl -sL https://github.com/vtex/skills/releases/...` command on the public page must still work.
+- **Renames the repository or moves it under a different org** — every link to `github.com/vtex/skills` must be updated.
+- **Changes the AGENTS.md / Cursor / Copilot / Claude / OpenCode / Kiro layout** — update the corresponding "Auto-detection" row and code snippet.
+- **Changes the description, purpose, or scope of the skill catalog** — update the "Behavior" section.
+- **Changes the relationship with the VTEX Developer MCP** — update the "VTEX Skills vs. VTEX Developer MCP" section.
+
+### When a docs update is **not** required
+
+Most skill-content work does not require a public docs update:
+
+- Edits to the body of an existing `skill.md` (constraints, examples, references).
+- Validator, exporter, or CI changes that do not change the install commands or output layout.
+- Internal refactors, template changes, or documentation inside this repo (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`).
+- Release-please or version bumps.
+
+### How to flag the follow-up
+
+In the PR description, fill out the "Public Documentation Sync" section of the PR template with one of:
+
+1. **Confirmation that no docs change is needed**, or
+2. **A description of what needs to change** plus a link to the follow-up issue or PR in `vtex/dev-portal-content`.
+
+If you cannot open the follow-up yourself, file an issue on `vtex/dev-portal-content` describing the change so the docs team can pick it up.
 
 ---
 
@@ -347,13 +407,13 @@ This repository uses [Release Please](https://github.com/googleapis/release-plea
 
 ### Commit conventions → version bump
 
-| Commit prefix | Version bump | When to use |
-|---|---|---|
-| `feat(scope):` | **minor** | New skill, new export platform, new validator check |
-| `fix(scope):` | patch | Bug fix, broken reference URL, wrong constraint |
-| `refactor(scope):` | patch | Skill content improvement, template conversion |
-| `chore:`, `docs:` | none | No release opened |
-| `feat!:` or `BREAKING CHANGE:` in footer | **major** | Removed skill, renamed track, changed skill name |
+| Commit prefix                            | Version bump | When to use                                         |
+| ---------------------------------------- | ------------ | --------------------------------------------------- |
+| `feat(scope):`                           | **minor**    | New skill, new export platform, new validator check |
+| `fix(scope):`                            | patch        | Bug fix, broken reference URL, wrong constraint     |
+| `refactor(scope):`                       | patch        | Skill content improvement, template conversion      |
+| `chore:`, `docs:`                        | none         | No release opened                                   |
+| `feat!:` or `BREAKING CHANGE:` in footer | **major**    | Removed skill, renamed track, changed skill name    |
 
 Use `refactor(track-name):` for skill content work (e.g. `refactor(payment): improve idempotency examples`). This creates a patch bump and shows up in the changelog under "Skill Improvements".
 
